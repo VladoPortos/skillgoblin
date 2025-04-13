@@ -1,0 +1,16 @@
+---
+services:
+  skillgoblin:
+    image: node:18-alpine
+    working_dir: /app
+    volumes:
+      - ./:/app
+      - ./data/database:/app/data/database
+      - ./data/content:/app/data/content
+    command: sh -c "cd frontend && npm install && npm run dev"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

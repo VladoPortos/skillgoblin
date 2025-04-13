@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Goblin head shape -->
+  <circle cx="60" cy="60" r="50" fill="#4CAF50" />
+  
+  <!-- Goblin face -->
+  <circle cx="40" cy="45" r="10" fill="white" />
+  <circle cx="80" cy="45" r="10" fill="white" />
+  <circle cx="40" cy="45" r="5" fill="#333" />
+  <circle cx="80" cy="45" r="5" fill="#333" />
+  
+  <!-- Goblin mouth/grin -->
+  <path d="M40 75 Q60 90 80 75" stroke="#333" stroke-width="4" fill="none" />
+  
+  <!-- Goblin ears -->
+  <path d="M20 40 L30 30 L35 45 Z" fill="#4CAF50" stroke="#333" stroke-width="2" />
+  <path d="M100 40 L90 30 L85 45 Z" fill="#4CAF50" stroke="#333" stroke-width="2" />
+  
+  <!-- Graduation cap -->
+  <rect x="40" y="15" width="40" height="10" fill="#333" />
+  <rect x="50" y="5" width="20" height="10" fill="#333" />
+  <path d="M60 25 L75 25 L75 30" stroke="#333" stroke-width="2" fill="none" />
+</svg>
