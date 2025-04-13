@@ -130,7 +130,7 @@ export function useUserManagement() {
         password: userData.password || null,
         pin: userData.pin || null,
         use_auth: useAuth.value ? 1 : 0,
-        isAdmin: isAdminCheckbox.value ? 1 : 0
+        isAdmin: userData.isAdmin ? 1 : 0
       };
       
       const response = await fetch('/api/users', {

@@ -199,7 +199,7 @@
                   inputmode="numeric"
                   maxlength="1"
                   pattern="[0-9]*"
-                  class="w-12 h-12 text-center text-2xl bg-gray-700 border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-white"
+                  class="w-12 h-12 text-center text-2xl bg-gray-700 border border-gray-600 rounded-md focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white"
                   @input="handleCreatePinInput($event, index)"
                   @keydown="handleCreatePinKeydown($event, index)"
                   aria-label="PIN digit input"
@@ -506,7 +506,8 @@ const handleCreateUser = async () => {
       name: newUser.value.name,
       avatar: newUser.value.avatar,
       password: authType.value === 'password' ? newUser.value.password : null,
-      pin: authType.value === 'pin' ? createPinDigits.value.join('') : null
+      pin: authType.value === 'pin' ? createPinDigits.value.join('') : null,
+      isAdmin: isAdminCheckbox.value
     };
     
     await createUser(userData);
@@ -515,6 +516,7 @@ const handleCreateUser = async () => {
     showCreateUser.value = false;
     newUser.value = { name: '', avatar: '', password: '', pin: '' };
     createPinDigits.value = ['', '', '', ''];
+    isAdminCheckbox.value = false;
     
   } catch (error) {
     console.error('Error creating user:', error);
