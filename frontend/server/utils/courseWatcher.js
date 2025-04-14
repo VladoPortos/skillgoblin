@@ -338,5 +338,12 @@ export const setupFileWatcher = () => {
 // Initial scan on startup
 scanCoursesOnStartup();
 
-// Start watching for changes
-setupFileWatcher();
+// Start watching for changes only if polling interval is > 0
+const pollingIntervalEnv = process.env.CHOKIDAR_POLLING_INTERVAL;
+const pollingInterval = parseInt(pollingIntervalEnv || '60000', 10); // Default 60s if not set
+
+if (pollingInterval > 0) {
+  setupFileWatcher();
+} else {
+  console.log('CHOKIDAR_POLLING_INTERVAL is set to 0. File watcher disabled.');
+}

@@ -113,9 +113,16 @@ skillgoblin/
     └── content/             # Course videos and images
 ```
 
-## Environment Variables
+## Configuration
 
-*   `CHOKIDAR_POLLING_INTERVAL`: (Optional) Sets the polling interval in milliseconds for the course content file watcher. This is primarily useful in Docker development environments (especially on Windows/macOS) where file system event propagation from the host to the container can be unreliable. Polling provides a more robust way to detect new or deleted course folders. Defaults to `60000` (60 seconds) if not set. Adjust this value in `docker-compose.yml` or `docker-compose.prod.yml` as needed.
+The application can be configured using environment variables:
+
+*   **`CONTENT_DIR`**: (Optional) Specifies the directory path within the container where course content folders are located. Defaults to `/app/data/content`.
+*   **`DB_PATH`**: (Optional) Specifies the path within the container for the SQLite database file. Defaults to `/app/data/database/skillgoblin.db`.
+*   **`CHOKIDAR_POLLING_INTERVAL`**: (Optional) Sets the polling interval in milliseconds for the file watcher that detects new or removed course directories.
+    *   Defaults to `60000` (60 seconds).
+    *   Set to `0` to disable the file watcher completely. This can be useful on systems like Unraid to prevent the watcher's polling activity from keeping storage drives awake.
+    *   When disabled, new or removed courses will only be detected during the initial server startup scan or when a manual rescan is triggered through the application's interface (if available).
 
 ## Quick Start Guide
 
