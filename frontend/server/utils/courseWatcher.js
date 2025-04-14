@@ -28,21 +28,22 @@ const processCourseDirectory = async (courseDirPath, preserveMetadata = false) =
     const courseData = generateCourseJson(courseDir, courseDirPath);
     
     if (courseData) {
-      // Read thumbnail file directly into buffer
-      const thumbnailBuffer = readThumbnailFile(courseDirPath, courseData.thumbnail);
+      // Thumbnail reading removed, handled elsewhere.
+      // const thumbnailBuffer = readThumbnailFile(courseDirPath, courseData.thumbnail);
       
-      // Store in database with thumbnail
+      // Store in database
       const db = getDb();
       const existingCourse = db.prepare('SELECT id FROM courses WHERE id = ?').get(courseData.id);
       
       if (existingCourse) {
         // Update existing course
-        if (thumbnailBuffer && preserveMetadata) {
-          // Update with thumbnail only if preserveMetadata is true
+        if (preserveMetadata) { // Simplified condition - thumbnailBuffer check removed
+          // Update existing course, keeping existing thumbnail_data if preserveMetadata is true
+          // Note: thumbnail_data is NOT updated here anymore.
           db.prepare(`
             UPDATE courses 
             SET title = ?, description = ?, folder_name = ?, thumbnail = ?, 
-                thumbnail_data = ?, category = ?, release_date = ?, data = ?, 
+                category = ?, release_date = ?, data = ?, 
                 updated_at = CURRENT_TIMESTAMP 
             WHERE id = ?
           `).run(
@@ -50,14 +51,14 @@ const processCourseDirectory = async (courseDirPath, preserveMetadata = false) =
             courseData.description, 
             courseDir,
             courseData.thumbnail,
-            thumbnailBuffer,
+            // thumbnailBuffer, // Removed
             courseData.category,
             courseData.releaseDate,
             JSON.stringify(courseData),
             courseData.id
           );
         } else {
-          // When not preserving metadata or no thumbnail found, clear thumbnail data
+          // When not preserving metadata, clear thumbnail data
           db.prepare(`
             UPDATE courses 
             SET title = ?, description = ?, folder_name = ?, thumbnail = ?,
@@ -76,21 +77,21 @@ const processCourseDirectory = async (courseDirPath, preserveMetadata = false) =
           );
         }
       } else {
-        // Insert new course
+        // Insert new course, setting thumbnail_data to NULL initially
         db.prepare(`
           INSERT INTO courses (
             id, title, description, folder_name, thumbnail, 
             thumbnail_data, category, release_date, data, 
             created_at, updated_at
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         `).run(
           courseData.id,
           courseData.title,
           courseData.description,
           courseDir,
           courseData.thumbnail,
-          thumbnailBuffer,
+          // thumbnailBuffer, // Removed
           courseData.category,
           courseData.releaseDate,
           JSON.stringify(courseData)
@@ -290,13 +291,18 @@ export const setupFileWatcher = () => {
   try {
     const contentDir = getContentDir();
     console.log(`Setting up course watcher on: ${contentDir}`);
-    
+
+    // Read interval from environment variable or use default (60 seconds)
+    const pollingInterval = parseInt(process.env.CHOKIDAR_POLLING_INTERVAL || '60000', 10);
+
     // Only watch for directory additions and removals at the top level
     const watcher = chokidar.watch(contentDir, {
       ignored: /(^|[\/\\])\../, // Ignore dotfiles
       persistent: true,
       depth: 0, // Only watch top-level directories
-      ignoreInitial: true
+      ignoreInitial: true,
+      usePolling: true, // Enable polling for reliability in Docker
+      interval: pollingInterval // Use configured interval
     });
     
     // Handle directory additions

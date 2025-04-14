@@ -11,6 +11,7 @@ services:
       - HOST=0.0.0.0
       - PORT=3000
       - NODE_ENV=production
+      - CHOKIDAR_POLLING_INTERVAL=60000 
     ports:
       - "3000:3000"
     restart: always

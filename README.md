@@ -44,6 +44,7 @@ SkillGoblin is a lightweight, self-contained learning platform designed for loca
 
 SkillGoblin uses a file-based approach for managing courses and lessons:
 
+- **JSON-Based Content**: Each course is defined by a JSON file (`course.json`) 
 - **File Structure**:
   ```
   data/
@@ -51,6 +52,8 @@ SkillGoblin uses a file-based approach for managing courses and lessons:
   │   └── database.sqlite    # SQLite database
   └── content/
       ├── Course Name/
+      │   ├── course.json      # Course metadata
+      │   ├── thumbnail.jpg    # Course thumbnail
       │   ├── Lesson 1/        # First lesson folder
       │   │   ├── 1. video1.mp4
       │   │   ├── 2. video2.mp4
@@ -61,6 +64,22 @@ SkillGoblin uses a file-based approach for managing courses and lessons:
       └── Another Course/
           └── ...
   ```
+
+- **Course JSON Structure**:
+  ```json
+  {
+    "title": "Course Name",
+    "description": "Course description",
+    "thumbnail": "thumbnail.jpg",
+    "category": "Programming",
+    "releaseDate": "2025-03-25"
+  }
+  ```
+
+- **Path Resolution**:
+  - All paths in the JSON file are relative to the course folder
+  - Video paths are relative to their lesson folder
+  - This allows for simple, portable course folders
 
 - **File Monitoring**:
   - Real-time monitoring of the content directory
@@ -93,6 +112,10 @@ skillgoblin/
     │   └── database.sqlite  # SQLite database
     └── content/             # Course videos and images
 ```
+
+## Environment Variables
+
+*   `CHOKIDAR_POLLING_INTERVAL`: (Optional) Sets the polling interval in milliseconds for the course content file watcher. This is primarily useful in Docker development environments (especially on Windows/macOS) where file system event propagation from the host to the container can be unreliable. Polling provides a more robust way to detect new or deleted course folders. Defaults to `60000` (60 seconds) if not set. Adjust this value in `docker-compose.yml` or `docker-compose.prod.yml` as needed.
 
 ## Quick Start Guide
 
@@ -133,8 +156,9 @@ docker-compose -f docker-compose.prod.yml down
 ### Adding New Courses
 
 1. Create a new folder under `data/content/` with your course name
-2. Create subfolders for each lesson and add your video files
-3. The application will automatically detect the new course (no restart required)
+2. Inside this folder, create a `course.json` file following the structure defined above
+3. Create subfolders for each lesson and add your video files
+4. The application will automatically detect the new course (no restart required)
 
 ### Removing Courses
 
@@ -189,8 +213,9 @@ The production setup includes:
 ### Course Content Not Appearing
 
 1. Check that the course folder exists in `data/content/`
-2. Check the application logs for any error messages
-3. Ensure video files are in supported formats (MP4 recommended)
+2. Verify that the `course.json` file is properly formatted
+3. Check the application logs for any error messages
+4. Ensure video files are in supported formats (MP4 recommended)
 
 ### Database Issues
 
