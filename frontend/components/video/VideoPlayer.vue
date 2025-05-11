@@ -55,18 +55,25 @@ watch(() => props.src, (newSrc, oldSrc) => {
     
     // Set current time based on prop after video metadata is loaded
     player.value.addEventListener('loadedmetadata', () => {
-      // Set current time if provided
-      if (props.currentTime > 0) {
-        player.value.currentTime = props.currentTime;
-      } else {
-        player.value.currentTime = 0;
-      }
-      
-      // Autoplay if requested
-      if (props.autoplay) {
-        player.value.play();
+      // Check if player.value still exists, as component could be unmounted or src changed again rapidly
+      if (player.value) {
+        // Set current time if provided
+        if (props.currentTime > 0) {
+          player.value.currentTime = props.currentTime;
+        } else {
+          player.value.currentTime = 0;
+        }
+        
+        // Autoplay if requested
+        if (props.autoplay) {
+          player.value.play();
+        }
       }
     }, { once: true });
+
+    // Crucially, tell the HTML5 video player to load the new source.
+    player.value.load();
+
   }
 }, { immediate: true });
 
