@@ -1,6 +1,9 @@
 import { getDb } from '../../utils/db';
 import busboy from 'busboy';
 import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
+import { getCourseRootPath } from '../../utils/thumbnailUtils';
 
 export default defineEventHandler(async (event) => {
   // Get the user ID from the request headers (set by the client)
@@ -92,6 +95,7 @@ export default defineEventHandler(async (event) => {
             fit: 'cover',
             position: 'center'
           })
+          .png({ quality: 90, compressionLevel: 6 }) // Standardize to PNG
           .toBuffer();
         
         console.log('Thumbnail processed successfully');
@@ -184,6 +188,42 @@ export default defineEventHandler(async (event) => {
     }
     
     console.log(`Course saved to database: ${updatedCourseData.id}`);
+
+    // After saving to DB, if a thumbnail was processed, save it to the filesystem
+    if (thumbnailBuffer) {
+      const courseId = formCourseData.id;
+      let folderName = '';
+      try {
+        const courseInfo = db.prepare('SELECT folder_name FROM courses WHERE id = ?').get(courseId);
+        if (courseInfo && courseInfo.folder_name) {
+          folderName = courseInfo.folder_name;
+        } else {
+          console.error(`Could not find folder_name for course ID ${courseId}. Cannot save thumbnail to filesystem.`);
+          // Optionally, decide if you want to proceed without saving to FS or return an error
+          return; // Or handle error appropriately
+        }
+      } catch (dbError) {
+        console.error(`Error fetching folder_name for course ID ${courseId}:`, dbError);
+        return; // Or handle error appropriately
+      }
+
+      const courseRoot = getCourseRootPath(folderName);
+      if (courseRoot) {
+        const localThumbnailPath = path.join(courseRoot, thumbnailFilename);
+        try {
+          if (!fs.existsSync(courseRoot)) {
+            fs.mkdirSync(courseRoot, { recursive: true });
+          }
+          fs.writeFileSync(localThumbnailPath, thumbnailBuffer);
+          console.log(`Thumbnail saved to filesystem: ${localThumbnailPath}`);
+        } catch (error) {
+          console.error('Error saving thumbnail to filesystem:', error);
+        }
+      } else {
+        // This case should be less likely now if folderName is valid
+        console.error(`Could not determine course root path for folder_name "${folderName}" (ID ${courseId}) to save thumbnail.`);
+      }
+    }
 
     return {
       success: true,

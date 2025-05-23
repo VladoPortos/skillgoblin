@@ -94,7 +94,25 @@
           </div>
         </div>
       </div>
+
+      <!-- Files Button -->
+      <div class="mt-8 mb-4 text-center">
+        <button 
+          @click="openFilesModal"
+          class="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50"
+        >
+          View Course Files
+        </button>
+      </div>
+
     </main>
+
+    <CourseFilesModal 
+      :visible="showFilesModal" 
+      :course-id="course?.id" 
+      @close="closeFilesModal"
+    />
+
   </div>
 </template>
 
@@ -102,6 +120,7 @@
 import { ref, onMounted, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSession } from '~/composables/useSession';
+import CourseFilesModal from '~/components/CourseFilesModal.vue';
 import CourseHeader from '../../components/course/CourseHeader.vue';
 import VideoPlayer from '../../components/video/VideoPlayer.vue';
 import VideoInfo from '../../components/video/VideoInfo.vue';
@@ -142,6 +161,7 @@ const videoProgress = ref({});
 const videoPlayer = ref(null);
 const courseProgress = ref({});
 const isLoading = ref(true);
+const showFilesModal = ref(false);
 
 // Fetch course data and user progress
 onMounted(async () => {
@@ -469,4 +489,12 @@ function toggleFavorite() {
 function navigateTo(path) {
   router.push(path);
 }
+
+const openFilesModal = () => {
+  showFilesModal.value = true;
+};
+
+const closeFilesModal = () => {
+  showFilesModal.value = false;
+};
 </script>

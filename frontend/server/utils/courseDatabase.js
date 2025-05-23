@@ -141,3 +141,22 @@ export const getCoursesWithDirectories = () => {
     return [];
   }
 };
+
+// Function to get a count of courses in the database
+export const getCourseCountFromDb = () => {
+  try {
+    const db = getDb();
+    // Prepare a statement to count all entries in the 'courses' table.
+    // 'AS count' renames the result of COUNT(*) to 'count' for easier access.
+    const result = db.prepare('SELECT COUNT(*) as count FROM courses').get();
+    // If the query was successful and 'result' is not null, return the count.
+    // Otherwise, return 0, indicating no courses or an issue with the query.
+    return result ? result.count : 0;
+  } catch (error) {
+    // Log any errors encountered during the database operation.
+    console.error('Error retrieving course count from database:', error);
+    // Return 0 in case of an error. This allows the calling function (e.g., scanCoursesOnStartup)
+    // to decide how to proceed, potentially by initiating a full scan if the DB state is uncertain.
+    return 0;
+  }
+};

@@ -42,9 +42,6 @@ SkillGoblin is a lightweight, self-contained learning platform designed for loca
 
 ## Content Management
 
-SkillGoblin uses a file-based approach for managing courses and lessons:
-
-- **JSON-Based Content**: Each course is defined by a JSON file (`course.json`) 
 - **File Structure**:
   ```
   data/
@@ -52,7 +49,6 @@ SkillGoblin uses a file-based approach for managing courses and lessons:
   │   └── database.sqlite    # SQLite database
   └── content/
       ├── Course Name/
-      │   ├── course.json      # Course metadata
       │   ├── thumbnail.jpg    # Course thumbnail
       │   ├── Lesson 1/        # First lesson folder
       │   │   ├── 1. video1.mp4
@@ -64,22 +60,6 @@ SkillGoblin uses a file-based approach for managing courses and lessons:
       └── Another Course/
           └── ...
   ```
-
-- **Course JSON Structure**:
-  ```json
-  {
-    "title": "Course Name",
-    "description": "Course description",
-    "thumbnail": "thumbnail.jpg",
-    "category": "Programming",
-    "releaseDate": "2025-03-25"
-  }
-  ```
-
-- **Path Resolution**:
-  - All paths in the JSON file are relative to the course folder
-  - Video paths are relative to their lesson folder
-  - This allows for simple, portable course folders
 
 - **File Monitoring**:
   - Real-time monitoring of the content directory
@@ -93,7 +73,7 @@ SkillGoblin uses a file-based approach for managing courses and lessons:
   - Easy to backup, version control, or transfer courses
   - Natural organization that matches how video content is typically structured
 
-The application scans the content directory on startup to index available courses, and SQLite is only used for user data and progress tracking.
+The application scans the content directory on startup to index available courses.
 
 ## Project Structure
 
@@ -163,9 +143,8 @@ docker-compose -f docker-compose.prod.yml down
 ### Adding New Courses
 
 1. Create a new folder under `data/content/` with your course name
-2. Inside this folder, create a `course.json` file following the structure defined above
-3. Create subfolders for each lesson and add your video files
-4. The application will automatically detect the new course (no restart required)
+2. Create subfolders for each lesson and add your video files
+3. The application will automatically detect the new course (no restart required) / Optionally you can trigger a rescan from the interface in admin mode
 
 ### Removing Courses
 
@@ -220,12 +199,19 @@ The production setup includes:
 ### Course Content Not Appearing
 
 1. Check that the course folder exists in `data/content/`
-2. Verify that the `course.json` file is properly formatted
-3. Check the application logs for any error messages
-4. Ensure video files are in supported formats (MP4 recommended)
+2. Check the application logs for any error messages
+3. Ensure video files are in supported formats (MP4 recommended)
 
 ### Database Issues
 
 1. If you experience database issues, you can reset the database by deleting `data/database/database.sqlite`
 2. The application will recreate the database on next startup
 3. Note that this will erase all user data and progress
+
+## Changelog
+
+### 23.05.2025
+
+- Fixed forced rescan upon long inactivity, app now checks if the DB is populated already and not force rescan if not needed, Leaving it to periodic check or manual trigger.
+- thumbnail.jpg. If there is no thumbnail.jpg, default thumbnail is used. If there is thumbnail.jpg, it will be used and added to DB. If you add thumbnail.jpg to a course via edit the local thumbnail.jpg will be replaced with the one added.
+- Added Button to browse non video files in course folder.
