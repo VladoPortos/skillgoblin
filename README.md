@@ -213,5 +213,5 @@ The production setup includes:
 ### 23.05.2025
 
 - Fixed forced rescan upon long inactivity, app now checks if the DB is populated already and not force rescan if not needed, Leaving it to periodic check or manual trigger.
-- thumbnail.jpg. If there is no thumbnail.jpg, default thumbnail is used. If there is thumbnail.jpg, it will be used and added to DB. If you add thumbnail.jpg to a course via edit the local thumbnail.jpg will be replaced with the one added.
-- Added Button to browse non video files in course folder.
+- thumbnail.png. If there is no thumbnail.png, default thumbnail is used. If there is thumbnail.png, it will be used and added to DB. If you add thumbnail.png to a course via edit the local thumbnail.png will be replaced with the one added. Already existing thumbnails should be managed via UI, adding new thubnail file manualy to existing one in folder will not change it.
+- Added Button to browse non video files in course folderm, with option to download individual files. Should be at bottom of the individual course display.
