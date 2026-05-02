@@ -182,70 +182,11 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // DELETE method - delete a user
-  if (method === 'DELETE') {
-    try {
-      const userId = event.context.params.id;
-      console.log('API: Deleting user:', userId);
-      
-      if (!userId) {
-        return createError({
-          statusCode: 400,
-          statusMessage: 'User ID is required'
-        });
-      }
-      
-      // Check if user exists
-      const db = getDb();
-      const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
-      if (!user) {
-        console.error('User not found:', userId);
-        return createError({
-          statusCode: 404,
-          statusMessage: 'User not found'
-        });
-      }
-      
-      // Begin a transaction to delete the user and all related data
-      db.exec('BEGIN TRANSACTION');
-      
-      try {
-        // Delete user progress
-        const progressResult = db.prepare('DELETE FROM user_progress WHERE user_id = ?').run(userId);
-        console.log('Deleted user progress records:', progressResult.changes);
-        
-        // Delete user favorites
-        const favoritesResult = db.prepare('DELETE FROM user_favorites WHERE user_id = ?').run(userId);
-        console.log('Deleted user favorites records:', favoritesResult.changes);
-        
-        // Finally, delete the user
-        const userResult = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
-        
-        if (userResult.changes > 0) {
-          db.exec('COMMIT');
-          console.log('User deleted successfully:', userId);
-          return { success: true, message: 'User deleted successfully' };
-        } else {
-          db.exec('ROLLBACK');
-          console.error('Failed to delete user:', userId);
-          return createError({
-            statusCode: 500,
-            statusMessage: 'Failed to delete user'
-          });
-        }
-      } catch (error) {
-        db.exec('ROLLBACK');
-        throw error;
-      }
-    } catch (error) {
-      console.error('Error deleting user:', error);
-      return createError({
-        statusCode: 500,
-        statusMessage: 'Failed to delete user'
-      });
-    }
-  }
-
+  // DELETE on /api/users (the index path) was unreachable: the handler reads
+  // `event.context.params.id`, but the index route has no `:id` segment so
+  // that value is always undefined — every request hit "User ID is required"
+  // before reaching the body. The body itself also queried the non-existent
+  // `user_favorites` table. Account deletion lives at /api/users/delete (POST).
   return createError({
     statusCode: 405,
     statusMessage: 'Method Not Allowed'
