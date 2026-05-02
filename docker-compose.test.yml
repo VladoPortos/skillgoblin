@@ -1,0 +1,61 @@
+# Test orchestration. Two services:
+#   - `app`: production build of SkillGoblin, fresh DB on every run.
+#   - `tests`: official Playwright image, runs the unit + e2e suites
+#             against the `app` service over the compose network.
+#
+# Run with:  docker compose -f docker-compose.test.yml run --rm tests
+#
+# Adds `--build` if you've changed the app image:
+#   docker compose -f docker-compose.test.yml up --build -d app
+#   docker compose -f docker-compose.test.yml run --rm tests
+#   docker compose -f docker-compose.test.yml down -v
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/database/database.sqlite
+    tmpfs:
+      - /app/data
+    healthcheck:
+      # 127.0.0.1 (not localhost) because busybox wget on alpine resolves
+      # localhost to [::1] first and the server is bound to 0.0.0.0 only.
+      test:
+        - CMD-SHELL
+        - "wget -qO- http://127.0.0.1:3000/api/users >/dev/null 2>&1 || exit 1"
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  tests:
+    image: mcr.microsoft.com/playwright:v1.48.2-jammy
+    depends_on:
+      app:
+        condition: service_healthy
+    working_dir: /work
+    volumes:
+      - ./frontend:/work
+      - tester_node_modules:/work/node_modules
+    environment:
+      - PW_BASE_URL=http://app:3000
+      - CI=1
+    command:
+      - bash
+      - -lc
+      - |
+        set -e
+        echo "[tests] installing deps"
+        npm install --no-audit --no-fund
+        echo "[tests] running vitest unit suite"
+        npm run test:unit
+        echo "[tests] running playwright e2e suite"
+        npx playwright test
+
+volumes:
+  tester_node_modules:
