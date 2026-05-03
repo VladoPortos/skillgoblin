@@ -1,0 +1,52 @@
+# Dependabot — automated dependency vulnerability scanning + update PRs.
+#
+# Watches two ecosystems:
+#   1. npm  — the frontend Nuxt app (package.json lives in frontend/)
+#   2. github-actions — the workflow files in this directory
+#
+# Schedule: weekly. Avoids PR storms while keeping deps fresh enough that
+# CVE-fix updates land within ~7 days. Bump to "daily" if you want
+# faster security response (~24h).
+#
+# Grouping: minor + patch updates batch into one PR per ecosystem so
+# routine bumps don't drown the inbox; majors get their own PRs because
+# they're more likely to need attention.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Bratislava
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - npm
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Bratislava
+    open-pull-requests-limit: 5
+    groups:
+      gha-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - github-actions
