@@ -183,17 +183,29 @@ test.describe('Login screen — New User tile', () => {
     await setRegistration(true);
   });
 
+  // Wait until the user-picker grid has rendered before asserting on the
+  // New User tile's presence. The bootstrap admin's name is always present,
+  // so its tile is a reliable "page has hydrated" signal. Without this
+  // wait, an SPA-pre-hydration query would find zero "New User" elements
+  // and pass the "hidden" test for the wrong reason.
+  async function gotoAndWaitForPicker(page) {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    await expect(page.getByText(ADMIN_NAME, { exact: true })).toBeVisible();
+  }
+
   test('tile is visible when registration allowed', async ({ page }) => {
     await setRegistration(true);
-    await page.goto('/');
-    await expect(page.getByText('New User')).toBeVisible();
+    await gotoAndWaitForPicker(page);
+    await expect(page.getByText('New User', { exact: true })).toBeVisible();
   });
 
   test('tile is hidden when registration disabled', async ({ page }) => {
     await setRegistration(false);
-    await page.goto('/');
-    // The "New User" label is the only place that string appears on the
-    // login screen; the tile being hidden makes it absent from the DOM.
-    await expect(page.getByText('New User')).toHaveCount(0);
+    await gotoAndWaitForPicker(page);
+    // Picker has rendered (admin tile is visible). The absence of the
+    // "New User" tile now means the v-if removed it — not that the SPA
+    // hadn't loaded yet.
+    await expect(page.getByText('New User', { exact: true })).toHaveCount(0);
   });
 });
