@@ -147,23 +147,32 @@ export function useUserManagement() {
     router.push('/courses');
   };
 
-  const authenticateUser = async () => {
+  // Caller passes 'pin' or 'password' to declare which input it sourced
+  // from. Defaults to whichever the user has set up — for a both-creds
+  // user the page picks an explicit default and surfaces a toggle.
+  const authenticateUser = async (mode) => {
     try {
       isAuthenticating.value = true;
-      
-      if (selectedUser.value?.pin) {
+
+      const resolvedMode = mode || (selectedUser.value?.pin ? 'pin' : 'password');
+      const credentials = {};
+
+      if (resolvedMode === 'pin') {
         const enteredPin = pinDigits.value.join('');
         if (enteredPin.length !== 4) {
           authError.value = 'Please enter all 4 digits of your PIN';
           return;
         }
-        authData.value.pin = enteredPin;
-      } else if (!authData.value.password) {
-        authError.value = 'Please enter your password';
-        return;
+        credentials.pin = enteredPin;
+      } else {
+        if (!authData.value.password) {
+          authError.value = 'Please enter your password';
+          return;
+        }
+        credentials.password = authData.value.password;
       }
 
-      const result = await login(selectedUser.value.id, authData.value);
+      const result = await login(selectedUser.value.id, credentials);
 
       if (!result.success) {
         authError.value = result.message || 'Invalid credentials';

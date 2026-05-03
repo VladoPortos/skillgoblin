@@ -162,17 +162,13 @@ export default defineEventHandler(async (event) => {
       // update if it would leave the row with neither password nor PIN —
       // the new auth model requires at least one. We only consult the DB
       // for the fields the body did NOT touch.
-      // When PINs are globally disabled, silently drop any incoming PIN value
-      // (we keep treating the field as "touched" with null, so that an active
-      // PIN in the DB gets cleared by the update — keeps profile management
-      // honest with the global policy).
       const allowPinRow = db
         .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
         .get();
       const allowPin = (allowPinRow?.value ?? 'true') === 'true';
 
       const passwordTouched = body.password !== undefined;
-      let pinTouched = body.pin !== undefined;
+      const pinTouched = body.pin !== undefined;
       const passwordWillBeSet = passwordTouched
         ? (typeof body.password === 'string' && body.password.length > 0)
         : null; // null = "unchanged, fall back to DB"
@@ -186,19 +182,21 @@ export default defineEventHandler(async (event) => {
           statusMessage: 'PIN must be exactly 4 digits'
         });
       }
-      let pinWillBeSet;
-      if (!allowPin) {
-        // Force PIN to null regardless of body, but only flag pinTouched if
-        // the row currently has a PIN (so we don't write a no-op when the
-        // user wasn't trying to change PINs at all).
-        pinWillBeSet = false;
-        const cur = db.prepare(`SELECT pin FROM users WHERE id = ?`).get(body.id);
-        if (cur?.pin) pinTouched = true;
-      } else {
-        pinWillBeSet = pinTouched
-          ? (typeof body.pin === 'string' && body.pin.length > 0)
-          : null;
+      // When PINs are globally disabled, refuse explicit PIN sets but
+      // leave any existing PIN alone for unrelated profile updates. The
+      // login path already rejects PIN auth under allow_pin=false (see
+      // /api/users/auth.js), so a stale PIN row is harmless. Clearing it
+      // silently on every PUT was surprising — operators who toggle the
+      // setting back ON would lose users' PINs in the meantime.
+      if (!allowPin && pinTouched && typeof body.pin === 'string' && body.pin.length > 0) {
+        return createError({
+          statusCode: 400,
+          statusMessage: 'PINs are disabled on this instance — cannot set a PIN.'
+        });
       }
+      const pinWillBeSet = pinTouched
+        ? (typeof body.pin === 'string' && body.pin.length > 0)
+        : null;
 
       if (passwordTouched || pinTouched) {
         const current = db.prepare(`
@@ -225,9 +223,9 @@ export default defineEventHandler(async (event) => {
         credentialsChanged = true;
       }
       if (pinTouched) {
-        // pinWillBeSet is forced to false when allow_pin=false; otherwise
-        // it reflects the body's intent. Either way, persist the resulting
-        // value (null = clear).
+        // null / empty body.pin means "clear PIN" (subject to credential
+        // floor above). Otherwise hash and store. Setting a PIN under
+        // allow_pin=false was already refused above.
         const v = pinWillBeSet ? body.pin : null;
         fields.push('pin = ?');
         params.push(v ? await hashCredential(v) : null);
