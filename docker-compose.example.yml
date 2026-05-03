@@ -35,6 +35,13 @@ services:
       # the Admin Panel. Toggleable at runtime from Admin Panel → Settings.
       # - ALLOW_USER_REGISTRATION=false
 
+      # Operator branding — all optional; defaults preserve the bundled SkillGoblin look.
+      # - APP_NAME=My Learning Hub
+      # - APP_SHORT_NAME=Hub
+      # - APP_DESCRIPTION=Internal team training platform
+      # - APP_THEME_COLOR=#1f2937
+      # - APP_BACKGROUND_COLOR=#111827
+
       # File-watcher polling interval, milliseconds. Set to 0 to disable
       # polling entirely (e.g. on Unraid where you don't want drives spun
       # up by the watcher); rescans then only run on startup or via the
