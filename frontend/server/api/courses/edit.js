@@ -4,30 +4,11 @@ import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
 import { getCourseRootPath } from '../../utils/thumbnailUtils';
+import { requireAdmin } from '../../utils/authz';
 
 export default defineEventHandler(async (event) => {
-  // Get the user ID from the request headers (set by the client)
-  const userId = event.node.req.headers['x-user-id'];
-  
-  if (!userId) {
-    console.error('No user ID found in request headers');
-    return {
-      success: false,
-      message: 'Authentication required'
-    };
-  }
-
-  // Check if user is admin
+  requireAdmin(event);
   const db = getDb();
-  const user = db.prepare('SELECT isAdmin FROM users WHERE id = ?').get(userId);
-  
-  if (!user || user.isAdmin !== 1) {
-    console.error('User is not admin:', userId);
-    return {
-      success: false,
-      message: 'Unauthorized. Only admin users can edit courses.'
-    };
-  }
 
   try {
     // Parse multipart form data directly to memory

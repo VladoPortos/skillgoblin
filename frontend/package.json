@@ -7,7 +7,12 @@
     "dev": "nuxt dev",
     "build": "nuxt build",
     "generate": "nuxt generate",
-    "preview": "nuxt preview"
+    "preview": "nuxt preview",
+    "test": "npm run test:unit && npm run test:e2e",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui"
   },
   "dependencies": {
     "nuxt": "^3.9.0",
@@ -16,6 +21,7 @@
     "postcss": "^8.4.31",
     "autoprefixer": "^10.4.16",
     "@tailwindcss/forms": "^0.5.7",
+    "argon2": "^0.41.1",
     "lru-cache": "^10.0.0",
     "beanheads-vue": "1.0.0",
     "chokidar": "^3.5.3",
@@ -24,8 +30,10 @@
   },
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.8.0",
+    "@playwright/test": "1.48.2",
     "uuid": "^9.0.0",
-    "glob": "^10.3.10"
+    "glob": "^10.3.10",
+    "vitest": "^2.1.0"
   },
   "overrides": {
     "glob": "^10.3.10",

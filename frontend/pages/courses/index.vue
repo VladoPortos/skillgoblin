@@ -7,12 +7,13 @@
           <h1 class="text-3xl font-bold text-gray-900 dark:text-white">SkillGoblin</h1>
         </div>
         <div class="flex items-center space-x-4">
-          <UserProfile 
-            :user="userObject" 
-            @logout="logout" 
+          <UserProfile
+            :user="userObject"
+            @logout="logout"
             @delete="showDeleteConfirm = true"
             @rescan="startRescan"
             @manage="showUserManagement = true"
+            @admin="showAdminPanel = true"
           />
           <ThemeToggle />
         </div>
@@ -35,12 +36,19 @@
     />
     
     <!-- User Management Modal -->
-    <UserManagement 
+    <UserManagement
       v-if="showUserManagement"
       :show="showUserManagement"
       :user="userObject"
       @close="showUserManagement = false"
       @updated="handleUserUpdated"
+    />
+
+    <!-- Admin Panel Modal (admin-only entry, server enforces authz) -->
+    <AdminPanel
+      v-if="showAdminPanel"
+      :show="showAdminPanel"
+      @close="showAdminPanel = false"
     />
     
     <!-- Rescan Confirmation Modal -->
@@ -283,6 +291,7 @@ import { ref, onMounted, computed, watch, onBeforeMount, nextTick } from 'vue';
 import ThemeToggle from '../../components/ThemeToggle.vue';
 import UserProfile from '../../components/UserProfile.vue';
 import UserManagement from '../../components/UserManagement.vue';
+import AdminPanel from '../../components/AdminPanel.vue';
 import CourseCard from '../../components/course/CourseCard.vue';
 import CategoryFilterBar from '../../components/filters/CategoryFilterBar.vue';
 import SearchBar from '../../components/ui/SearchBar.vue';
@@ -297,7 +306,7 @@ definePageMeta({
 });
 
 const router = useRouter();
-const { user, logout, deleteAccount: userDelete, userId, userName, userAvatar, isAdmin, useAuth } = useSession();
+const { user, logout, deleteAccount: userDelete, userId, userName, userAvatar, isAdmin, isActive } = useSession();
 
 // Create a computed user object with the correct structure
 const userObject = computed(() => {
@@ -306,7 +315,7 @@ const userObject = computed(() => {
     name: userName.value,
     avatar: userAvatar.value,
     isAdmin: isAdmin.value ? 1 : 0,
-    use_auth: useAuth.value ? 1 : 0
+    is_active: isActive.value ? 1 : 0
   };
 });
 
@@ -554,13 +563,10 @@ const saveCourse = async (courseData) => {
     `;
     document.body.appendChild(loadingDiv);
     
-    // Submit the form data to the server
+    // Authorization rides on the session cookie; no header to set here.
     const response = await $fetch('/api/courses/edit', {
       method: 'POST',
-      body: courseData,
-      headers: {
-        'x-user-id': user.value.id
-      }
+      body: courseData
     });
     
     if (response.success) {
@@ -949,6 +955,7 @@ const searchDebounceTimeout = ref(null);
 
 // User-related state
 const showUserManagement = ref(false);
+const showAdminPanel = ref(false);
 
 // Handle user management updates
 const handleUserUpdated = (updatedUser) => {

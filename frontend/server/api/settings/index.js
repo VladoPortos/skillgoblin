@@ -1,108 +1,68 @@
-import { defineEventHandler, getMethod, readBody, getQuery } from 'h3';
+import { defineEventHandler, getMethod, readBody, getQuery, createError } from 'h3';
 import { getDb } from '../../utils/db';
+import { requireAuth } from '../../utils/authz';
 
+// /api/settings — per-user key/value store. Always operates on the session
+// user; the legacy ?userId / body.userId fields are ignored.
+//
+// (Phase 2 hardening — no callers in the frontend today, but keeping the
+// endpoint live for future use, behind proper authz.)
 export default defineEventHandler(async (event) => {
   const method = getMethod(event);
-  
-  // GET - Retrieve settings
+  const caller = requireAuth(event);
+  const db = getDb();
+
   if (method === 'GET') {
-    const query = getQuery(event);
-    const { key, userId } = query;
-    
-    if (!key || !userId) {
-      return { error: 'Missing required parameters' };
+    const { key } = getQuery(event);
+    if (!key) {
+      return createError({ statusCode: 400, statusMessage: 'Missing required parameter: key' });
     }
-    
+    const setting = db.prepare(`
+      SELECT value FROM settings WHERE user_id = ? AND key = ?
+    `).get(caller.id, key);
+    if (!setting) return { value: null };
     try {
-      const db = getDb();
-      
-      // Check if the setting exists
-      const setting = db.prepare(`
-        SELECT value FROM settings 
-        WHERE user_id = ? AND key = ?
-      `).get(userId, key);
-      
-      if (setting) {
-        // Parse the value if it's JSON
-        try {
-          return { value: JSON.parse(setting.value) };
-        } catch (e) {
-          // If it's not valid JSON, return as is
-          return { value: setting.value };
-        }
-      } else {
-        return { value: null };
-      }
-    } catch (error) {
-      console.error('Error retrieving setting:', error);
-      return { error: 'Failed to retrieve setting' };
+      return { value: JSON.parse(setting.value) };
+    } catch {
+      return { value: setting.value };
     }
   }
-  
-  // POST - Create or update settings
+
   if (method === 'POST') {
-    const body = await readBody(event);
-    const { key, value, userId } = body;
-    
-    if (!key || value === undefined || !userId) {
-      return { error: 'Missing required parameters' };
+    const body = await readBody(event) || {};
+    const { key, value } = body;
+    if (!key || value === undefined) {
+      return createError({ statusCode: 400, statusMessage: 'Missing required parameters: key, value' });
     }
-    
-    try {
-      const db = getDb();
-      const stringValue = typeof value === 'object' ? JSON.stringify(value) : value;
-      
-      // Check if the setting already exists
-      const existing = db.prepare(`
-        SELECT id FROM settings 
-        WHERE user_id = ? AND key = ?
-      `).get(userId, key);
-      
-      if (existing) {
-        // Update existing setting
-        db.prepare(`
-          UPDATE settings 
-          SET value = ?, updated_at = CURRENT_TIMESTAMP 
-          WHERE user_id = ? AND key = ?
-        `).run(stringValue, userId, key);
-      } else {
-        // Insert new setting
-        db.prepare(`
-          INSERT INTO settings (user_id, key, value, created_at, updated_at) 
-          VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        `).run(userId, key, stringValue);
-      }
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Error saving setting:', error);
-      return { error: 'Failed to save setting' };
-    }
-  }
-  
-  // DELETE - Remove settings
-  if (method === 'DELETE') {
-    const query = getQuery(event);
-    const { key, userId } = query;
-    
-    if (!key || !userId) {
-      return { error: 'Missing required parameters' };
-    }
-    
-    try {
-      const db = getDb();
-      
+    const stringValue = typeof value === 'object' ? JSON.stringify(value) : value;
+    const existing = db.prepare(`
+      SELECT id FROM settings WHERE user_id = ? AND key = ?
+    `).get(caller.id, key);
+
+    if (existing) {
       db.prepare(`
-        DELETE FROM settings 
+        UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP
         WHERE user_id = ? AND key = ?
-      `).run(userId, key);
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Error deleting setting:', error);
-      return { error: 'Failed to delete setting' };
+      `).run(stringValue, caller.id, key);
+    } else {
+      db.prepare(`
+        INSERT INTO settings (user_id, key, value, created_at, updated_at)
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(caller.id, key, stringValue);
     }
+    return { success: true };
   }
-  
-  return { error: 'Method not allowed' };
+
+  if (method === 'DELETE') {
+    const { key } = getQuery(event);
+    if (!key) {
+      return createError({ statusCode: 400, statusMessage: 'Missing required parameter: key' });
+    }
+    db.prepare(`
+      DELETE FROM settings WHERE user_id = ? AND key = ?
+    `).run(caller.id, key);
+    return { success: true };
+  }
+
+  return createError({ statusCode: 405, statusMessage: 'Method Not Allowed' });
 });

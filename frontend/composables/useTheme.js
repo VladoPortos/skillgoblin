@@ -15,7 +15,7 @@ export const useTheme = () => {
       if (userId.value) {
         try {
           // Use $fetch instead of useFetch for mounted hooks
-          const data = await $fetch(`/api/users/theme?userId=${userId.value}`);
+          const data = await $fetch('/api/users/theme');
           if (data && !data.error) {
             shouldUseDark = data.theme === 'dark';
           }
@@ -79,10 +79,7 @@ export const useTheme = () => {
       try {
         await $fetch('/api/users/theme', {
           method: 'POST',
-          body: {
-            userId: userId.value,
-            theme: isDark.value ? 'dark' : 'light'
-          }
+          body: { theme: isDark.value ? 'dark' : 'light' }
         });
       } catch (error) {
         console.error('Error saving theme preference:', error);
@@ -103,8 +100,8 @@ export const useTheme = () => {
     if (newUserId && process.client) {
       // User logged in, fetch their theme preference
       try {
-        // Use $fetch instead of useFetch for consistency and to avoid the warning
-        const data = await $fetch(`/api/users/theme?userId=${newUserId}`);
+        // Server reads the user from the session cookie now.
+        const data = await $fetch('/api/users/theme');
         if (data && !data.error) {
           isDark.value = data.theme === 'dark';
           applyTheme();

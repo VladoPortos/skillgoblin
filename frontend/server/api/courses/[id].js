@@ -7,6 +7,7 @@ import fs from 'fs';
 import { generateCourseId, getContentDir } from '../../utils/courseHelpers';
 import { generateCourseJson } from '../../utils/courseGenerator';
 import { saveCourseToDb } from '../../utils/courseDatabase';
+import { requireAdmin } from '../../utils/authz';
 
 export default defineEventHandler(async (event) => {
   const method = getMethod(event);
@@ -51,8 +52,9 @@ export default defineEventHandler(async (event) => {
     }
   }
   
-  // POST - Update course data or refresh from filesystem
+  // POST - Update course data or refresh from filesystem. Admin-only.
   if (method === 'POST') {
+    requireAdmin(event);
     try {
       const body = await readBody(event);
       

@@ -1,59 +1,29 @@
+import { defineEventHandler, readBody, createError } from 'h3';
 import { getDb } from '../../utils/db';
+import { requireAuth } from '../../utils/authz';
 
+// /api/users/theme — GET or POST the current user's theme preference.
+// Always operates on the session user; the legacy ?userId / body.userId
+// fields are ignored.
 export default defineEventHandler(async (event) => {
   const method = event.node.req.method;
+  const caller = requireAuth(event);
+  const db = getDb();
 
-  // GET: Get user theme preference
   if (method === 'GET') {
-    const query = getQuery(event);
-    const { userId } = query;
-
-    if (!userId) {
-      return { error: 'User ID is required' };
-    }
-
-    try {
-      const db = await getDb();
-      const user = db.prepare('SELECT theme FROM users WHERE id = ?').get(userId);
-      
-      if (!user) {
-        return { error: 'User not found' };
-      }
-
-      return { theme: user.theme || 'dark' };
-    } catch (error) {
-      console.error('Error fetching user theme:', error);
-      return { error: 'Failed to fetch user theme preferences' };
-    }
+    const row = db.prepare('SELECT theme FROM users WHERE id = ?').get(caller.id);
+    return { theme: row?.theme || 'dark' };
   }
 
-  // POST: Update user theme preference
   if (method === 'POST') {
-    const body = await readBody(event);
-    const { userId, theme } = body;
-
-    if (!userId || !theme) {
-      return { error: 'User ID and theme are required' };
-    }
-
+    const body = await readBody(event) || {};
+    const theme = body.theme;
     if (theme !== 'dark' && theme !== 'light') {
-      return { error: 'Theme must be either "dark" or "light"' };
+      return createError({ statusCode: 400, statusMessage: 'Theme must be "dark" or "light"' });
     }
-
-    try {
-      const db = await getDb();
-      const result = db.prepare('UPDATE users SET theme = ? WHERE id = ?').run(theme, userId);
-      
-      if (result.changes === 0) {
-        return { error: 'User not found or no changes made' };
-      }
-
-      return { success: true, theme };
-    } catch (error) {
-      console.error('Error updating user theme:', error);
-      return { error: 'Failed to update user theme preferences' };
-    }
+    db.prepare('UPDATE users SET theme = ? WHERE id = ?').run(theme, caller.id);
+    return { success: true, theme };
   }
 
-  return { error: 'Method not allowed' };
+  return createError({ statusCode: 405, statusMessage: 'Method Not Allowed' });
 });
