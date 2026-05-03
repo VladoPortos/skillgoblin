@@ -24,6 +24,11 @@ COPY --from=builder /app/.output ./.output
 # Copy public directory and static assets
 COPY frontend/public ./public
 
+# Copy the entrypoint script that maps APP_* -> NUXT_PUBLIC_BRANDING_* env
+# vars at container start (see scripts/entrypoint.sh for the why).
+COPY frontend/scripts/entrypoint.sh /usr/local/bin/skillgoblin-entrypoint.sh
+RUN chmod +x /usr/local/bin/skillgoblin-entrypoint.sh
+
 # Set runtime environment variables
 ENV HOST=0.0.0.0
 ENV PORT=3000
@@ -34,5 +39,6 @@ RUN mkdir -p /app/data/database
 
 EXPOSE 3000
 
-# Start the server
-CMD ["node", ".output/server/index.mjs"]
+# Start the server (entrypoint script maps APP_* -> NUXT_PUBLIC_BRANDING_*
+# then exec's node .output/server/index.mjs)
+CMD ["/usr/local/bin/skillgoblin-entrypoint.sh"]
