@@ -6,9 +6,12 @@ test.describe('smoke', () => {
   test('home page renders the user selection screen', async ({ page }) => {
     // /api/auth/me legitimately returns 401 when no session cookie exists
     // (the auth plugin probes it on every page load to restore sessions).
-    // The browser logs that as a console "Failed to load resource" error
-    // — filter it out and complain only about real errors.
-    const EXPECTED_NOISE = /Failed to load resource:.*401|\/api\/auth\/me.*401/i;
+    // /api/login-banner legitimately returns 404 when no operator override
+    // image is present (the login page HEAD-probes it before falling back to
+    // the random-banner rotation — the 404 is the by-design "no override"
+    // signal). The browser logs both as console "Failed to load resource"
+    // errors — filter them out and complain only about real errors.
+    const EXPECTED_NOISE = /Failed to load resource:.*401|\/api\/auth\/me.*401|No operator login banner configured/i;
 
     const consoleErrors = [];
     page.on('console', msg => {
