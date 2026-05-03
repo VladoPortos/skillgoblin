@@ -1,9 +1,13 @@
 <template>
-  <div v-if="show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar">
+  <div
+    v-if="show"
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
+    @click.self="tryClose"
+  >
     <div class="bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-bold text-white">User Management</h2>
-        <button @click="close" class="text-gray-400 hover:text-white">
+        <h2 class="text-xl font-bold text-white">My Profile</h2>
+        <button @click="tryClose" :disabled="savingPassword || savingPin" class="text-gray-400 hover:text-white disabled:opacity-50">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
           </svg>
@@ -395,6 +399,14 @@ async function savePin() {
 const close = () => {
   emit('close');
 };
+
+// Backdrop / X close path that respects in-flight credential saves so an
+// accidental click-out can't hide a failed savePassword / savePin response
+// (the async handler would later write feedback into a closed modal).
+function tryClose() {
+  if (savingPassword.value || savingPin.value) return;
+  close();
+}
 </script>
 
 <style scoped>
