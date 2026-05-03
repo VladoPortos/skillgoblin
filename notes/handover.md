@@ -1,6 +1,6 @@
 # Handover — picking up after the CI/security setup round
 
-You are starting a fresh session. The CI/security infrastructure is in place on `main`: Dependabot, CodeQL, Trivy, and OSSF Scorecard all run on every push + PR. They've already produced **18 open Dependabot PRs** and **a stack of CodeQL/Trivy/Scorecard findings** in the Security tab. This round is about **triage and fix**, not new features.
+You are starting a fresh session. The CI/security infrastructure is in place on `main`: Dependabot, CodeQL, Trivy, and OSSF Scorecard all run on every push + PR. They've already produced **31 open Dependabot PRs** (was 18 at first writing — Dependabot kept opening security-update PRs over the next ~10 minutes; run `gh pr list --state open --limit 100` for the live list) and **a stack of CodeQL/Trivy/Scorecard findings** in the Security tab. This round is about **triage and fix**, not new features.
 
 The user already knows the state. Their first message after `/clear` will tell you whether to start with the Dependabot PRs, the CodeQL findings, or both. Until then: read this doc, glance at the Security tab + open PR list, wait for direction.
 
@@ -10,7 +10,7 @@ The user already knows the state. Their first message after `/clear` will tell y
 
 - **Repo:** SkillGoblin — self-hosted homelab learning platform. Nuxt 3 + Nitro + better-sqlite3 SQLite. Designed for trusted local networks.
 - **State of `main`:** auth + admin + branding + UI polish + CI shipped. Last merged commit: `120b627` (trivy-action version fix). Tests still 80 vitest + 103 Playwright, all green in Docker.
-- **What's open:** 18 Dependabot PRs (mix of safe patches and risky majors), 7 CodeQL findings (3 actionable warnings + 4 cleanup notes), 71 Trivy findings (mostly config nits + a few real CVEs that overlap with Dependabot PRs), 22 Scorecard findings (pin-by-hash warnings — defensible to ignore for a homelab).
+- **What's open:** 31 Dependabot PRs (mix of safe patches and risky majors), 7 CodeQL findings (3 actionable warnings + 4 cleanup notes), 71 Trivy findings (mostly config nits + a few real CVEs that overlap with Dependabot PRs), 22 Scorecard findings (pin-by-hash warnings — defensible to ignore for a homelab).
 - **History was rewritten** earlier in the previous session — the Co-Authored-By: Claude trailer was filter-repo'd out of all 9 historical commits. Current main = clean attribution to VladoPortos only. **Do not re-introduce the trailer in any new commits.**
 - **The user's first message after `/clear`** will pick a slice. Don't pre-empt it.
 
@@ -95,7 +95,47 @@ In rough chronological order across PRs #6, #7, #9, #10, #11, #12, #17:
 
 ## What's left — the user will pick
 
-### Group 1: Dependabot PRs (18 open)
+### Group 1: Dependabot PRs (31 open as of handover-write time)
+
+**Run `gh pr list --state open --limit 100`** for the current list — the count grew from 18 to 31 in the ~10 min after writing this and may have grown more since. The triage tables below cover what was open at the snapshot; new PRs since then are almost certainly more npm security bumps and should slot into Group A (safe patches) by default unless their package name or version-range jump suggests otherwise.
+
+Snapshot of all 31 open PRs at handover-write time:
+
+```
+#14 actions/upload-artifact 4 → 7              (Group B)
+#15 actions/checkout 4 → 6                     (Group B)
+#16 github/codeql-action 3 → 4                 (Group B)
+#18 npm-minor-patch group (8 packages)         (Group A)
+#19 tailwindcss 3 → 4                          (Group C — HIGH risk)
+#20 uuid 9 → 14                                (Group C — MEDIUM)
+#21 chokidar 3 → 5                             (Group C — MEDIUM)
+#22 vitest 2 → 4                               (Group C — MEDIUM)
+#23 ossf/scorecard-action 2.4.0 → 2.4.3        (Group A)
+#24 better-sqlite3 9 → 12                      (Group C — HIGH)
+#25 nuxt 3 → 4                                 (Group C — VERY HIGH; defer)
+#26 lru-cache 10 → 11                          (Group C — LOW)
+#27 minimatch                                  (Group C — MEDIUM)
+#28 tar 7.4.3 → 7.5.13                         (Group A)
+#29 postcss 8.5.3 → 8.5.13                     (Group A)
+#30 rollup 4.36.0 → 4.60.2                     (Group A)
+#31 svgo 3.3.2 → 3.3.3                         (Group A)
+#32 tar-fs 2.1.2 → 2.1.4                       (Group A)
+#33 nanotar 0.2.0 → 0.2.1                      (Group A — patch)
+#34 serialize-javascript and nitropack         (Group A — security)
+#35 lodash 4.17.21 → 4.18.1                    (Group A — minor; check breaking notes)
+#36 picomatch                                  (Group A — patch)
+#37 h3 1.15.1 → 1.15.11                        (Group A — patch, but h3 is Nuxt's HTTP layer)
+#38 simple-git 3.27.0 → 3.36.0                 (Group A — minor)
+#39 brace-expansion 2.0.1 → 2.1.0              (Group A — minor; transitive)
+#40 devalue 5.1.1 → 5.8.0                      (Group A — minor; Nuxt internal)
+#41 yaml 2.7.0 → 2.8.4                         (Group A — clears the Trivy MEDIUM CVE)
+#42 js-yaml 4.1.0 → 4.1.1                      (Group A — patch)
+#43 node-forge 1.3.1 → 1.4.0                   (Group A — minor; security)
+#44 defu 6.1.4 → 6.1.7                         (Group A — patch; Nuxt internal)
+#45 @nuxt/devtools 2.3.1 → 2.7.0               (Group A — minor; dev-only)
+```
+
+If the count keeps growing — that's normal for a project with stale-by-default deps. Dependabot will eventually settle.
 
 The user enabled "Dependabot security updates" + "Dependabot version updates" in repo settings, which triggered a wave of PRs. Triage by risk:
 
