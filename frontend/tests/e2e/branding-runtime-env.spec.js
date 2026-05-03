@@ -8,11 +8,7 @@
 // this test only asserts the runtime-config-driven shape. The actual
 // "with APP_NAME=Foo, the page shows Foo" verification is in the
 // manual smoke step.
-import { test, expect, request as pwRequest } from '@playwright/test';
-
-async function freshContext() {
-  return pwRequest.newContext({ baseURL: process.env.PW_BASE_URL || 'http://app:3000' });
-}
+import { test, expect } from '@playwright/test';
 
 test.describe('Runtime branding wiring', () => {
   test('useRuntimeConfig().public.branding reaches the client', async ({ page }) => {
