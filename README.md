@@ -108,6 +108,11 @@ The application reads the following environment variables:
 | `ADMIN_NAME` | First-run only | — | Name of the auto-created admin on first boot. Ignored once an admin row exists. |
 | `ADMIN_PASSWORD` | First-run only | — | Password for the auto-created admin. Ignored once an admin row exists. |
 | `ALLOW_USER_REGISTRATION` | No | `true` | When `false`, the public "New User" tile on the login screen is hidden and self-signup is refused. Admins can still create accounts from the Admin Panel. Runtime-toggleable from Admin Panel → Settings after first boot. |
+| `APP_NAME` | No | `SkillGoblin` | Display name shown in the browser tab title, the login screen `<h1>`, the courses page header, and the PWA install label. |
+| `APP_SHORT_NAME` | No | (`APP_NAME`) | Short display name used by the PWA install icon. Defaults to `APP_NAME` when unset. |
+| `APP_DESCRIPTION` | No | `A streamlined, self-hosted learning platform` | Meta description tag and PWA manifest `description`. |
+| `APP_THEME_COLOR` | No | `#111827` | Mobile browser chrome bar color and PWA manifest `theme_color`. Hex `#RRGGBB` or `#RGB`; invalid values fall back to default and log a startup warning. NOTE: This is the browser-chrome color, not the in-app dark/light theme. |
+| `APP_BACKGROUND_COLOR` | No | `#111827` | PWA splash screen background. Same hex format as `APP_THEME_COLOR`. |
 | `CONTENT_DIR` | No | `/app/data/content` | Directory inside the container where course folders live. |
 | `DB_PATH` / `DATABASE_PATH` | No | `/app/data/database/skillgoblin.db` | Path to the SQLite database file. |
 | `CHOKIDAR_POLLING_INTERVAL` | No | `60000` | File watcher polling interval in milliseconds. Set to `0` to disable the watcher entirely (e.g. on Unraid, to stop drives spinning up). |
@@ -115,6 +120,23 @@ The application reads the following environment variables:
 | `PORT` | No | `3000` | Listen port. |
 
 `ADMIN_NAME` and `ADMIN_PASSWORD` are only consulted on a fresh install. Once any admin user exists in the database, both env vars are ignored — admins reset their own passwords from the panel.
+
+### Branding / custom logos
+
+To replace the bundled SkillGoblin logos with your own, drop PNG files into a `branding/` subdirectory inside your mounted data volume:
+
+| File | Used for | Recommended size |
+|---|---|---|
+| `data/branding/logo.png` | Small square logo on the courses page header and course detail header | ≥ 256 × 256 px, square aspect |
+| `data/branding/login-banner.png` | Wide banner on the login screen above the user picker | ≤ 1200 × 500 px, wide aspect (landscape) |
+
+Both files are optional. Missing `logo.png` falls back to the bundled square SkillGoblin logo. Missing `login-banner.png` falls back to the bundled rotating banner set (one of the random images in `frontend/public/banners/`).
+
+Providing `login-banner.png` **disables the random banner rotation** — operators who want their own single brand image on the login screen rather than the rotating built-in set should drop one in.
+
+Files are served via `/api/logo` and `/api/login-banner` with a 5-minute cache. Drop a new file and the change shows up within ~5 minutes (or immediately on a hard reload).
+
+Favicon family (`favicon.ico`, apple touch icon, PWA manifest icons) is currently bundled and not operator-configurable.
 
 ## Quick start
 

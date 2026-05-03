@@ -5,22 +5,22 @@
         <!-- Banner with placeholder and fade-in effect -->
         <div class="relative max-h-[28vh] min-h-[180px] w-full flex justify-center mb-2">
           <!-- Placeholder that shows immediately -->
-          <img 
-            src="/logos/skillgoblin-logo-wide.png" 
-            alt="SkillGoblin" 
+          <img
+            src="/logos/skillgoblin-logo-wide.png"
+            :alt="branding.name"
             class="max-h-[28vh] min-h-[180px] w-auto absolute transition-opacity duration-300"
             :class="bannerLoaded ? 'opacity-0' : 'opacity-100'"
           />
           <!-- Actual random banner that fades in when loaded -->
-          <img 
-            :src="randomBanner" 
-            alt="SkillGoblin" 
+          <img
+            :src="randomBanner"
+            :alt="branding.name"
             class="max-h-[28vh] min-h-[180px] w-auto transition-opacity duration-300"
             :class="bannerLoaded ? 'opacity-100' : 'opacity-0'"
             @load="bannerLoaded = true"
           />
         </div>
-        <h1 class="text-3xl font-bold text-white">SkillGoblin</h1>
+        <h1 class="text-3xl font-bold text-white">{{ branding.name }}</h1>
         <p class="mt-1 text-gray-400 text-sm">Select a user to continue</p>
       </div>
       
@@ -369,6 +369,8 @@ import AvatarSelector from '../components/AvatarSelector.vue';
 import SetCredentialsModal from '../components/SetCredentialsModal.vue';
 import { Beanhead } from 'beanheads-vue';
 
+const branding = useRuntimeConfig().public.branding;
+
 const router = useRouter();
 const { login } = useSession();
 const {
@@ -548,15 +550,42 @@ onMounted(async () => {
     });
   }
   
-  $fetch('/api/random-banner')
-    .then(({ path }) => {
-      if (path) {
-        const img = new Image();
-        img.onload = () => randomBanner.value = path;
-        img.src = path;
+  // Operator override probe: if /api/login-banner returns 200 the operator
+  // dropped a custom banner — use it directly, no rotation. Otherwise
+  // fall back to the existing random rotation from /api/random-banner so
+  // existing installs keep their current behavior exactly.
+  //
+  // Wraps the HEAD in an AbortController with a 3s timeout so a stalled
+  // network doesn't leave the user staring at the placeholder forever;
+  // the timeout falls through to the rotation just like a 404 would.
+  const probeController = new AbortController();
+  const probeTimeout = setTimeout(() => probeController.abort(), 3000);
+  fetch('/api/login-banner', { method: 'HEAD', signal: probeController.signal })
+    .then((probe) => {
+      clearTimeout(probeTimeout);
+      if (probe.ok) {
+        randomBanner.value = '/api/login-banner';
+        return;
       }
+      return $fetch('/api/random-banner').then(({ path }) => {
+        if (path) {
+          const img = new Image();
+          img.onload = () => randomBanner.value = path;
+          img.src = path;
+        }
+      });
     })
-    .catch(console.error);
+    .catch(() => {
+      // Probe aborted/errored — fall back to the rotation.
+      clearTimeout(probeTimeout);
+      $fetch('/api/random-banner').then(({ path }) => {
+        if (path) {
+          const img = new Image();
+          img.onload = () => randomBanner.value = path;
+          img.src = path;
+        }
+      }).catch(console.error);
+    });
 });
 
 // PIN input handlers

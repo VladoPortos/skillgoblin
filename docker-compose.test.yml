@@ -27,6 +27,8 @@ services:
       - ADMIN_PASSWORD=TestAdminPass!
     tmpfs:
       - /app/data
+    volumes:
+      - ./frontend/tests/fixtures/branding:/app/data/branding
     healthcheck:
       # 127.0.0.1 (not localhost) because busybox wget on alpine resolves
       # localhost to [::1] first and the server is bound to 0.0.0.0 only.
