@@ -1,4 +1,8 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
+import { readBranding } from './server/utils/branding.js';
+
+const branding = readBranding();
+
 export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: [
@@ -10,7 +14,7 @@ export default defineNuxtConfig({
     // Configure for better handling of large static files and caching
     routeRules: {
       // Content caching - allow byte ranges for videos but keep cache control
-      '/content/**': { 
+      '/content/**': {
         static: true,
         headers: {
           'Accept-Ranges': 'bytes',
@@ -36,12 +40,12 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      title: 'SkillGoblin',
+      title: branding.name,
       meta: [
-        { name: 'description', content: 'A streamlined, self-hosted learning platform' },
+        { name: 'description', content: branding.description },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { name: 'msapplication-TileColor', content: '#2d89ef' },
-        { name: 'theme-color', content: '#ffffff' },
+        { name: 'msapplication-TileColor', content: branding.themeColor },
+        { name: 'theme-color', content: branding.themeColor },
         // Add meta tags to control browser caching
         { 'http-equiv': 'Cache-Control', content: 'no-cache, no-store, must-revalidate' },
         { 'http-equiv': 'Pragma', content: 'no-cache' },
@@ -52,7 +56,7 @@ export default defineNuxtConfig({
         { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' },
         { rel: 'icon', type: 'image/png', sizes: '96x96', href: '/favicon-96x96.png' },
         { rel: 'apple-touch-icon', sizes: '180x180', href: '/apple-touch-icon.png' },
-        { rel: 'manifest', href: '/site.webmanifest' }
+        { rel: 'manifest', href: '/api/webmanifest' }
       ]
     }
   },
@@ -61,7 +65,8 @@ export default defineNuxtConfig({
     databasePath: process.env.DATABASE_PATH || '/app/data/database/database.sqlite',
     // Public keys that are exposed to the client
     public: {
-      apiBase: '/api'
+      apiBase: '/api',
+      branding
     }
   }
 })
