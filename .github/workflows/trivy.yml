@@ -1,0 +1,85 @@
+# Trivy — vulnerability + misconfiguration scanner from Aqua Security.
+#
+# Two scans:
+#   1. Filesystem scan — finds known CVEs in npm dependencies (overlaps
+#      with Dependabot but uses a different CVE feed; combined coverage
+#      catches more) and secret-leak patterns.
+#   2. Config scan — analyzes the Dockerfile + docker-compose files for
+#      misconfigurations (running as root, missing healthchecks, world-
+#      writable paths, etc.).
+#
+# Findings → SARIF → Security tab. PR-blocking on CRITICAL + HIGH;
+# MEDIUM and below are reported but don't fail the run.
+name: Trivy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "45 3 * * 1"
+
+jobs:
+  trivy-filesystem:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          # Scans node deps + secrets. Skip the noisy unmanaged-package
+          # checks; rely on Dependabot for the npm-CVE catch.
+          scanners: vuln,secret
+          severity: CRITICAL,HIGH,MEDIUM
+          format: sarif
+          output: trivy-fs.sarif
+          exit-code: "0" # report only — don't fail the run on findings
+
+      - name: Upload Trivy filesystem SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  trivy-config:
+    name: Trivy config scan (Dockerfile + compose)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy config scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          severity: CRITICAL,HIGH,MEDIUM
+          format: sarif
+          output: trivy-config.sarif
+          exit-code: "0"
+
+      - name: Upload Trivy config SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config

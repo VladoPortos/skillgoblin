@@ -1,0 +1,59 @@
+# OpenSSF Scorecard — automated scoring against ~20 supply-chain &
+# repo-hygiene best practices.
+#
+# Scores 0-10. Findings (e.g. "branch protection not enforced", "no
+# code review required", "binaries committed", "permissive Actions
+# permissions") show up in the Security tab. The badge in the README
+# updates within minutes of each run.
+#
+# Runs weekly + on every push to main. The publish_results step uploads
+# scores to https://api.securityscorecards.dev so the badge URL works.
+name: Scorecard
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "30 3 * * 1"
+  workflow_dispatch:
+
+# Token permissions: minimum required for Scorecard to read repo state
+# and write its findings to the Security tab.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      security-events: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish results so the badge URL works:
+          # https://api.securityscorecards.dev/projects/github.com/<owner>/<repo>/badge
+          publish_results: true
+
+      - name: Upload artifact (SARIF)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif

@@ -1,0 +1,59 @@
+# CodeQL — GitHub-native SAST (static analysis security testing).
+#
+# Catches: SQL injection, XSS, hardcoded credentials, path traversal,
+# insecure cookie flags, prototype pollution, eval-on-user-input, etc.
+# Findings show up in the repo's Security tab and as PR annotations.
+#
+# Free for public repos with no minute cap.
+# Uses GitHub's "security-and-quality" query suite (broader than
+# default — catches lower-severity-but-real issues too).
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Monday 03:00 UTC — picks up new CodeQL queries against the
+    # current main even when no commits land.
+    - cron: "0 3 * * 1"
+
+jobs:
+  analyze:
+    name: Analyze JavaScript/Vue
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # 'javascript-typescript' covers .js, .ts, AND .vue templates.
+        # If we ever add Python, Go, etc. add another entry here.
+        language: [javascript-typescript]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-and-quality
+
+      # Autobuild handles the JS path automatically (no compile step
+      # needed for an interpreted language). Listed explicitly so a
+      # future move to TypeScript with a build step still works.
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:${{ matrix.language }}
