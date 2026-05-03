@@ -8,8 +8,8 @@
           </svg>
         </button>
         <div class="flex items-center mr-4">
-          <img src="/logos/skillgoblin-logo-square.png" alt="SkillGoblin Logo" class="w-6 h-6 mr-2 hidden sm:block" />
-          <span class="text-sm font-medium text-gray-900 dark:text-white hidden sm:block">SkillGoblin</span>
+          <img src="/logos/skillgoblin-logo-square.png" :alt="`${branding.name} Logo`" class="w-6 h-6 mr-2 hidden sm:block" />
+          <span class="text-sm font-medium text-gray-900 dark:text-white hidden sm:block">{{ branding.name }}</span>
         </div>
         <h1 class="text-xl font-bold text-gray-900 dark:text-white truncate max-w-[140px] sm:max-w-xs md:max-w-md">{{ course?.title || 'Loading...' }}</h1>
         <!-- Course Progress Indicator -->
@@ -87,6 +87,8 @@
 import { useRouter } from 'vue-router';
 import ThemeToggle from '../ThemeToggle.vue';
 import UserProfile from '../UserProfile.vue';
+
+const branding = useRuntimeConfig().public.branding;
 
 // Setup router for navigation
 const router = useRouter();
