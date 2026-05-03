@@ -15,7 +15,8 @@ import { requireAdmin } from '../../utils/authz';
 // the table; we maintain an explicit whitelist of editable keys here.
 const KNOWN_SETTINGS = new Set([
   'allow_pin',
-  'auto_approve_new_users'
+  'auto_approve_new_users',
+  'allow_user_registration'
 ]);
 
 function readAll(db) {
@@ -28,6 +29,7 @@ function readAll(db) {
   // the DB (defense in depth — should not happen post-migration).
   if (!('allow_pin' in map)) map.allow_pin = 'true';
   if (!('auto_approve_new_users' in map)) map.auto_approve_new_users = 'false';
+  if (!('allow_user_registration' in map)) map.allow_user_registration = 'true';
   return map;
 }
 

@@ -478,3 +478,34 @@ test.describe('AdminPanel — sessions drilldown', () => {
     await expect(drilldown.getByTestId('session-row')).toHaveCount(0);
   });
 });
+
+test.describe('GET /api/system-settings → allow_user_registration', () => {
+  test('returns allow_user_registration in the payload', async () => {
+    const ctx = await freshContext();
+    const r = await ctx.get('/api/system-settings');
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    expect(body).toHaveProperty('allow_user_registration');
+    expect(['true', 'false']).toContain(body.allow_user_registration);
+    await ctx.dispose();
+  });
+
+  test('admin can update allow_user_registration via PUT', async () => {
+    const { ctx } = await loginAdmin();
+    // Flip to false then back to true to leave the suite in the default state.
+    let r = await ctx.put('/api/system-settings', {
+      data: { key: 'allow_user_registration', value: false }
+    });
+    expect(r.ok()).toBeTruthy();
+    let body = await r.json();
+    expect(body.allow_user_registration).toBe('false');
+
+    r = await ctx.put('/api/system-settings', {
+      data: { key: 'allow_user_registration', value: true }
+    });
+    expect(r.ok()).toBeTruthy();
+    body = await r.json();
+    expect(body.allow_user_registration).toBe('true');
+    await ctx.dispose();
+  });
+});
