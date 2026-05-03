@@ -31,7 +31,7 @@
   "devDependencies": {
     "@nuxtjs/tailwindcss": "^6.8.0",
     "@playwright/test": "1.48.2",
-    "uuid": "^9.0.0",
+    "uuid": "^14.0.0",
     "glob": "^10.3.10",
     "vitest": "^2.1.0"
   },
