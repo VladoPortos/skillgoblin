@@ -28,8 +28,20 @@
       <div v-if="showUserMenu" ref="dropdownMenu" class="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-10">
         <!-- Admin-only options -->
         <template v-if="isUserAdmin">
-          <button 
-            @click="rescanDatabase" 
+          <button
+            @click="openAdminPanel"
+            class="block w-full text-left px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-gray-100 dark:hover:bg-gray-600"
+          >
+            <span class="flex items-center">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15a3 3 0 100-6 3 3 0 000 6z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.4 15a1.7 1.7 0 00.34 1.87l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.7 1.7 0 00-1.87-.34 1.7 1.7 0 00-1.04 1.56V21a2 2 0 11-4 0v-.09A1.7 1.7 0 008.94 19.3a1.7 1.7 0 00-1.87.34l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.7 1.7 0 00.34-1.87 1.7 1.7 0 00-1.56-1.04H3a2 2 0 110-4h.09A1.7 1.7 0 004.7 8.94a1.7 1.7 0 00-.34-1.87l-.06-.06a2 2 0 112.83-2.83l.06.06a1.7 1.7 0 001.87.34H9a1.7 1.7 0 001.04-1.56V3a2 2 0 114 0v.09c0 .67.4 1.27 1.04 1.56a1.7 1.7 0 001.87-.34l.06-.06a2 2 0 112.83 2.83l-.06.06a1.7 1.7 0 00-.34 1.87V9c.29.64.89 1.04 1.56 1.04H21a2 2 0 110 4h-.09a1.7 1.7 0 00-1.56 1.04z" />
+              </svg>
+              Admin Panel
+            </span>
+          </button>
+          <button
+            @click="rescanDatabase"
             class="block w-full text-left px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-gray-100 dark:hover:bg-gray-600"
           >
             <span class="flex items-center">
@@ -93,7 +105,7 @@ const isUserAdmin = computed(() => {
   return hasAdminFlag;
 });
 
-const emit = defineEmits(['logout', 'delete', 'rescan', 'manage']);
+const emit = defineEmits(['logout', 'delete', 'rescan', 'manage', 'admin']);
 
 const showUserMenu = ref(false);
 const dropdownMenu = ref(null);
@@ -139,6 +151,11 @@ function rescanDatabase() {
 function manageUser() {
   showUserMenu.value = false;
   emit('manage');
+}
+
+function openAdminPanel() {
+  showUserMenu.value = false;
+  emit('admin');
 }
 
 // Close menu when clicking outside

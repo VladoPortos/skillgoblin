@@ -7,12 +7,13 @@
           <h1 class="text-3xl font-bold text-gray-900 dark:text-white">SkillGoblin</h1>
         </div>
         <div class="flex items-center space-x-4">
-          <UserProfile 
-            :user="userObject" 
-            @logout="logout" 
+          <UserProfile
+            :user="userObject"
+            @logout="logout"
             @delete="showDeleteConfirm = true"
             @rescan="startRescan"
             @manage="showUserManagement = true"
+            @admin="showAdminPanel = true"
           />
           <ThemeToggle />
         </div>
@@ -35,12 +36,19 @@
     />
     
     <!-- User Management Modal -->
-    <UserManagement 
+    <UserManagement
       v-if="showUserManagement"
       :show="showUserManagement"
       :user="userObject"
       @close="showUserManagement = false"
       @updated="handleUserUpdated"
+    />
+
+    <!-- Admin Panel Modal (admin-only entry, server enforces authz) -->
+    <AdminPanel
+      v-if="showAdminPanel"
+      :show="showAdminPanel"
+      @close="showAdminPanel = false"
     />
     
     <!-- Rescan Confirmation Modal -->
@@ -283,6 +291,7 @@ import { ref, onMounted, computed, watch, onBeforeMount, nextTick } from 'vue';
 import ThemeToggle from '../../components/ThemeToggle.vue';
 import UserProfile from '../../components/UserProfile.vue';
 import UserManagement from '../../components/UserManagement.vue';
+import AdminPanel from '../../components/AdminPanel.vue';
 import CourseCard from '../../components/course/CourseCard.vue';
 import CategoryFilterBar from '../../components/filters/CategoryFilterBar.vue';
 import SearchBar from '../../components/ui/SearchBar.vue';
@@ -947,6 +956,7 @@ const searchDebounceTimeout = ref(null);
 
 // User-related state
 const showUserManagement = ref(false);
+const showAdminPanel = ref(false);
 
 // Handle user management updates
 const handleUserUpdated = (updatedUser) => {
