@@ -554,8 +554,15 @@ onMounted(async () => {
   // dropped a custom banner — use it directly, no rotation. Otherwise
   // fall back to the existing random rotation from /api/random-banner so
   // existing installs keep their current behavior exactly.
-  fetch('/api/login-banner', { method: 'HEAD' })
+  //
+  // Wraps the HEAD in an AbortController with a 3s timeout so a stalled
+  // network doesn't leave the user staring at the placeholder forever;
+  // the timeout falls through to the rotation just like a 404 would.
+  const probeController = new AbortController();
+  const probeTimeout = setTimeout(() => probeController.abort(), 3000);
+  fetch('/api/login-banner', { method: 'HEAD', signal: probeController.signal })
     .then((probe) => {
+      clearTimeout(probeTimeout);
       if (probe.ok) {
         randomBanner.value = '/api/login-banner';
         return;
@@ -568,7 +575,17 @@ onMounted(async () => {
         }
       });
     })
-    .catch(console.error);
+    .catch(() => {
+      // Probe aborted/errored — fall back to the rotation.
+      clearTimeout(probeTimeout);
+      $fetch('/api/random-banner').then(({ path }) => {
+        if (path) {
+          const img = new Image();
+          img.onload = () => randomBanner.value = path;
+          img.src = path;
+        }
+      }).catch(console.error);
+    });
 });
 
 // PIN input handlers
