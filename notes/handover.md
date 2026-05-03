@@ -1,24 +1,26 @@
-# Handover — picking up after the CI/security setup round
+# Handover — picking up after the dependency-cleanup marathon
 
-You are starting a fresh session. The CI/security infrastructure is in place on `main`: Dependabot, CodeQL, Trivy, and OSSF Scorecard all run on every push + PR. They've already produced **31 open Dependabot PRs** (was 18 at first writing — Dependabot kept opening security-update PRs over the next ~10 minutes; run `gh pr list --state open --limit 100` for the live list) and **a stack of CodeQL/Trivy/Scorecard findings** in the Security tab. This round is about **triage and fix**, not new features.
+You are starting a fresh session. The previous session(s) cleared the bulk of the Dependabot backlog: 31 open PRs at the start are now down to **3 open PRs**. Tests still green: 98 vitest + 103 Playwright. Main on commit `1136516`.
 
-The user already knows the state. Their first message after `/clear` will tell you whether to start with the Dependabot PRs, the CodeQL findings, or both. Until then: read this doc, glance at the Security tab + open PR list, wait for direction.
+The user's first message after `/clear` will tell you whether to start the Nuxt 4 + Tailwind 4 migration (the next planned big slice — see `notes/nuxt4-tailwind4-migration-plan.md`), or do something else. Until then: read this doc, glance at the new migration plan, wait for direction.
 
 ---
 
 ## TL;DR
 
-- **Repo:** SkillGoblin — self-hosted homelab learning platform. Nuxt 3 + Nitro + better-sqlite3 SQLite. Designed for trusted local networks.
-- **State of `main`:** auth + admin + branding + UI polish + CI shipped. Last merged commit: `120b627` (trivy-action version fix). Tests still 80 vitest + 103 Playwright, all green in Docker.
-- **What's open:** 31 Dependabot PRs (mix of safe patches and risky majors), 7 CodeQL findings (3 actionable warnings + 4 cleanup notes), 71 Trivy findings (mostly config nits + a few real CVEs that overlap with Dependabot PRs), 22 Scorecard findings (pin-by-hash warnings — defensible to ignore for a homelab).
-- **History was rewritten** earlier in the previous session — the Co-Authored-By: Claude trailer was filter-repo'd out of all 9 historical commits. Current main = clean attribution to VladoPortos only. **Do not re-introduce the trailer in any new commits.**
-- **The user's first message after `/clear`** will pick a slice. Don't pre-empt it.
+- **Repo:** SkillGoblin — self-hosted homelab learning platform. Nuxt 3.16.1 + Nitro 2.11.7 + better-sqlite3 12.x SQLite. SPA mode (`ssr: false`). Designed for trusted local networks.
+- **State of `main`:** auth + admin + branding + UI polish + CI + .gitattributes-locked LF + Node 20 + 22 patch/minor bumps shipped. Last merged commit: `1136516` (codeql-action 3→4). Tests green in Docker.
+- **What's open:** 3 PRs, all deferred/blocked:
+  - [#19](https://github.com/VladoPortos/skillgoblin/pull/19) tailwindcss 3 → 4 — needs visual review (handled in the migration plan)
+  - [#25](https://github.com/VladoPortos/skillgoblin/pull/25) nuxt 3 → 4 — multi-day project (handled in the migration plan)
+  - [#50](https://github.com/VladoPortos/skillgoblin/pull/50) npm-minor-patch group — broken on `@nuxtjs/tailwindcss 6.14.0` (resolves with Nuxt 4 + Tailwind 4)
+- **The user's first message after `/clear`** will pick a slice. Don't pre-empt.
 
 ---
 
 ## Hard rules (don't violate without asking)
 
-- **No Claude attribution in commits.** No `Co-Authored-By: Claude …` trailer, no `🤖 Generated with [Claude Code]`. The user's memory has this as a hard preference, AND we just rewrote history to strip 9 such trailers — adding new ones would be especially insulting. Build commit messages that end at the explanation.
+- **No Claude attribution in commits.** No `Co-Authored-By: Claude …` trailer, no `🤖 Generated with [Claude Code]`. The user's memory has this as a hard preference, AND we rewrote history once to strip 9 such trailers. Build commit messages that end at the explanation.
 - **Tests run in Docker only.** The host's Node + better-sqlite3 native build is broken on this Windows machine. Use:
   ```
   docker compose -f docker-compose.test.yml down -v
@@ -26,250 +28,148 @@ The user already knows the state. Their first message after `/clear` will tell y
   ```
   First build pulls the Playwright image (~1.5 GB, one-time). Subsequent runs ~30–60 sec.
 - **Migrations are forward-only and numbered.** Latest is `003_allow_user_registration.js`. New schema change → add `frontend/server/migrations/004_<name>.js` and append to the `index.js` manifest.
-- **Codex review per non-trivial change before commit.** Working invocation:
+- **Codex review per non-trivial change before commit** (when energy permits). Working invocation:
   ```
   node "C:/Users/vlado/.claude/plugins/cache/openai-codex/codex/1.0.2/scripts/codex-companion.mjs" task < notes/<round>-codex-prompt.md
   ```
   The Skill / `/codex:rescue` slash-command path hangs in this environment — Bash invocation is the only one that works. (User's memory captures this.)
-- **TDD discipline.** Failing test before code, watch it fail, then GREEN. Test layout: `frontend/tests/unit/` (vitest, in-memory SQLite + pure helpers) and `frontend/tests/e2e/` (Playwright against the dockerized app).
+- **TDD discipline.** Failing test before code, watch it fail, then GREEN. Test layout: `frontend/tests/unit/` (vitest 4, in-memory SQLite + pure helpers) and `frontend/tests/e2e/` (Playwright against the dockerized app).
 - **Never edit `main` directly.** Always branch off `origin/main`, PR, merge.
-- **Force-push to main is banned** unless explicitly requested + backups in place. We did one force-push this round (the trailer-strip) with two zip backups + a remote backup branch (since deleted). Don't repeat without that level of safety.
+- **Force-push to main is banned** unless explicitly requested + backups in place.
+- **Line endings are LF, locked.** `.gitattributes` enforces `* text=auto eol=lf` plus a belt-and-suspenders `*.sh text eol=lf`. Don't disable.
 
 ---
 
-## What shipped (don't re-do this work)
+## What shipped this session — 31 merge commits
 
-In rough chronological order across PRs #6, #7, #9, #10, #11, #12, #17:
+In rough chronological order, ~22 Dependabot PRs + infrastructure changes:
 
-### Auth / user management (PRs #6 + #7)
-- argon2id credentials with inline rehash for legacy plaintext rows ([credentials.js](frontend/server/utils/credentials.js))
-- Cookie sessions in `user_sessions` (sha256, 30-day sliding) with admin "kick all" + per-user revoke ([sessions.js](frontend/server/utils/sessions.js))
-- `requireAuth` / `requireAdmin` / `requireSelfOrAdmin` on every mutating endpoint ([authz.js](frontend/server/utils/authz.js))
-- First-run admin bootstrap from `ADMIN_NAME` / `ADMIN_PASSWORD` ([bootstrap.js](frontend/server/utils/bootstrap.js))
-- Multi-admin with last-admin protection
-- In-memory rate limiter on `/api/users/auth`
-- Forward-only migration framework
-- AdminPanel UI — users tab + sessions drilldown + system settings tab
-- Login modes: password / PIN / both
-- My Profile editor with independent password + PIN panels
-- Backdrop dismiss on every modal with in-flight save guards
-- Runtime-toggleable `allow_pin` and `auto_approve_new_users` settings
+### Cleanup PR ([#48](https://github.com/VladoPortos/skillgoblin/pull/48))
+- `.gitattributes` to lock LF on all text files (Windows `core.autocrlf=true` was breaking `frontend/scripts/entrypoint.sh` shebang)
+- 4 unused-var deletes (CodeQL cleanup notes): `requireAdmin` import in `users/index.js`, `SESSION_LIFETIME_MS` import in `sessions.test.js`, unused `admin` const in `admin-panel.spec.js`, dead `freshContext` helper + `pwRequest` import in `branding-runtime-env.spec.js`
 
-### Registration lock (PR #9)
-- New env `ALLOW_USER_REGISTRATION` (defaults `true`) → seeds `system_settings.allow_user_registration` on first boot
-- `POST /api/users` returns 403 when registration disabled and caller isn't an active admin
-- Login screen hides the "New User" tile when disabled
-- AdminPanel → Users gets a "Create User" modal (admin-only path that bypasses both the registration gate AND `auto_approve_new_users`)
-- AdminPanel → Settings gets a third toggle for `allow_user_registration`
+### Node bump ([#55](https://github.com/VladoPortos/skillgoblin/pull/55))
+- `Dockerfile.prod` and `docker-compose.yml` from `node:18-alpine` to `node:20-alpine`
+- Native modules (better-sqlite3, argon2, sharp) recompile cleanly
 
-### Customization / branding (PR #10)
-- 5 env vars: `APP_NAME`, `APP_SHORT_NAME`, `APP_DESCRIPTION`, `APP_THEME_COLOR`, `APP_BACKGROUND_COLOR`
-- Defaults preserve current SkillGoblin look exactly when env unset
-- Default theme/bg color changed from `#ffffff` to `#111827` (Tailwind gray-900) — matches the dark-by-default app
-- Two drop-in files at `data/branding/`: `logo.png` (small square) + `login-banner.png` (wide banner — disables the random rotation when present)
-- Three new endpoints: `/api/logo`, `/api/login-banner`, `/api/webmanifest`
-- Static `frontend/public/site.webmanifest` removed; `<link rel="manifest">` points at `/api/webmanifest`
-- Entrypoint script at `frontend/scripts/entrypoint.sh` maps operator-facing `APP_*` env to Nuxt's native `NUXT_PUBLIC_BRANDING_*` runtime-override vars (because `nuxt.config.js` runs at Docker build time, not runtime)
-- Nitro plugin at `frontend/server/plugins/branding.js` — defensive no-op for dev mode
+### Action majors (#14 in autonomous batch, #15 + #16 user-merged via web UI)
+- `actions/upload-artifact` 4 → 7
+- `actions/checkout` 4 → 6
+- `github/codeql-action` 3 → 4
 
-### UI polish (PR #11)
-- Outline icons on Logout + Delete Account in user dropdown (matching the existing icons on Admin Panel / Rescan / My Profile)
-- Sticky avatar preview in My Profile editor — preview pins to top of modal scroll while user scrolls through AvatarSelector options. Vue reactivity already updated the preview live; the issue was visibility on smaller screens.
+### npm patches/minors merged via gh-side merge (single-package bumps)
+- ✅ #20 uuid 9 → 14
+- ✅ #21 chokidar 3 → 5
+- ✅ #22 vitest 2 → 4 (test count rose to 98)
+- ✅ #23 ossf/scorecard-action 2.4.0 → 2.4.3
+- ✅ #24 better-sqlite3 9 → 12
+- ✅ #26 lru-cache 10 → 11
+- ✅ #27 minimatch
+- ✅ #28 tar (replaced by #53 after revert)
+- ✅ #29 postcss 8.5.3 → 8.5.13
+- ✅ #30 rollup (replaced by #54 after revert)
+- ✅ #31 svgo 3.3.2 → 3.3.3
+- ✅ #32 tar-fs 2.1.2 → 2.1.4
+- ✅ #33 nanotar 0.2.0 → 0.2.1
+- ✅ #35 lodash 4.17.21 → 4.18.1
+- ✅ #38 simple-git 3.27.0 → 3.36.0
+- ✅ #39 brace-expansion 2.0.1 → 2.1.0
+- ✅ #40 devalue 5.1.1 → 5.8.0
+- ✅ #41 yaml 2.7.0 → 2.8.4 (cleared a Trivy MEDIUM CVE)
+- ✅ #43 node-forge (replaced by #52 after revert)
+- ✅ #45 @nuxt/devtools 2.3.1 → 2.7.0
+- ✅ #49 picomatch 2.3.1 → 2.3.2
 
-### CI / security setup (PRs #12 + #17)
-- `.github/dependabot.yml` — weekly npm + github-actions scans, minor/patch grouped, majors individual
-- `.github/workflows/codeql.yml` — SAST on push/PR/weekly with `security-and-quality` query suite
-- `.github/workflows/trivy.yml` — filesystem CVE scan + Dockerfile/compose config scan
-- `.github/workflows/scorecard.yml` — OSSF Scorecard scoring with badge publish
-- README badges for CodeQL, Trivy, OSSF Scorecard at top of file
-- PR #17 fixed `trivy-action@0.28.0` → `v0.36.0` (the original tag didn't exist)
+### Reverted ([#34](https://github.com/VladoPortos/skillgoblin/pull/34) + revert [#51](https://github.com/VladoPortos/skillgoblin/pull/51))
+- #34 (serialize-javascript + nitropack group) merged then broke the build via `nitropack 2.12.4` — its bundled `unplugin` crashed with `path.resolve()` on undefined. Nitropack 2.12 is incompatible with Nuxt 3.16.1.
+- #51 reverted #34 entirely. The serialize-javascript security part is collateral damage; can be pursued post-Nuxt-4.
 
-### Git history rewrite (no PR — direct force-push)
-- All 9 commits with `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer were stripped via `git filter-repo`
-- 55 commits got new SHAs (the 9 + descendants)
-- Backup zips: `E:\skillgoblin-git-backup-2026-05-03-pre-claude-strip-1.zip` and `C:\Users\vlado\skillgoblin-git-backup-2026-05-03-pre-claude-strip-2.zip` — keep until confident, then delete
-- Remote backup branch `backup/pre-claude-attribution-strip` was deleted to remove Claude from the contributors list
-- **GitHub PR pages (#3 through #11) still show old commit SHAs in their "Commits" tab** — that's GitHub's permanent PR archive, not fixable without GitHub support. Cosmetic only.
+### Re-merged after revert (Dependabot recreated as fresh PRs)
+- ✅ #52 node-forge (re-do of #43)
+- ✅ #53 tar (re-do of #28)
+- ✅ #54 rollup (re-do of #30)
+
+### Auto-closed by Dependabot (transitively satisfied)
+- #18 npm-minor-patch original group (replaced by [#50](https://github.com/VladoPortos/skillgoblin/pull/50))
+- #36 picomatch first attempt (replaced by #49)
+- #37 h3 (was already at target via nitropack chain at the time of close)
 
 ---
 
-## What's left — the user will pick
+## What's left — 3 open PRs
 
-### Group 1: Dependabot PRs (31 open as of handover-write time)
+### Already-planned: Nuxt 4 + Tailwind 4
+**See [notes/nuxt4-tailwind4-migration-plan.md](nuxt4-tailwind4-migration-plan.md)** — the full cold-start plan with decisions locked, codebase audit, codemods, and step-by-step tasks.
 
-**Run `gh pr list --state open --limit 100`** for the current list — the count grew from 18 to 31 in the ~10 min after writing this and may have grown more since. The triage tables below cover what was open at the snapshot; new PRs since then are almost certainly more npm security bumps and should slot into Group A (safe patches) by default unless their package name or version-range jump suggests otherwise.
+- [#19](https://github.com/VladoPortos/skillgoblin/pull/19) tailwindcss 3.4 → 4.2 — Phase B of the migration plan. ~110 class instances need rename (mostly via codemod). Visual review by user is the long pole.
+- [#25](https://github.com/VladoPortos/skillgoblin/pull/25) nuxt 3.16 → 4.4 — Phase A of the migration plan. Backward-compat with our flat directory layout works, so no `app/` directory move needed. Real breakage: 1 test (`branding-runtime-env.spec.js` reads `window.__NUXT__` which is deleted post-hydration in Nuxt 4) + 1 local function shadowing Nuxt's `navigateTo` auto-import.
 
-Snapshot of all 31 open PRs at handover-write time:
+**Decisions locked from the user:**
+1. Browser support floor (Safari 16.4+ / Chrome 111+ / Firefox 128+) accepted
+2. `outline-none` audit per-occurrence — fix focus a11y properly, do NOT blanket-replace with `outline-hidden`
+3. Ring 3px width preserved globally via `@theme` override
+4. Border `gray-200` default preserved globally via `@layer base` override
 
-```
-#14 actions/upload-artifact 4 → 7              (Group B)
-#15 actions/checkout 4 → 6                     (Group B)
-#16 github/codeql-action 3 → 4                 (Group B)
-#18 npm-minor-patch group (8 packages)         (Group A)
-#19 tailwindcss 3 → 4                          (Group C — HIGH risk)
-#20 uuid 9 → 14                                (Group C — MEDIUM)
-#21 chokidar 3 → 5                             (Group C — MEDIUM)
-#22 vitest 2 → 4                               (Group C — MEDIUM)
-#23 ossf/scorecard-action 2.4.0 → 2.4.3        (Group A)
-#24 better-sqlite3 9 → 12                      (Group C — HIGH)
-#25 nuxt 3 → 4                                 (Group C — VERY HIGH; defer)
-#26 lru-cache 10 → 11                          (Group C — LOW)
-#27 minimatch                                  (Group C — MEDIUM)
-#28 tar 7.4.3 → 7.5.13                         (Group A)
-#29 postcss 8.5.3 → 8.5.13                     (Group A)
-#30 rollup 4.36.0 → 4.60.2                     (Group A)
-#31 svgo 3.3.2 → 3.3.3                         (Group A)
-#32 tar-fs 2.1.2 → 2.1.4                       (Group A)
-#33 nanotar 0.2.0 → 0.2.1                      (Group A — patch)
-#34 serialize-javascript and nitropack         (Group A — security)
-#35 lodash 4.17.21 → 4.18.1                    (Group A — minor; check breaking notes)
-#36 picomatch                                  (Group A — patch)
-#37 h3 1.15.1 → 1.15.11                        (Group A — patch, but h3 is Nuxt's HTTP layer)
-#38 simple-git 3.27.0 → 3.36.0                 (Group A — minor)
-#39 brace-expansion 2.0.1 → 2.1.0              (Group A — minor; transitive)
-#40 devalue 5.1.1 → 5.8.0                      (Group A — minor; Nuxt internal)
-#41 yaml 2.7.0 → 2.8.4                         (Group A — clears the Trivy MEDIUM CVE)
-#42 js-yaml 4.1.0 → 4.1.1                      (Group A — patch)
-#43 node-forge 1.3.1 → 1.4.0                   (Group A — minor; security)
-#44 defu 6.1.4 → 6.1.7                         (Group A — patch; Nuxt internal)
-#45 @nuxt/devtools 2.3.1 → 2.7.0               (Group A — minor; dev-only)
-```
+### Blocked, will resolve after Nuxt 4 + Tailwind 4
+- [#50](https://github.com/VladoPortos/skillgoblin/pull/50) npm-minor-patch group with 7 updates — still has the broken `@nuxtjs/tailwindcss 6.14.0` from the original #18. The globby/unicorn-magic ESM/CJS chain that breaks tailwind/jiti's CJS loader on Nuxt 3 doesn't apply to Nuxt 4 + `@nuxtjs/tailwindcss` v7. After Phase B merges, this should auto-close (or be closeable manually).
 
-If the count keeps growing — that's normal for a project with stale-by-default deps. Dependabot will eventually settle.
+---
 
-The user enabled "Dependabot security updates" + "Dependabot version updates" in repo settings, which triggered a wave of PRs. Triage by risk:
+## Lessons learned this session (READ BEFORE doing similar work)
 
-#### Group A: Safe to merge after a single Docker test pass
-These are minor/patch bumps or grouped patches. Near-zero risk if tests stay green.
+### 1. `gh pr merge` requires `workflow` scope to merge PRs that touch `.github/workflows/*`
+Symptoms: `GraphQL: refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope`. Our `gh` token only has `gist, read:org, repo`. Workaround: either run `gh auth refresh -h github.com -s workflow` (one-time interactive browser auth), or merge those specific PRs via GitHub web UI. We hit this on #15 and #16 — user clicked them in the web UI.
 
-| PR | Description | Notes |
-|---|---|---|
-| #18 | npm-minor-patch group (8 packages batched) | The dependabot grouping config worked — 8 patches in one PR |
-| #23 | ossf/scorecard-action 2.4.0 → 2.4.3 (gha-minor-patch group) | Patch bump to one of our own workflows |
-| #28 | tar 7.4.3 → 7.5.13 | Same major version, includes security fixes |
-| #29 | postcss 8.5.3 → 8.5.13 | Patch bumps with security fixes — likely the CVE Trivy flagged |
-| #30 | rollup 4.36.0 → 4.60.2 | Same major (4.x), includes security fixes |
-| #31 | svgo 3.3.2 → 3.3.3 | Patch |
-| #32 | tar-fs 2.1.2 → 2.1.4 | Patch (security advisory) |
+### 2. Don't regenerate the lockfile locally; trust Dependabot's lockfile + gh-side merge
+Tried `npm install --package-lock-only` from `node:20-alpine` Docker to handle a stale lockfile. Result: the regenerated lockfile lost the `@rollup/rollup-linux-x64-gnu` optional-dep entry needed by the Playwright Ubuntu test runner. `npm ci` in tests container failed with `MODULE_NOT_FOUND`. Lesson: for Dependabot PRs, **trigger `@dependabot rebase`, wait ~30s for `MERGEABLE/CLEAN`, then `gh pr merge --merge --delete-branch`**. Skip the local checkout + merge main flow. Test main locally after each merge for safety, and revert if broken.
 
-**Recommended approach:** check each PR's "Files changed" briefly to confirm no unexpected breaking changes mentioned in the changelog, then run the test suite once to verify, then merge. Could be batched together by manually rebasing them onto each other — but probably not worth the effort for ~7 PRs.
+### 3. nitropack majors break Nuxt builds silently. Watch `mergeStateStatus`.
+PR #34 bumped nitropack 2.11.7 → 2.12.4 inside a Dependabot group. It merged with `MERGEABLE/UNSTABLE` — I dismissed UNSTABLE as "CI still running" but it actually meant a downstream check was failing. Result: prod build crashed with `path.resolve()` on undefined inside nitropack's bundled unplugin. **Always run a Docker test pass on main after merging anything that changes nitropack, h3, devalue, or other Nuxt internals.** When in doubt, revert via `git revert -m 1 <merge-sha>` (PR #51 is the template).
 
-#### Group B: Action-major bumps (likely safe but verify)
-Major version of GitHub Actions. Usually changelogs say "no breaking changes for typical use" but the test is the workflow run.
-
-| PR | Description | Notes |
-|---|---|---|
-| #14 | actions/upload-artifact 4 → 7 | Used in `scorecard.yml` |
-| #15 | actions/checkout 4 → 6 | Used in all 3 workflows |
-| #16 | github/codeql-action 3 → 4 | Used in `codeql.yml`, `scorecard.yml`, `trivy.yml` (for SARIF upload) |
-
-**Recommended approach:** check the action's release notes for breaking changes, then merge. The test is automatic — if the next workflow run fails, revert. Codex review optional — these are config-only changes.
-
-#### Group C: Risky majors (need real evaluation)
-Library major bumps that may have breaking changes affecting our code.
-
-| PR | Description | Risk |
-|---|---|---|
-| #19 | tailwindcss 3 → 4 | **HIGH** — Tailwind 4 is a new engine with config migration. Dark mode + custom utilities behave differently. |
-| #20 | uuid 9 → 14 | **MEDIUM** — likely ESM-only now; we use it in `bootstrap.js` and `users/index.js` |
-| #21 | chokidar 3 → 5 | **MEDIUM** — used by `courseWatcher.js` (the file watcher); chokidar 4 had API changes |
-| #22 | vitest 2 → 4 | **MEDIUM** — test infrastructure; vitest 3.x had config schema changes |
-| #24 | better-sqlite3 9 → 12 | **HIGH** — native bindings; needs rebuild against the bundled Node version. Critical to our DB layer. |
-| #25 | nuxt 3 → 4 | **VERY HIGH** — framework upgrade. Nuxt 4 stable but has migration steps; affects every page/component/server-route. Defer unless explicitly requested. |
-| #26 | lru-cache 10 → 11 | **LOW** — used in `content/[...path].js` chunk cache. Probably fine. |
-| #27 | minimatch | **MEDIUM** — security advisory but minimatch 5+ has API changes; check what depends on it (likely a transitive) |
-
-**Recommended approach:**
-- **Defer Nuxt 4 (#25)** — that's its own multi-day slice; do separately or never
-- **Defer better-sqlite3 (#24)** — needs native rebuild verification across CI/test/manual stacks; high blast radius
-- **Defer Tailwind 4 (#19)** — UI regression risk is real; entire frontend visual would need a careful review
-- **Tackle the rest** one by one with full Docker test pass after each merge
-
-### Group 2: CodeQL findings (7 total)
-
-In the Security tab. Three actionable warnings + four cleanup notes.
-
-#### Warnings (worth fixing)
-
-1. **`js/file-system-race`** — `frontend/server/utils/courseWatcher.js:59` — TOCTOU race between `existsSync` (or similar) and a subsequent file read. Same pattern Codex flagged for `/api/logo` and `/api/login-banner` last round but in the watcher. Fix: wrap the read in a try/catch and treat ENOENT as "file gone, skip" rather than checking-then-reading.
-
-2. **`js/superfluous-trailing-arguments`** — `frontend/server/utils/courseWatcher.js:199, :207` — function calls with extra args silently discarded. Could be a typo where the dev meant a different function or different argument. Read both lines, decide if the args were intended to do something (in which case the call is wrong) or are leftover from a refactor (in which case remove them).
-
-#### Notes (cleanup-tier)
-
-3. **`js/unused-local-variable`** in 4 places:
-   - `frontend/tests/unit/sessions.test.js:7`
-   - `frontend/tests/e2e/admin-panel.spec.js:217`
-   - `frontend/tests/e2e/branding-runtime-env.spec.js:13`
-   - `frontend/server/api/users/index.js:5` — likely a leftover import after the registration-lock work
-
-   Trivial to remove. Could batch all 4 into a single "cleanup: unused vars" commit.
-
-### Group 3: Trivy findings (~71 — most are noise; ~3 real)
-
-Trivy reports on every config file pattern. Most are stylistic (run-as-non-root nags on Dockerfile.prod, etc.). Real CVEs:
-
-- **MEDIUM**: `yaml` 2.7.0 → CVE-2026-33532 (fix: 2.8.3) — likely included in PR #18 npm-minor-patch group
-- **LOW × 2**: `vite` 6.2.2 → CVE-2025-58751 + CVE-2025-58752 (fix: 6.3.6+) — likely included in PR #18 too
-
-After merging the Dependabot PRs, re-run Trivy and most npm CVEs should clear. Re-check the Trivy alerts list after each Dependabot PR merge.
-
-The Dockerfile config nits (USER directive, healthcheck, etc.) are out of scope for this round — they're real but homelab-acceptable. Could be a separate "Dockerfile hardening" slice if anyone cares.
-
-### Group 4: Scorecard findings (22 — mostly defensible to ignore)
-
-OSSF Scorecard wants:
-- All actions pinned by commit SHA, not version tag (PinnedDependencies)
-- Branch protection rules on main
-- Required code review
-- Token permissions set explicitly per workflow
-
-For a solo homelab project, these are best-practice for big OSS projects but overkill here. **Defensible to leave as-is** unless you want a higher Scorecard score for vanity. If you do want them:
-- Pinning by SHA: defeats Dependabot's auto-update value. Trade-off.
-- Branch protection: requires GitHub plan that allows it on private repos (free for public, which you are)
-- Code review: solo dev — n/a
-
-### Out of scope
-
-Not on the wishlist; only revisit if the user asks:
-- Multi-tenant / multi-org auth
-- OAuth / SSO  
-- 2FA
-- Public-internet-grade hardening
-- Nuxt 4 migration (major framework upgrade — separate multi-day slice)
+### 4. Sequential rebase+merge is faster than parallel for Dependabot lockfile PRs
+Tried bulk `gh pr merge` across 16 PRs with conflicts — only 2 merged because each merge advances main and the rest go stale. Tried bulk `npm update` on a single branch — hit the Node 18 vs Node 20+ ceiling (chokidar 5, lru-cache 11, vitest 4 all need Node 20+, and `@clack/core` needs `node:util.styleText` which is Node 20.12+). Going single-PR with `@dependabot rebase` (Dependabot is fast — 30s typical) + sequential merge is the simplest reliable path.
 
 ---
 
 ## How to start the next round
 
 1. **Read [notes/handover.md](handover.md)** — this doc. You're here.
-2. **Read [notes/feature-wishlist.md](feature-wishlist.md)** — the locked design doc for the original wishlist. Most of it is shipped now; remaining items: **B. Course content polish** (`course.json`, SRT→VTT, per-lesson README) and **D. Deferred quality items**.
-3. **Read [notes/architecture-map.md](architecture-map.md)** — implementation map. Where things live. Caveat: written before the last several rounds of work; stale on auth + branding details but accurate on the broader structure.
+2. **Read [notes/nuxt4-tailwind4-migration-plan.md](nuxt4-tailwind4-migration-plan.md)** — the full execution plan for #19 + #25 with codebase audit and locked decisions.
+3. **Optional reads:**
+   - [notes/feature-wishlist.md](feature-wishlist.md) — original wishlist; most shipped
+   - [notes/architecture-map.md](architecture-map.md) — implementation map. Stale on auth + branding details (predates Phase 1) but accurate on overall structure.
 4. **Confirm green starting state**:
    ```
    docker compose -f docker-compose.test.yml run --rm --build tests
    ```
-   Should print 80 vitest + 103 Playwright passed. If not — investigate before doing anything else.
+   Should print 11 vitest files / 98 tests + 103 Playwright passed. If not — investigate before doing anything else.
 5. **Wait for the user's first message** to pick the slice. The most likely picks:
-   - "Triage the Dependabot PRs" — start with Group A (safe), then B (action majors), then individual C items
-   - "Fix the CodeQL warnings" — `courseWatcher.js` race + superfluous args + 4 unused vars (could be one small slice)
-   - "Move on to course content polish (B)" — handover-recommended slice from the original wishlist; ignores the open Dependabot/CodeQL backlog
+   - **"Run the migration plan"** — execute Phase A (Nuxt 4) then Phase B (Tailwind 4). Probably ~3 hours including the user's visual review.
+   - **"Do Phase A only"** — Nuxt 4 in isolation. Tailwind 4 saved for another day.
+   - **Something unrelated** — course content polish, fresh feature, etc.
 6. **Don't assume** — wait for direction.
 
 ---
 
-## Workflow per change (carry-over from previous handover)
+## Workflow per change (proven this session)
 
-Same flow that got us here:
+For Dependabot PRs:
+1. **Trigger rebase**: `gh pr comment <N> --body "@dependabot rebase"`
+2. **Poll mergeable**: 30s typical
+3. **Merge via gh** (DON'T checkout locally first): `gh pr merge <N> --merge --delete-branch`
+4. **Sync main**: `git fetch origin main && git checkout --detach origin/main && git -C E:/skillgoblin pull --ff-only origin main`
+5. **Test on main**: full Docker test pass
+6. **If broken: `git revert -m 1 <merge-sha>`** as a new PR ([#51](https://github.com/VladoPortos/skillgoblin/pull/51) is the template)
 
+For our own work (cleanups, features, the migration plan):
 1. **Branch off `origin/main`**: `git checkout -b <name> origin/main`
-2. **Brainstorm if creative work** — invoke `superpowers:brainstorming` skill. Skip if the user explicitly says "quick in place".
+2. **Brainstorm if creative work** — invoke `superpowers:brainstorming` skill. Skip if the user says "quick in place".
 3. **Plan if non-trivial** — invoke `superpowers:writing-plans` after brainstorm. Skip for one-line fixes.
-4. **Execute via subagents if multi-task** — `superpowers:subagent-driven-development`. For one-shot edits, do inline.
+4. **Execute** via subagents if multi-task, inline for one-shot edits.
 5. **Test in Docker** between every meaningful change.
-6. **Codex review for non-trivial changes** before commit. Bash invocation only.
-7. **Push + PR + merge** when green. Use `gh pr merge <N> --merge --delete-branch` (the local-checkout error from `gh` is expected because main is in the other worktree at `E:/skillgoblin/`; the GitHub-side merge succeeds despite the error).
-8. **Cleanup after merge**: detach this worktree (`git checkout --detach`), delete the merged local branch (`git branch -D <name>`), update main in `E:/skillgoblin` (`git -C E:/skillgoblin pull --ff-only origin main`), then start the next slice from a fresh `git checkout -b ... origin/main`.
+6. **Codex review for non-trivial changes** before commit (when energy allows). Bash invocation only.
+7. **Push + PR + merge**: `gh pr merge <N> --merge --delete-branch` (the local-checkout error from `gh` is expected because main is in the other worktree at `E:/skillgoblin/`; the GitHub-side merge succeeds despite the error).
+8. **Cleanup after merge**: detach this worktree (`git checkout --detach origin/main`), delete the merged local branch (`git branch -D <name>`), update main in `E:/skillgoblin` (`git -C E:/skillgoblin pull --ff-only origin main`), then start the next slice from a fresh `git checkout -b ... origin/main`.
 
 ---
 
@@ -281,26 +181,28 @@ Same flow that got us here:
 The manual stack mounts `./manual-test/data/branding:/app/data/branding` so you can drop test logos/banners in there to verify branding overrides.
 
 ### Worktree state
-Work has been happening in a worktree at `E:/skillgoblin/.claude/worktrees/suspicious-kepler-7d7725/` (the previous one at `wizardly-cohen-224f57/` is still around but on detached HEAD). The main repo is at `E:/skillgoblin/`. The `gh pr merge` flow errors with `'main' is already used by worktree at E:/skillgoblin` — that's expected; the merge succeeds server-side despite the error. After merge, sync `E:/skillgoblin`'s main with `git -C E:/skillgoblin pull --ff-only origin main`.
+Work happens in worktrees at `E:/skillgoblin/.claude/worktrees/<name>/`. The main repo is at `E:/skillgoblin/`. The `gh pr merge` flow errors with `'main' is already used by worktree at E:/skillgoblin` — that's expected; the merge succeeds server-side despite the error. After merge, sync `E:/skillgoblin`'s main with `git -C E:/skillgoblin pull --ff-only origin main`.
 
 ### Codex setup
 - Plugin at `C:/Users/vlado/.claude/plugins/cache/openai-codex/codex/1.0.2/`
 - Auth: already done. If `codex --version` says `unauthenticated`, run `codex login`.
 
 ### Lockfile changes (Dependabot will produce them)
-If you bump a frontend dep, regenerate the lockfile *inside Docker* (host build is broken):
+**Don't regenerate manually** — see Lesson 2 above. Dependabot updates the lockfile in its PRs automatically; gh-side merge handles the rest correctly.
+
+If we ever need to bump deps ourselves:
 ```
 MSYS_NO_PATHCONV=1 docker run --rm \
-  -v "$(pwd -W)/frontend:/work" -w "//work" node:18-alpine \
-  sh -c "npm install --package-lock-only --no-audit --no-fund"
+  -v "$(pwd -W)/frontend:/work" -w "//work" node:20-alpine \
+  sh -c "npm install --no-audit --no-fund"
 ```
-Dependabot updates the lockfile in its PRs automatically — no action needed unless you bump deps yourself.
+**Caveat:** the rollup optional-deps issue may bite. If `npm ci` fails on `@rollup/rollup-linux-x64-gnu`, switch the regen image from `node:20-alpine` to `node:20-slim` (Debian, not Alpine) so the lockfile picks up both musl and gnu rollup binaries.
 
 ---
 
 ## Architectural cheat sheet (60-second version)
 
-- **Stack:** Nuxt 3 (SSR off — pure SPA), Tailwind 3, Vue 3 composition API, better-sqlite3 SQLite.
+- **Stack:** Nuxt 3.16.1 (SSR off — pure SPA), Tailwind 3.4, Vue 3 composition API, better-sqlite3 12.x SQLite. Node 20.
 - **Auth:** `sg_session` cookie (HttpOnly, SameSite=Lax, 30-day) issued by `/api/users/auth`. Server middleware [session.js](frontend/server/middleware/session.js) reads it, populates `event.context.user`, slides expiry forward (debounced 5 min). Skips cookie processing for `/api/content/`, `/api/course-thumbnail/`, `/api/random-banner`, `/api/logo`, `/api/login-banner`, `/api/webmanifest`, `/_nuxt/`, `/favicon`, `/banners/`, `/images/`, `/logos/` so those endpoints can be publicly cached without leaking Set-Cookie.
 - **Authz:** every mutating endpoint calls `requireAuth` / `requireAdmin` / `requireSelfOrAdmin` from [authz.js](frontend/server/utils/authz.js). Static rule: no caller can act on someone else unless admin; mutations of role / activation are admin-only. The single exception is `POST /api/users` which gates on `system_settings.allow_user_registration` instead.
 - **Credentials:** argon2id. Legacy plaintext detected on read and rehashed inline.
@@ -310,10 +212,12 @@ Dependabot updates the lockfile in its PRs automatically — no action needed un
 
 ---
 
-## Recommended starting slice (for whoever picks up)
+## Recommended starting slice
 
-If the user is open to a recommendation: **Group A (safe Dependabot PRs) + the CodeQL cleanup notes**. Both are low-effort, both clear real items off the security backlog, both use the existing test infrastructure, no new design needed. After that, the action-major Dependabot PRs (Group B) are also cheap.
+**Run the Nuxt 4 + Tailwind 4 migration per [notes/nuxt4-tailwind4-migration-plan.md](nuxt4-tailwind4-migration-plan.md).**
 
-The juicy stuff (course content polish, the Nuxt 4 / Tailwind 4 / better-sqlite3 majors) is real work and warrants its own brainstorm-design-plan-execute slice.
+Phase A (Nuxt 4) is straightforward — codemod handles most of it, the only real changes are 1 test rewrite and 1 function rename. Should take ~30 min for execution + a Docker test pass.
 
-But that's a recommendation, not a decision — wait for the user's pick.
+Phase B (Tailwind 4) is bigger because of the visual review. The `@tailwindcss/upgrade` codemod handles ~110 class renames automatically, but the `outline-none` audit needs human judgment per-occurrence (Decision 2 — fix a11y properly), and the user wants to walk through every page visually. Plan ~2 hours including the visual review.
+
+After both merge, [#50](https://github.com/VladoPortos/skillgoblin/pull/50) should auto-close, leaving 0 open Dependabot PRs.
