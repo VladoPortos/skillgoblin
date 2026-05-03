@@ -46,3 +46,12 @@ test.describe('GET /api/login-banner', () => {
     await ctx.dispose();
   });
 });
+
+test.describe('Login screen — h1 reflects APP_NAME', () => {
+  test('default APP_NAME shows "SkillGoblin" as the h1', async ({ page }) => {
+    await page.goto('/');
+    await page.waitForLoadState('networkidle');
+    const h1 = page.locator('h1');
+    await expect(h1).toHaveText('SkillGoblin');
+  });
+});
