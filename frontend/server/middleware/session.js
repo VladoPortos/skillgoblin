@@ -24,10 +24,19 @@ import {
 // dozens of times per minute per active viewer. We skip the session lookup
 // for those paths because the content endpoint is unauthenticated anyway
 // (course library is public). Static assets get the same skip.
+//
+// Public branding endpoints (/api/logo, /api/login-banner, /api/webmanifest)
+// also live here. They emit Cache-Control: public, max-age=300, so a session
+// refresh on the same response would mix Set-Cookie with a publicly-cacheable
+// payload — unsafe behind any shared cache/CDN that could serve another
+// user's cookie. Skipping the middleware keeps those responses cookie-free.
 const SKIP_PATH_PREFIXES = [
   '/api/content/',
   '/api/course-thumbnail/',
   '/api/random-banner',
+  '/api/logo',
+  '/api/login-banner',
+  '/api/webmanifest',
   '/_nuxt/',
   '/favicon',
   '/banners/',
