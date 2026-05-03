@@ -91,7 +91,11 @@
     </div>
     
     <!-- Create User Modal -->
-    <div v-if="showCreateUser" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar">
+    <div
+      v-if="showCreateUser"
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
+      @click.self="onCreateUserBackdropClick"
+    >
       <div class="bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
         <h2 class="text-xl font-bold text-white mb-4">Create New User</h2>
         
@@ -225,7 +229,8 @@
             <button
               type="button"
               @click="showCreateUser = false"
-              class="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 rounded-md"
+              :disabled="isCreating"
+              class="px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-700 rounded-md disabled:opacity-50"
             >
               Cancel
             </button>
@@ -242,7 +247,11 @@
     </div>
     
     <!-- Auth Modal -->
-    <div v-if="showAuthModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar">
+    <div
+      v-if="showAuthModal"
+      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
+      @click.self="onAuthBackdropClick"
+    >
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
         <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Authentication Required</h2>
 
@@ -344,8 +353,8 @@
       :mode="setCredentialsMode || 'bootstrap'"
       :user="selectedUser"
       :allow-pin="systemSettings.allow_pin"
-      :dismissible="false"
       @success="finishCredentialUpdate"
+      @dismiss="dismissSetCredentials"
     />
   </div>
 </template>
@@ -393,6 +402,19 @@ const pinInputs = ref(Array(4).fill(null));
 const createPinInputs = ref(Array(4).fill(null));
 const passwordInput = ref(null);
 
+// Dismiss handler for SetCredentialsModal. Bootstrap dismissals just close
+// the modal (the user has no session yet). Post-login dismissals close the
+// modal AND route to /courses — the PIN bridge already issued a session,
+// so they're authenticated; they just deferred the password setup.
+function dismissSetCredentials() {
+  const wasPostLogin = setCredentialsMode.value === 'post-login';
+  showSetCredentialsModal.value = false;
+  setCredentialsMode.value = null;
+  if (wasPostLogin) {
+    router.push('/courses');
+  }
+}
+
 // Make sure refs are initialized when switching auth type
 watch(() => authType.value, (newAuthType) => {
   if (newAuthType === 'pin') {
@@ -428,6 +450,22 @@ watch(loginMode, (mode) => {
 
 function onAuthSubmit() {
   return authenticateUser(loginMode.value);
+}
+
+// Backdrop click on the auth modal acts like Cancel — but blocked while
+// an auth request is in flight so an accidental outside-click can't hide
+// a pending failure.
+function onAuthBackdropClick() {
+  if (isAuthenticating.value) return;
+  showAuthModal.value = false;
+}
+
+// Same in-flight guard for the Create User modal: the create POST writes
+// createError back into the modal on failure, which would land in a
+// closed modal if the user clicked the backdrop while it was running.
+function onCreateUserBackdropClick() {
+  if (isCreating.value) return;
+  showCreateUser.value = false;
 }
 
 // Other reactive data
