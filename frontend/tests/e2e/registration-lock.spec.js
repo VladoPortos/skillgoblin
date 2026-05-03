@@ -251,3 +251,35 @@ test.describe('AdminPanel — Create User', () => {
     await expect(row).toBeVisible();
   });
 });
+
+test.describe('AdminPanel — Settings tab toggle', () => {
+  test.afterEach(async () => {
+    await setRegistration(true);
+  });
+
+  test('admin can flip allow_user_registration from the settings tab', async ({ page }) => {
+    const admin = await getAdmin(page.request);
+    await page.request.post('/api/users/auth', {
+      data: { userId: admin.id, password: ADMIN_PASSWORD }
+    });
+
+    await page.goto('/courses');
+    await page.waitForLoadState('networkidle');
+
+    await page.locator('.user-profile').click();
+    await page.getByRole('button', { name: /admin panel/i }).click();
+    await page.getByTestId('admin-tab-settings').click();
+
+    const toggle = page.getByTestId('settings-allow-registration');
+    await expect(toggle).toBeChecked(); // default true
+
+    await toggle.uncheck();
+    await page.getByTestId('settings-save').click();
+    await expect(page.getByTestId('settings-saved')).toBeVisible();
+
+    // Verify via API.
+    const r = await page.request.get('/api/system-settings');
+    const body = await r.json();
+    expect(body.allow_user_registration).toBe('false');
+  });
+});
