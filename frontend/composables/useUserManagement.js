@@ -85,33 +85,38 @@ export function useUserManagement() {
       selectedUser.value = user;
       pinDigits.value = ['', '', '', ''];
 
+      // Refresh allow_pin before computing the picker matrix — if an admin
+      // toggled the setting while the picker page was open, a cached
+      // value would briefly show PIN as an option to a both-creds user
+      // even though the server now rejects PIN auth for them.
+      await fetchSystemSettings();
+
       // Phase 2: every user must have a password or PIN — fetch the
       // auth-presence flags so the modal can pick between password and PIN.
       const response = await fetch(`/api/users/${user.id}`);
       if (response.ok) {
         const userData = await response.json();
-        // When admin disabled PINs globally, force the password input even if
-        // the user has both — otherwise they would never reach the upgrade
-        // prompt. The auth endpoint will reject PIN logins for users with
-        // a password under allow_pin=false anyway, but reflecting it in the
-        // UI keeps the experience honest.
         const allowPin = systemSettings.value.allow_pin !== false;
-        const userHasPin = userData.has_pin === 1 && allowPin;
+        const userHasPin = userData.has_pin === 1;
         const userHasPassword = userData.has_password === 1;
-        // Prefer password when both are available and PINs are off, OR
-        // when the user only has a password to begin with.
-        const showPin = userHasPin && (!userHasPassword || allowPin);
+        // PIN auth is offered whenever the user actually has a PIN AND it
+        // would be accepted by the server: allow_pin=true OR the user has
+        // no password (the one-time bridge so a PIN-only user with
+        // disabled PINs can still get in and be walked through adding a
+        // password). Hiding the PIN input from a PIN-only user when
+        // allow_pin=false used to silently route them into bootstrap mode
+        // even though their PIN is perfectly valid as a bridge.
+        const canUsePin = userHasPin && (allowPin || !userHasPassword);
         selectedUser.value = {
           ...userData,
-          pin: showPin,
+          pin: canUsePin,
           password: userHasPassword
         };
       }
 
-      // Phase 3: legacy no-credentials users get the bootstrap-credentials
-      // flow instead of the regular auth modal — they have no password AND
-      // no PIN to authenticate with, so the modal walks them through
-      // setting one. The endpoint also issues a session.
+      // True bootstrap case: legacy account with neither password NOR PIN.
+      // Walks them through setting credentials via the bootstrap-credentials
+      // endpoint, which also issues a session.
       if (selectedUser.value && !selectedUser.value.password && !selectedUser.value.pin) {
         setCredentialsMode.value = 'bootstrap';
         showSetCredentialsModal.value = true;
