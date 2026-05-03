@@ -8,7 +8,7 @@
           </svg>
         </button>
         <div class="flex items-center mr-4">
-          <img src="/logos/skillgoblin-logo-square.png" :alt="`${branding.name} Logo`" class="w-6 h-6 mr-2 hidden sm:block" />
+          <img :src="'/api/logo'" :alt="`${branding.name} Logo`" class="w-6 h-6 mr-2 hidden sm:block" />
           <span class="text-sm font-medium text-gray-900 dark:text-white hidden sm:block">{{ branding.name }}</span>
         </div>
         <h1 class="text-xl font-bold text-gray-900 dark:text-white truncate max-w-[140px] sm:max-w-xs md:max-w-md">{{ course?.title || 'Loading...' }}</h1>

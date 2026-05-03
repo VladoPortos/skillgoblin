@@ -3,7 +3,7 @@
     <header class="bg-white dark:bg-gray-800 shadow">
       <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
         <div class="flex items-center">
-          <img src="/logos/skillgoblin-logo-square.png" :alt="`${branding.name} Logo`" class="w-10 h-10 mr-3" />
+          <img :src="'/api/logo'" :alt="`${branding.name} Logo`" class="w-10 h-10 mr-3" />
           <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{ branding.name }}</h1>
         </div>
         <div class="flex items-center space-x-4">
