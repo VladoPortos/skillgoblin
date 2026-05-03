@@ -1,178 +1,279 @@
-# Handover — picking up after auth-hardening
+# Handover — picking up after the CI/security setup round
 
-You are starting a fresh session. The auth-hardening + UX-polish round is fully shipped on `main` (PRs [#6](https://github.com/VladoPortos/skillgoblin/pull/6) + [#7](https://github.com/VladoPortos/skillgoblin/pull/7) merged). This doc is the cold-start brief for the **next** round of work.
+You are starting a fresh session. The CI/security infrastructure is in place on `main`: Dependabot, CodeQL, Trivy, and OSSF Scorecard all run on every push + PR. They've already produced **18 open Dependabot PRs** and **a stack of CodeQL/Trivy/Scorecard findings** in the Security tab. This round is about **triage and fix**, not new features.
 
-The user already has a list of remaining categories. Their first message will tell you which one they picked. Until then: don't assume — read this doc, glance at the code references it points to, and wait for direction.
+The user already knows the state. Their first message after `/clear` will tell you whether to start with the Dependabot PRs, the CodeQL findings, or both. Until then: read this doc, glance at the Security tab + open PR list, wait for direction.
 
 ---
 
 ## TL;DR
 
 - **Repo:** SkillGoblin — self-hosted homelab learning platform. Nuxt 3 + Nitro + better-sqlite3 SQLite. Designed for trusted local networks.
-- **State of `main`:** auth + admin panel + credential UX all shipped. Tests are 75 vitest unit + 82 Playwright e2e, all green in Docker.
-- **What's open:** customization (operator branding), course content polish (course.json, SRT→VTT, per-lesson README), UI polish (icons, avatar live preview), plus a list of small deferred-quality items.
-- **The user's first message after /clear** will pick a slice. Don't pre-empt it.
+- **State of `main`:** auth + admin + branding + UI polish + CI shipped. Last merged commit: `120b627` (trivy-action version fix). Tests still 80 vitest + 103 Playwright, all green in Docker.
+- **What's open:** 18 Dependabot PRs (mix of safe patches and risky majors), 7 CodeQL findings (3 actionable warnings + 4 cleanup notes), 71 Trivy findings (mostly config nits + a few real CVEs that overlap with Dependabot PRs), 22 Scorecard findings (pin-by-hash warnings — defensible to ignore for a homelab).
+- **History was rewritten** earlier in the previous session — the Co-Authored-By: Claude trailer was filter-repo'd out of all 9 historical commits. Current main = clean attribution to VladoPortos only. **Do not re-introduce the trailer in any new commits.**
+- **The user's first message after `/clear`** will pick a slice. Don't pre-empt it.
 
 ---
 
 ## Hard rules (don't violate without asking)
 
-- **No Claude attribution in commits.** No `Co-Authored-By: Claude …` trailer, no `🤖 Generated with [Claude Code]`. The user's memory has this as a hard preference. Build commit messages that end at the explanation.
+- **No Claude attribution in commits.** No `Co-Authored-By: Claude …` trailer, no `🤖 Generated with [Claude Code]`. The user's memory has this as a hard preference, AND we just rewrote history to strip 9 such trailers — adding new ones would be especially insulting. Build commit messages that end at the explanation.
 - **Tests run in Docker only.** The host's Node + better-sqlite3 native build is broken on this Windows machine. Use:
-  ```bash
+  ```
   docker compose -f docker-compose.test.yml down -v
   docker compose -f docker-compose.test.yml run --rm --build tests
   ```
-  First build pulls the Playwright image (~1.5 GB, one-time) and the app image. Subsequent runs ~30 sec.
-- **Migrations are forward-only and numbered.** New schema change → add `frontend/server/migrations/003_<name>.js` and append to the `index.js` manifest.
-- **Codex review per phase before commit.** Working invocation:
-  ```bash
+  First build pulls the Playwright image (~1.5 GB, one-time). Subsequent runs ~30–60 sec.
+- **Migrations are forward-only and numbered.** Latest is `003_allow_user_registration.js`. New schema change → add `frontend/server/migrations/004_<name>.js` and append to the `index.js` manifest.
+- **Codex review per non-trivial change before commit.** Working invocation:
+  ```
   node "C:/Users/vlado/.claude/plugins/cache/openai-codex/codex/1.0.2/scripts/codex-companion.mjs" task < notes/<round>-codex-prompt.md
   ```
-  The Skill / `/codex:rescue` slash-command path hangs in this environment — Bash invocation is the only one that works. (The user's memory captures this too.)
-- **TDD discipline.** Failing test before code, watch it fail, then GREEN. Existing test layout: `frontend/tests/unit/` (vitest, against in-memory SQLite) and `frontend/tests/e2e/` (Playwright against the dockerized app).
+  The Skill / `/codex:rescue` slash-command path hangs in this environment — Bash invocation is the only one that works. (User's memory captures this.)
+- **TDD discipline.** Failing test before code, watch it fail, then GREEN. Test layout: `frontend/tests/unit/` (vitest, in-memory SQLite + pure helpers) and `frontend/tests/e2e/` (Playwright against the dockerized app).
+- **Never edit `main` directly.** Always branch off `origin/main`, PR, merge.
+- **Force-push to main is banned** unless explicitly requested + backups in place. We did one force-push this round (the trailer-strip) with two zip backups + a remote backup branch (since deleted). Don't repeat without that level of safety.
 
 ---
 
 ## What shipped (don't re-do this work)
 
-Across PRs #6 and #7:
+In rough chronological order across PRs #6, #7, #9, #10, #11, #12, #17:
 
-- **argon2id credentials** with inline rehash for legacy plaintext rows ([credentials.js](frontend/server/utils/credentials.js))
-- **Cookie sessions** stored in `user_sessions` (sha256, 30-day sliding) with admin "kick all" and per-user revoke ([sessions.js](frontend/server/utils/sessions.js), [middleware/session.js](frontend/server/middleware/session.js))
-- **`requireAuth` / `requireAdmin` / `requireSelfOrAdmin`** on every mutating endpoint ([authz.js](frontend/server/utils/authz.js))
-- **First-run admin bootstrap** from `ADMIN_NAME` / `ADMIN_PASSWORD` env vars; refuses to start otherwise ([bootstrap.js](frontend/server/utils/bootstrap.js))
-- **Multi-admin with last-admin protection** ([lastAdminGuard.js](frontend/server/utils/lastAdminGuard.js))
-- **In-memory rate limiter** on `/api/users/auth` ([rate-limit.js](frontend/server/utils/rate-limit.js))
-- **Forward-only migration framework** with a `migrations` bookkeeping table ([migrations.js](frontend/server/utils/migrations.js))
-- **Admin Panel UI** — users list with activate/promote/reset/kick/delete, sessions drilldown, pending-only filter, system settings tab ([AdminPanel.vue](frontend/components/AdminPanel.vue))
-- **Login modes:** password / PIN / both. Login modal toggle when user has both. PIN bridge for the pin_disabled upgrade flow.
-- **My Profile editor** — independent password and PIN panels, each saves on its own button with inline ✓/✗ feedback ([UserManagement.vue](frontend/components/UserManagement.vue) — file kept its old name; user-facing label is "My Profile")
-- **Backdrop dismiss** on every modal in the app, with in-flight save guards
-- **Runtime-toggleable system settings** (`allow_pin`, `auto_approve_new_users`) via `/api/system-settings` ([system-settings/index.js](frontend/server/api/system-settings/index.js))
-- **README rewrite** with the new auth model, env vars, security caveats, upgrade story
-- **`docker-compose.example.yml`** with placeholder admin credentials for first install
+### Auth / user management (PRs #6 + #7)
+- argon2id credentials with inline rehash for legacy plaintext rows ([credentials.js](frontend/server/utils/credentials.js))
+- Cookie sessions in `user_sessions` (sha256, 30-day sliding) with admin "kick all" + per-user revoke ([sessions.js](frontend/server/utils/sessions.js))
+- `requireAuth` / `requireAdmin` / `requireSelfOrAdmin` on every mutating endpoint ([authz.js](frontend/server/utils/authz.js))
+- First-run admin bootstrap from `ADMIN_NAME` / `ADMIN_PASSWORD` ([bootstrap.js](frontend/server/utils/bootstrap.js))
+- Multi-admin with last-admin protection
+- In-memory rate limiter on `/api/users/auth`
+- Forward-only migration framework
+- AdminPanel UI — users tab + sessions drilldown + system settings tab
+- Login modes: password / PIN / both
+- My Profile editor with independent password + PIN panels
+- Backdrop dismiss on every modal with in-flight save guards
+- Runtime-toggleable `allow_pin` and `auto_approve_new_users` settings
+
+### Registration lock (PR #9)
+- New env `ALLOW_USER_REGISTRATION` (defaults `true`) → seeds `system_settings.allow_user_registration` on first boot
+- `POST /api/users` returns 403 when registration disabled and caller isn't an active admin
+- Login screen hides the "New User" tile when disabled
+- AdminPanel → Users gets a "Create User" modal (admin-only path that bypasses both the registration gate AND `auto_approve_new_users`)
+- AdminPanel → Settings gets a third toggle for `allow_user_registration`
+
+### Customization / branding (PR #10)
+- 5 env vars: `APP_NAME`, `APP_SHORT_NAME`, `APP_DESCRIPTION`, `APP_THEME_COLOR`, `APP_BACKGROUND_COLOR`
+- Defaults preserve current SkillGoblin look exactly when env unset
+- Default theme/bg color changed from `#ffffff` to `#111827` (Tailwind gray-900) — matches the dark-by-default app
+- Two drop-in files at `data/branding/`: `logo.png` (small square) + `login-banner.png` (wide banner — disables the random rotation when present)
+- Three new endpoints: `/api/logo`, `/api/login-banner`, `/api/webmanifest`
+- Static `frontend/public/site.webmanifest` removed; `<link rel="manifest">` points at `/api/webmanifest`
+- Entrypoint script at `frontend/scripts/entrypoint.sh` maps operator-facing `APP_*` env to Nuxt's native `NUXT_PUBLIC_BRANDING_*` runtime-override vars (because `nuxt.config.js` runs at Docker build time, not runtime)
+- Nitro plugin at `frontend/server/plugins/branding.js` — defensive no-op for dev mode
+
+### UI polish (PR #11)
+- Outline icons on Logout + Delete Account in user dropdown (matching the existing icons on Admin Panel / Rescan / My Profile)
+- Sticky avatar preview in My Profile editor — preview pins to top of modal scroll while user scrolls through AvatarSelector options. Vue reactivity already updated the preview live; the issue was visibility on smaller screens.
+
+### CI / security setup (PRs #12 + #17)
+- `.github/dependabot.yml` — weekly npm + github-actions scans, minor/patch grouped, majors individual
+- `.github/workflows/codeql.yml` — SAST on push/PR/weekly with `security-and-quality` query suite
+- `.github/workflows/trivy.yml` — filesystem CVE scan + Dockerfile/compose config scan
+- `.github/workflows/scorecard.yml` — OSSF Scorecard scoring with badge publish
+- README badges for CodeQL, Trivy, OSSF Scorecard at top of file
+- PR #17 fixed `trivy-action@0.28.0` → `v0.36.0` (the original tag didn't exist)
+
+### Git history rewrite (no PR — direct force-push)
+- All 9 commits with `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>` trailer were stripped via `git filter-repo`
+- 55 commits got new SHAs (the 9 + descendants)
+- Backup zips: `E:\skillgoblin-git-backup-2026-05-03-pre-claude-strip-1.zip` and `C:\Users\vlado\skillgoblin-git-backup-2026-05-03-pre-claude-strip-2.zip` — keep until confident, then delete
+- Remote backup branch `backup/pre-claude-attribution-strip` was deleted to remove Claude from the contributors list
+- **GitHub PR pages (#3 through #11) still show old commit SHAs in their "Commits" tab** — that's GitHub's permanent PR archive, not fixable without GitHub support. Cosmetic only.
 
 ---
 
 ## What's left — the user will pick
 
-### A. Customization / branding
+### Group 1: Dependabot PRs (18 open)
 
-Operator-configurable so a homelab user can re-skin their instance. None of these built yet.
-- App name + short name configurable via env (window title, web manifest, header)
-- App description configurable
-- Theme color / background color configurable
-- Custom logo: drop `logo.png` in a documented location, served via `/api/logo`, falls back to bundled defaults
-- Web manifest generated dynamically so the PWA install reflects operator branding
+The user enabled "Dependabot security updates" + "Dependabot version updates" in repo settings, which triggered a wave of PRs. Triage by risk:
 
-These cluster well as one round (same shape: env config → exposed via small endpoint → consumed by frontend templates).
+#### Group A: Safe to merge after a single Docker test pass
+These are minor/patch bumps or grouped patches. Near-zero risk if tests stay green.
 
-### B. Course content polish
-
-Independent of auth. Better default UX for course libraries.
-- **`course.json` metadata override** — drop a JSON in a course folder to set `title` / `description` / `category` / `releaseDate`. Folder-derived defaults still work without it.
-- **SRT → VTT auto-conversion** so user-supplied subtitles play in `<video>` directly. Detect language from filename suffixes (`name.en.srt`, `name_es.srt`).
-- **Captions vs subtitles distinction** when filenames hint (`*_cc.*`).
-- **Per-lesson README** rendered alongside the video player.
-
-### C. UI polish
-
-Small ergonomic items.
-- Missing icons in the user dropdown menu (some entries text-only)
-- Avatar live preview while editing profile
-
-### D. Deferred quality items
-
-Captured in commit bodies. Not blockers — defer-list candidates if/when convenient.
-
-| Item | Where | Why deferred |
+| PR | Description | Notes |
 |---|---|---|
-| `X-Forwarded-Proto` / `X-Forwarded-For` trusted unconditionally | [middleware/session.js](frontend/server/middleware/session.js), [api/users/auth.js](frontend/server/api/users/auth.js) | Acceptable behind a real reverse proxy — the documented deployment model |
-| `touchSession` doesn't check `changes` count | [utils/sessions.js](frontend/server/utils/sessions.js) | Race with logout briefly re-issues a cookie for a deleted row; next request clears it |
-| `/api/users/[id]` GET leaks `isAdmin`, `is_active`, `has_password`, `has_pin` | [api/users/[id].js](frontend/server/api/users/[id].js) | Login picker needs these |
-| Migration runner uses raw `BEGIN` | [utils/migrations.js](frontend/server/utils/migrations.js) | No nested transactions yet; swap to `db.transaction()` when one needs to nest |
-| `001_initial` thumbnail_data column ordering differs between fresh and upgraded | [migrations/001_initial.js](frontend/server/migrations/001_initial.js) | Harmless for named queries; only matters if `SELECT *` is ever used |
-| Bootstrap-credentials success-path e2e gap | [tests/e2e/upgrade-flows.spec.js](frontend/tests/e2e/upgrade-flows.spec.js) | Would need a fixture inserting a legacy no-creds row; failure cases are covered |
-| Rate limiter is per-process | [utils/rate-limit.js](frontend/server/utils/rate-limit.js) | Cluster mode isn't used; documented in the file |
+| #18 | npm-minor-patch group (8 packages batched) | The dependabot grouping config worked — 8 patches in one PR |
+| #23 | ossf/scorecard-action 2.4.0 → 2.4.3 (gha-minor-patch group) | Patch bump to one of our own workflows |
+| #28 | tar 7.4.3 → 7.5.13 | Same major version, includes security fixes |
+| #29 | postcss 8.5.3 → 8.5.13 | Patch bumps with security fixes — likely the CVE Trivy flagged |
+| #30 | rollup 4.36.0 → 4.60.2 | Same major (4.x), includes security fixes |
+| #31 | svgo 3.3.2 → 3.3.3 | Patch |
+| #32 | tar-fs 2.1.2 → 2.1.4 | Patch (security advisory) |
+
+**Recommended approach:** check each PR's "Files changed" briefly to confirm no unexpected breaking changes mentioned in the changelog, then run the test suite once to verify, then merge. Could be batched together by manually rebasing them onto each other — but probably not worth the effort for ~7 PRs.
+
+#### Group B: Action-major bumps (likely safe but verify)
+Major version of GitHub Actions. Usually changelogs say "no breaking changes for typical use" but the test is the workflow run.
+
+| PR | Description | Notes |
+|---|---|---|
+| #14 | actions/upload-artifact 4 → 7 | Used in `scorecard.yml` |
+| #15 | actions/checkout 4 → 6 | Used in all 3 workflows |
+| #16 | github/codeql-action 3 → 4 | Used in `codeql.yml`, `scorecard.yml`, `trivy.yml` (for SARIF upload) |
+
+**Recommended approach:** check the action's release notes for breaking changes, then merge. The test is automatic — if the next workflow run fails, revert. Codex review optional — these are config-only changes.
+
+#### Group C: Risky majors (need real evaluation)
+Library major bumps that may have breaking changes affecting our code.
+
+| PR | Description | Risk |
+|---|---|---|
+| #19 | tailwindcss 3 → 4 | **HIGH** — Tailwind 4 is a new engine with config migration. Dark mode + custom utilities behave differently. |
+| #20 | uuid 9 → 14 | **MEDIUM** — likely ESM-only now; we use it in `bootstrap.js` and `users/index.js` |
+| #21 | chokidar 3 → 5 | **MEDIUM** — used by `courseWatcher.js` (the file watcher); chokidar 4 had API changes |
+| #22 | vitest 2 → 4 | **MEDIUM** — test infrastructure; vitest 3.x had config schema changes |
+| #24 | better-sqlite3 9 → 12 | **HIGH** — native bindings; needs rebuild against the bundled Node version. Critical to our DB layer. |
+| #25 | nuxt 3 → 4 | **VERY HIGH** — framework upgrade. Nuxt 4 stable but has migration steps; affects every page/component/server-route. Defer unless explicitly requested. |
+| #26 | lru-cache 10 → 11 | **LOW** — used in `content/[...path].js` chunk cache. Probably fine. |
+| #27 | minimatch | **MEDIUM** — security advisory but minimatch 5+ has API changes; check what depends on it (likely a transitive) |
+
+**Recommended approach:**
+- **Defer Nuxt 4 (#25)** — that's its own multi-day slice; do separately or never
+- **Defer better-sqlite3 (#24)** — needs native rebuild verification across CI/test/manual stacks; high blast radius
+- **Defer Tailwind 4 (#19)** — UI regression risk is real; entire frontend visual would need a careful review
+- **Tackle the rest** one by one with full Docker test pass after each merge
+
+### Group 2: CodeQL findings (7 total)
+
+In the Security tab. Three actionable warnings + four cleanup notes.
+
+#### Warnings (worth fixing)
+
+1. **`js/file-system-race`** — `frontend/server/utils/courseWatcher.js:59` — TOCTOU race between `existsSync` (or similar) and a subsequent file read. Same pattern Codex flagged for `/api/logo` and `/api/login-banner` last round but in the watcher. Fix: wrap the read in a try/catch and treat ENOENT as "file gone, skip" rather than checking-then-reading.
+
+2. **`js/superfluous-trailing-arguments`** — `frontend/server/utils/courseWatcher.js:199, :207` — function calls with extra args silently discarded. Could be a typo where the dev meant a different function or different argument. Read both lines, decide if the args were intended to do something (in which case the call is wrong) or are leftover from a refactor (in which case remove them).
+
+#### Notes (cleanup-tier)
+
+3. **`js/unused-local-variable`** in 4 places:
+   - `frontend/tests/unit/sessions.test.js:7`
+   - `frontend/tests/e2e/admin-panel.spec.js:217`
+   - `frontend/tests/e2e/branding-runtime-env.spec.js:13`
+   - `frontend/server/api/users/index.js:5` — likely a leftover import after the registration-lock work
+
+   Trivial to remove. Could batch all 4 into a single "cleanup: unused vars" commit.
+
+### Group 3: Trivy findings (~71 — most are noise; ~3 real)
+
+Trivy reports on every config file pattern. Most are stylistic (run-as-non-root nags on Dockerfile.prod, etc.). Real CVEs:
+
+- **MEDIUM**: `yaml` 2.7.0 → CVE-2026-33532 (fix: 2.8.3) — likely included in PR #18 npm-minor-patch group
+- **LOW × 2**: `vite` 6.2.2 → CVE-2025-58751 + CVE-2025-58752 (fix: 6.3.6+) — likely included in PR #18 too
+
+After merging the Dependabot PRs, re-run Trivy and most npm CVEs should clear. Re-check the Trivy alerts list after each Dependabot PR merge.
+
+The Dockerfile config nits (USER directive, healthcheck, etc.) are out of scope for this round — they're real but homelab-acceptable. Could be a separate "Dockerfile hardening" slice if anyone cares.
+
+### Group 4: Scorecard findings (22 — mostly defensible to ignore)
+
+OSSF Scorecard wants:
+- All actions pinned by commit SHA, not version tag (PinnedDependencies)
+- Branch protection rules on main
+- Required code review
+- Token permissions set explicitly per workflow
+
+For a solo homelab project, these are best-practice for big OSS projects but overkill here. **Defensible to leave as-is** unless you want a higher Scorecard score for vanity. If you do want them:
+- Pinning by SHA: defeats Dependabot's auto-update value. Trade-off.
+- Branch protection: requires GitHub plan that allows it on private repos (free for public, which you are)
+- Code review: solo dev — n/a
 
 ### Out of scope
 
 Not on the wishlist; only revisit if the user asks:
 - Multi-tenant / multi-org auth
-- OAuth / SSO
+- OAuth / SSO  
 - 2FA
-- Public-internet-grade hardening (WAF, paranoid rate-limits)
+- Public-internet-grade hardening
+- Nuxt 4 migration (major framework upgrade — separate multi-day slice)
 
 ---
 
 ## How to start the next round
 
-1. **Read [notes/feature-wishlist.md](feature-wishlist.md)** — the locked design doc. Captures *what* and *why*. Anything in there is decided; don't relitigate.
-2. **Read [notes/architecture-map.md](architecture-map.md)** — implementation map. Where things live, how layers connect.
-3. **Read [notes/process.md](process.md)** — workflow rules. Phases, commits, atomic units.
+1. **Read [notes/handover.md](handover.md)** — this doc. You're here.
+2. **Read [notes/feature-wishlist.md](feature-wishlist.md)** — the locked design doc for the original wishlist. Most of it is shipped now; remaining items: **B. Course content polish** (`course.json`, SRT→VTT, per-lesson README) and **D. Deferred quality items**.
+3. **Read [notes/architecture-map.md](architecture-map.md)** — implementation map. Where things live. Caveat: written before the last several rounds of work; stale on auth + branding details but accurate on the broader structure.
 4. **Confirm green starting state**:
-   ```bash
+   ```
    docker compose -f docker-compose.test.yml run --rm --build tests
    ```
-   Should print `75 passed (vitest)` + `82 passed (e2e)`. If not — investigate before doing anything else.
-5. **Wait for the user's first message** to pick the slice (A/B/C/D from above). Don't assume.
-6. **Once they pick, propose a brief plan** (2–4 bullets, the design decisions, locked in by their go-ahead) before touching code. Same pattern as the auth phases.
-7. **TDD per slice.** Write the failing test, watch it fail, implement minimum, watch it pass, refactor.
-8. **Codex review before commit.** Write a `notes/<round>-codex-prompt.md` describing the change, severity gating, and what to focus on. Run via the Bash invocation above. Address BLOCKER + HIGH + reasonable MEDIUMs; document LOW deferrals in commit body.
-9. **Commit per phase, push, open PR.** Keep PR scoped to one category — don't mix customization with course-pipeline work in the same PR.
+   Should print 80 vitest + 103 Playwright passed. If not — investigate before doing anything else.
+5. **Wait for the user's first message** to pick the slice. The most likely picks:
+   - "Triage the Dependabot PRs" — start with Group A (safe), then B (action majors), then individual C items
+   - "Fix the CodeQL warnings" — `courseWatcher.js` race + superfluous args + 4 unused vars (could be one small slice)
+   - "Move on to course content polish (B)" — handover-recommended slice from the original wishlist; ignores the open Dependabot/CodeQL backlog
+6. **Don't assume** — wait for direction.
+
+---
+
+## Workflow per change (carry-over from previous handover)
+
+Same flow that got us here:
+
+1. **Branch off `origin/main`**: `git checkout -b <name> origin/main`
+2. **Brainstorm if creative work** — invoke `superpowers:brainstorming` skill. Skip if the user explicitly says "quick in place".
+3. **Plan if non-trivial** — invoke `superpowers:writing-plans` after brainstorm. Skip for one-line fixes.
+4. **Execute via subagents if multi-task** — `superpowers:subagent-driven-development`. For one-shot edits, do inline.
+5. **Test in Docker** between every meaningful change.
+6. **Codex review for non-trivial changes** before commit. Bash invocation only.
+7. **Push + PR + merge** when green. Use `gh pr merge <N> --merge --delete-branch` (the local-checkout error from `gh` is expected because main is in the other worktree at `E:/skillgoblin/`; the GitHub-side merge succeeds despite the error).
+8. **Cleanup after merge**: detach this worktree (`git checkout --detach`), delete the merged local branch (`git branch -D <name>`), update main in `E:/skillgoblin` (`git -C E:/skillgoblin pull --ff-only origin main`), then start the next slice from a fresh `git checkout -b ... origin/main`.
 
 ---
 
 ## Local environment
 
 ### Manual-test stack
+`docker-compose.manual.yml` (untracked) runs a fresh-install instance for visual testing on port 3001. Admin: `admin` / `ChangeMe2026!`. Sandbox at `manual-test/data/`. Reset to fresh-install: `docker compose -f docker-compose.manual.yml down && rm -rf manual-test/data/database/* && docker compose -f docker-compose.manual.yml up --build -d`.
 
-There's a `docker-compose.manual.yml` (untracked, not in main — it lives only in worktree filesystem) that runs a fresh-install instance for visual testing:
-- URL: `http://localhost:3001`
-- Admin: `admin` / `ChangeMe2026!`
-- Sandbox: `manual-test/data/{database,content}/` so it never touches the real `./data/`
-- Stop: `docker compose -f docker-compose.manual.yml down`
-- Reset to fresh-install: `docker compose -f docker-compose.manual.yml down && rm -rf manual-test/data/database/* && docker compose -f docker-compose.manual.yml up --build -d`
-
-If you need a fresh manual stack and it doesn't exist yet, look at `docker-compose.example.yml` (committed) for the recommended layout, or recreate `docker-compose.manual.yml` with `Dockerfile.prod`, port 3001, `manual-test/` mount, and `ADMIN_NAME`/`ADMIN_PASSWORD` envs.
+The manual stack mounts `./manual-test/data/branding:/app/data/branding` so you can drop test logos/banners in there to verify branding overrides.
 
 ### Worktree state
+Work has been happening in a worktree at `E:/skillgoblin/.claude/worktrees/suspicious-kepler-7d7725/` (the previous one at `wizardly-cohen-224f57/` is still around but on detached HEAD). The main repo is at `E:/skillgoblin/`. The `gh pr merge` flow errors with `'main' is already used by worktree at E:/skillgoblin` — that's expected; the merge succeeds server-side despite the error. After merge, sync `E:/skillgoblin`'s main with `git -C E:/skillgoblin pull --ff-only origin main`.
 
-Work happened in a worktree at `E:/skillgoblin/.claude/worktrees/wizardly-cohen-224f57/`. The main repo is at `E:/skillgoblin/`. Both worktrees share the same git database; `main` is checked out in the main worktree. Don't try to `git checkout main` from the worktree — it'll fail with "already used by worktree at E:/skillgoblin". Make new feature branches with `git checkout -b <name> origin/main`.
+### Codex setup
+- Plugin at `C:/Users/vlado/.claude/plugins/cache/openai-codex/codex/1.0.2/`
+- Auth: already done. If `codex --version` says `unauthenticated`, run `codex login`.
 
-### Lockfile changes (rare)
-
+### Lockfile changes (Dependabot will produce them)
 If you bump a frontend dep, regenerate the lockfile *inside Docker* (host build is broken):
-```bash
+```
 MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$(pwd -W)/frontend:/work" -w "//work" node:18-alpine \
   sh -c "npm install --package-lock-only --no-audit --no-fund"
 ```
-
-### Codex setup
-
-- Plugin at `C:/Users/vlado/.claude/plugins/cache/openai-codex/codex/1.0.2/`
-- Auth: already done. If `codex --version` says `unauthenticated`, run `codex login`.
+Dependabot updates the lockfile in its PRs automatically — no action needed unless you bump deps yourself.
 
 ---
 
-## Architectural cheat sheet (30-second version)
+## Architectural cheat sheet (60-second version)
 
-- **Auth:** `sg_session` cookie (HttpOnly, SameSite=Lax, 30-day) issued by `/api/users/auth`. Server middleware [session.js](frontend/server/middleware/session.js) reads it, populates `event.context.user`, slides expiry forward (debounced 5 min).
-- **Authz:** every mutating endpoint calls one of `requireAuth` / `requireAdmin` / `requireSelfOrAdmin` from [authz.js](frontend/server/utils/authz.js). Static rule: no caller can act on someone else unless admin; mutations of role / activation are admin-only.
-- **Credentials:** argon2id. Legacy plaintext detected on read and rehashed inline. Every account must have at least one of password / PIN; server enforces on POST and PUT.
-- **PIN bridge:** PIN auth permitted when `allow_pin=true` OR user has no password (the one-time bridge). After bridge auth, response carries `needsCredentialUpdate: 'pin_disabled'` so the frontend prompts for a password. Server's PUT no longer auto-clears PINs when `allow_pin=false` — leaves them in place for if the operator re-enables.
-- **Sessions:** opaque base64url tokens, sha256-hashed in DB, one row per active session. Survive container restarts. Admin "kick" + user "log out all devices" both `DELETE FROM user_sessions WHERE …`.
-- **System policy:** `system_settings` table. Two known keys today — `allow_pin` and `auto_approve_new_users`. Read via public GET, written via admin-only PUT. Whitelist + boolean coercion in the endpoint.
-- **Last-admin protection:** any change leaving zero active admins is refused with 409.
-- **First-run:** server plugin [bootstrap.js](frontend/server/plugins/bootstrap.js) refuses to start on a fresh install if `ADMIN_NAME`/`ADMIN_PASSWORD` env aren't set.
-- **Modal pattern:** every modal supports backdrop dismiss + X/Cancel; in-flight saves guard the dismiss path so an accidental click-out can't hide a pending failure.
+- **Stack:** Nuxt 3 (SSR off — pure SPA), Tailwind 3, Vue 3 composition API, better-sqlite3 SQLite.
+- **Auth:** `sg_session` cookie (HttpOnly, SameSite=Lax, 30-day) issued by `/api/users/auth`. Server middleware [session.js](frontend/server/middleware/session.js) reads it, populates `event.context.user`, slides expiry forward (debounced 5 min). Skips cookie processing for `/api/content/`, `/api/course-thumbnail/`, `/api/random-banner`, `/api/logo`, `/api/login-banner`, `/api/webmanifest`, `/_nuxt/`, `/favicon`, `/banners/`, `/images/`, `/logos/` so those endpoints can be publicly cached without leaking Set-Cookie.
+- **Authz:** every mutating endpoint calls `requireAuth` / `requireAdmin` / `requireSelfOrAdmin` from [authz.js](frontend/server/utils/authz.js). Static rule: no caller can act on someone else unless admin; mutations of role / activation are admin-only. The single exception is `POST /api/users` which gates on `system_settings.allow_user_registration` instead.
+- **Credentials:** argon2id. Legacy plaintext detected on read and rehashed inline.
+- **Branding:** env vars read at server startup via `frontend/scripts/entrypoint.sh` mapping `APP_*` → `NUXT_PUBLIC_BRANDING_*`. Nuxt's runtimeConfig populates `runtimeConfig.public.branding` which `app.vue` consumes via `useHead`. `/api/webmanifest` reads `process.env` directly via `readBranding()`.
+- **First-run:** server plugin [bootstrap.js](frontend/server/plugins/bootstrap.js) refuses to start on a fresh install if `ADMIN_NAME` / `ADMIN_PASSWORD` env aren't set. Same plugin warns about invalid `APP_THEME_COLOR` / `APP_BACKGROUND_COLOR` hex values.
+- **Migrations:** numbered, forward-only, in `frontend/server/migrations/`. Latest is `003_allow_user_registration.js`. Manifest in `index.js`.
 
 ---
 
-## Recommended starting slice
+## Recommended starting slice (for whoever picks up)
 
-If the user is open to a recommendation: **course content polish (B)**. It improves the existing libraries materially (subtitles working out of the box, course.json overrides, per-lesson README) and operators feel the value immediately. Customization (A) is more cosmetic. UI polish (C) is small enough to bundle with whichever you do.
+If the user is open to a recommendation: **Group A (safe Dependabot PRs) + the CodeQL cleanup notes**. Both are low-effort, both clear real items off the security backlog, both use the existing test infrastructure, no new design needed. After that, the action-major Dependabot PRs (Group B) are also cheap.
+
+The juicy stuff (course content polish, the Nuxt 4 / Tailwind 4 / better-sqlite3 majors) is real work and warrants its own brainstorm-design-plan-execute slice.
 
 But that's a recommendation, not a decision — wait for the user's pick.
