@@ -297,7 +297,7 @@ definePageMeta({
 });
 
 const router = useRouter();
-const { user, logout, deleteAccount: userDelete, userId, userName, userAvatar, isAdmin, useAuth } = useSession();
+const { user, logout, deleteAccount: userDelete, userId, userName, userAvatar, isAdmin, isActive } = useSession();
 
 // Create a computed user object with the correct structure
 const userObject = computed(() => {
@@ -306,7 +306,7 @@ const userObject = computed(() => {
     name: userName.value,
     avatar: userAvatar.value,
     isAdmin: isAdmin.value ? 1 : 0,
-    use_auth: useAuth.value ? 1 : 0
+    is_active: isActive.value ? 1 : 0
   };
 });
 
@@ -554,13 +554,11 @@ const saveCourse = async (courseData) => {
     `;
     document.body.appendChild(loadingDiv);
     
-    // Submit the form data to the server
+    // Submit the form data to the server. Authorization is now session-cookie
+    // based (the legacy x-user-id header was spoofable and is gone).
     const response = await $fetch('/api/courses/edit', {
       method: 'POST',
-      body: courseData,
-      headers: {
-        'x-user-id': user.value.id
-      }
+      body: courseData
     });
     
     if (response.success) {

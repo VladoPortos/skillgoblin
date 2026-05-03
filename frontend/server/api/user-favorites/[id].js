@@ -1,18 +1,22 @@
 import { defineEventHandler } from 'h3';
 import { getDb } from '../../utils/db';
+import { requireSelfOrAdmin } from '../../utils/authz';
 
 // API endpoint to get ALL favorite courses for a user
-// This endpoint bypasses regular pagination and returns the complete list
+// This endpoint bypasses regular pagination and returns the complete list.
+// Auth: caller must be the user OR an admin.
 export default defineEventHandler(async (event) => {
   try {
     const userId = event.context.params.id;
-    
+
     if (!userId) {
-      return { 
-        success: false, 
+      return {
+        success: false,
         error: 'User ID is required'
       };
     }
+
+    requireSelfOrAdmin(event, userId);
     
     const db = getDb();
     

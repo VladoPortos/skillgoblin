@@ -1,19 +1,20 @@
-import { getDb } from '../../utils/db';
-import { v4 as uuidv4 } from 'uuid';
 import { defineEventHandler, readBody, createError } from 'h3';
+import { v4 as uuidv4 } from 'uuid';
+import { getDb } from '../../utils/db';
 import { hashCredential } from '../../utils/credentials';
+import { requireAdmin, requireSelfOrAdmin } from '../../utils/authz';
+import { deleteUserSessions } from '../../utils/sessions';
+import { ensureNotLastAdmin } from '../../utils/lastAdminGuard';
 
 // /api/users
-//   GET  — list users for the login screen.
-//   POST — create a new account. Phase 1 hardening: requires at least one
-//          credential, hashes it on insert, refuses to take `isAdmin` from
-//          the body, and honors the system_settings.auto_approve_new_users
-//          flag for is_active.
-//   PUT  — update a user. Phase 1 still leaves authorization weak (no
-//          session check yet — that lands in Phase 2). For now we hash any
-//          credential the body supplies and refuse to mutate is_active /
-//          isAdmin via this endpoint, which closes the worst of the
-//          self-promotion holes until the session middleware is in place.
+//   GET  — list users for the login screen. Public.
+//   POST — create a new account. Public so the signup screen works; the
+//          new account is `is_active = 0` unless system_settings.auto_approve_new_users
+//          is true. Hashes credentials, refuses body.isAdmin.
+//   PUT  — update a user. Requires a session. Caller must be acting on
+//          themselves OR be an admin. Only admins can mutate isAdmin /
+//          is_active. Last-admin-protected on demotion. Credential changes
+//          revoke other sessions for that user.
 export default defineEventHandler(async (event) => {
   const method = event.node.req.method;
 
@@ -63,8 +64,6 @@ export default defineEventHandler(async (event) => {
         });
       }
 
-      // Strict-mode (default): new accounts land inactive until an admin
-      // approves them. Loose-mode: auto_approve_new_users=true → active.
       const autoApproveRow = db
         .prepare("SELECT value FROM system_settings WHERE key = 'auto_approve_new_users'")
         .get();
@@ -78,16 +77,7 @@ export default defineEventHandler(async (event) => {
       const result = db.prepare(`
         INSERT INTO users (id, name, avatar, password, pin, theme, isAdmin, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        userId,
-        name,
-        avatar,
-        hashedPassword,
-        hashedPin,
-        'dark',
-        0,           // isAdmin: never trust the body — admin promotion has its own path in Phase 2
-        isActive
-      );
+      `).run(userId, name, avatar, hashedPassword, hashedPin, 'dark', 0, isActive);
 
       if (result.changes !== 1) {
         return createError({ statusCode: 500, statusMessage: 'Failed to create user' });
@@ -117,9 +107,13 @@ export default defineEventHandler(async (event) => {
         return createError({ statusCode: 400, statusMessage: 'Name is required' });
       }
 
+      const caller = requireSelfOrAdmin(event, body.id);
+      const isAdminCaller = !!caller.isAdmin;
+      const isSelfEdit = caller.id === body.id;
+
       const db = getDb();
-      const userExists = db.prepare('SELECT id FROM users WHERE id = ?').get(body.id);
-      if (!userExists) {
+      const target = db.prepare('SELECT id, isAdmin, is_active FROM users WHERE id = ?').get(body.id);
+      if (!target) {
         return createError({ statusCode: 404, statusMessage: 'User not found' });
       }
 
@@ -127,24 +121,54 @@ export default defineEventHandler(async (event) => {
       const fields = ['name = ?', 'avatar = ?'];
       const params = [body.name.trim(), avatar];
 
-      // Credential changes are hashed before storage.
+      let credentialsChanged = false;
       if (body.password !== undefined) {
         const v = typeof body.password === 'string' && body.password.length > 0 ? body.password : null;
         fields.push('password = ?');
         params.push(v ? await hashCredential(v) : null);
+        credentialsChanged = true;
       }
       if (body.pin !== undefined) {
         const v = typeof body.pin === 'string' && body.pin.length > 0 ? body.pin : null;
         fields.push('pin = ?');
         params.push(v ? await hashCredential(v) : null);
+        credentialsChanged = true;
       }
 
-      // NOTE: This endpoint intentionally does NOT honor `isAdmin` or
-      // `is_active` from the body. Without a session, we have no way to
-      // tell who's calling — accepting those fields would let any caller
-      // promote themselves to admin or self-activate (and that's exactly
-      // the bug we're fixing in this round). Admin role / activation
-      // changes get their own session-gated endpoints in Phase 2.
+      // Role and activation changes: admin-only. Self-edit cannot promote
+      // self. Last-admin-protected on demotion.
+      let isAdminChange = null;
+      let isActiveChange = null;
+      if (body.isAdmin !== undefined) {
+        if (!isAdminCaller) {
+          return createError({ statusCode: 403, statusMessage: 'Only admins can change roles' });
+        }
+        isAdminChange = body.isAdmin ? 1 : 0;
+      }
+      if (body.is_active !== undefined) {
+        if (!isAdminCaller) {
+          return createError({ statusCode: 403, statusMessage: 'Only admins can change activation' });
+        }
+        isActiveChange = body.is_active ? 1 : 0;
+      }
+
+      // Block any change that would leave the system with zero active admins.
+      // Three trigger conditions: demote, deactivate, or both at once.
+      if (isAdminChange === 0 && target.isAdmin === 1) {
+        ensureNotLastAdmin(db, target.id, 'demote');
+      }
+      if (isActiveChange === 0 && target.isAdmin === 1 && target.is_active === 1) {
+        ensureNotLastAdmin(db, target.id, 'deactivate');
+      }
+
+      if (isAdminChange !== null) {
+        fields.push('isAdmin = ?');
+        params.push(isAdminChange);
+      }
+      if (isActiveChange !== null) {
+        fields.push('is_active = ?');
+        params.push(isActiveChange);
+      }
 
       params.push(body.id);
       const stmt = db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`);
@@ -152,6 +176,14 @@ export default defineEventHandler(async (event) => {
 
       if (result.changes !== 1) {
         return createError({ statusCode: 404, statusMessage: 'User not found or no changes made' });
+      }
+
+      // If credentials changed, invalidate every other session for the
+      // affected user. Keep the caller's own session alive so a self-edit
+      // doesn't immediately log them out.
+      if (credentialsChanged) {
+        const exceptToken = isSelfEdit ? event.context.sessionToken : null;
+        deleteUserSessions(db, body.id, { exceptToken });
       }
 
       const updatedUser = db.prepare(`
@@ -162,6 +194,9 @@ export default defineEventHandler(async (event) => {
       `).get(body.id);
       return updatedUser;
     } catch (error) {
+      // requireSelfOrAdmin / ensureNotLastAdmin throw h3 errors that we let
+      // propagate as-is. Anything else gets a generic 500.
+      if (error?.statusCode) throw error;
       console.error('Error updating user:', error);
       return createError({
         statusCode: 500,

@@ -2,6 +2,7 @@ import { defineEventHandler, getMethod, readBody } from 'h3';
 import { getDb } from '../utils/db';
 import { getAllCoursesFromDb, getCourseFromDb } from '../utils/courseDatabase';
 import { setupFileWatcher } from '../utils/courseWatcher';
+import { requireAdmin } from '../utils/authz';
 
 // Set up file watching
 setupFileWatcher();
@@ -99,11 +100,12 @@ export default defineEventHandler(async (event) => {
     }
   }
   
-  // POST - Refresh course data or rescan
+  // POST - Refresh course data or rescan. Both are admin-only.
   if (method === 'POST') {
+    requireAdmin(event);
     try {
       const body = await readBody(event);
-      
+
       if (body.action === 'refresh') {
         const courseId = body.courseId;
         

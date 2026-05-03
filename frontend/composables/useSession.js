@@ -1,205 +1,141 @@
+// useSession — cookie-backed session client.
+//
+// Phase 2 changed the source of truth for "who is logged in" from
+// localStorage.userId to a HttpOnly session cookie issued by /api/users/auth.
+// This composable still exposes the same useState refs for the UI, but they
+// are populated from /api/auth/me on app start (via plugins/auth.js) and
+// from the response body of /api/users/auth on login.
+//
+// Note for callers: every fetch that needs auth must include credentials.
+// $fetch in Nuxt 3 sends same-origin cookies by default, so as long as
+// the API is on the same origin nothing extra is required.
+
 export const useSession = () => {
   const userId = useState('userId', () => null);
   const userName = useState('userName', () => '');
   const userAvatar = useState('userAvatar', () => '');
   const isAuthenticated = useState('isAuthenticated', () => false);
-  const useAuth = useState('useAuth', () => false);
   const isAdmin = useState('isAdmin', () => false);
-  
-  // Add a computed user object that combines the user properties
+  const isActive = useState('isActive', () => false);
+
   const user = computed(() => {
     if (!userId.value) return null;
     return {
       id: userId.value,
       name: userName.value,
       avatar: userAvatar.value,
-      use_auth: useAuth.value ? 1 : 0,
-      isAdmin: isAdmin.value ? 1 : 0
+      isAdmin: isAdmin.value ? 1 : 0,
+      is_active: isActive.value ? 1 : 0
     };
   });
-  
+
   const router = useRouter();
 
-  const setUser = (user) => {
-    if (user) {
-      userId.value = user.id;
-      userName.value = user.name;
-      userAvatar.value = user.avatar;
-      useAuth.value = user.use_auth === 1;
-      isAdmin.value = user.isAdmin === 1;
-      isAuthenticated.value = true;
-      localStorage.setItem('userId', user.id);
-      console.log('User set:', user.id, user.name);
-    }
+  const setUser = (u) => {
+    if (!u) return;
+    userId.value = u.id;
+    userName.value = u.name;
+    userAvatar.value = u.avatar;
+    isAdmin.value = u.isAdmin === 1;
+    isActive.value = u.is_active === 1;
+    isAuthenticated.value = true;
   };
 
-  const login = async (id, authData = null) => {
-    try {
-      console.log('Attempting to login user:', id);
-      
-      // Fetch user details using $fetch instead of useFetch
-      const user = await $fetch(`/api/users/${id}`);
-      
-      if (!user) {
-        console.error('User not found with ID:', id);
-        throw new Error('User not found');
-      }
-
-      console.log('Found user:', user);
-
-      // Check if user requires authentication
-      if (user.use_auth === 1) {
-        // If auth is required but no auth data provided, don't log in
-        if (!authData) {
-          return { 
-            success: false, 
-            requiresAuth: true, 
-            message: 'Authentication required' 
-          };
-        }
-        
-        // Verify credentials
-        try {
-          // $fetch returns the data directly, not wrapped in a data property
-          const authResult = await $fetch(`/api/users/auth`, {
-            method: 'POST',
-            body: {
-              userId: id,
-              ...authData
-            }
-          });
-          
-          console.log('Authentication result:', authResult);
-          
-          if (!authResult || !authResult.success) {
-            return { 
-              success: false, 
-              message: authResult?.message || 'Authentication failed' 
-            };
-          }
-        } catch (error) {
-          console.error('Authentication error:', error);
-          return {
-            success: false,
-            message: error.message || 'Authentication failed'
-          };
-        }
-      }
-      
-      // Set user in state
-      setUser(user);
-      
-      return { success: true };
-    } catch (error) {
-      console.error('Login error:', error);
-      return { success: false, message: error.message };
-    }
-  };
-
-  const logout = () => {
+  const clearUser = () => {
     userId.value = null;
     userName.value = '';
     userAvatar.value = '';
     isAuthenticated.value = false;
-    useAuth.value = false;
     isAdmin.value = false;
-    localStorage.removeItem('userId');
-    
+    isActive.value = false;
+  };
+
+  // Two flavors:
+  //   login(id, { password? | pin? }) — verify against the picked profile
+  // The server sets the session cookie on success; we just mirror the user
+  // info from the response into local state.
+  const login = async (id, authData = null) => {
+    try {
+      const result = await $fetch('/api/users/auth', {
+        method: 'POST',
+        body: { userId: id, ...(authData || {}) }
+      });
+
+      if (!result?.success) {
+        return { success: false, message: result?.message || 'Authentication failed' };
+      }
+      if (result.user) setUser(result.user);
+      return { success: true };
+    } catch (error) {
+      console.error('Login error:', error);
+      const message = error?.data?.statusMessage || error?.statusMessage || error.message;
+      return { success: false, message };
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await $fetch('/api/users/logout', { method: 'POST' });
+    } catch (error) {
+      console.warn('Logout request failed (continuing anyway):', error);
+    }
+    clearUser();
     router.push('/');
   };
 
+  // Called once on app start by plugins/auth.js. Re-establishes user state
+  // from the session cookie. Returns success regardless of whether a session
+  // exists; the caller checks isAuthenticated to decide what to render.
   const checkAuth = async () => {
-    if (process.client) {
-      const storedUserId = localStorage.getItem('userId');
-      
-      if (storedUserId) {
-        try {
-          // Try to fetch the user details directly without auth requirement
-          console.log('Restoring session for user ID:', storedUserId);
-          
-          // Use a try/catch to handle potential network errors gracefully
-          try {
-            const user = await $fetch(`/api/users/${storedUserId}`);
-            
-            if (user) {
-              console.log('User found, restoring session:', user);
-              // Directly set the user without re-authentication
-              setUser(user);
-              return { success: true };
-            }
-          } catch (error) {
-            console.error('Error restoring user session:', error);
-            localStorage.removeItem('userId');
-            return { success: false, message: 'Session expired' };
-          }
-        } catch (error) {
-          console.error('Auth check error:', error);
-          localStorage.removeItem('userId');
-        }
+    try {
+      const result = await $fetch('/api/auth/me');
+      if (result?.user) {
+        setUser(result.user);
+        return { success: true };
       }
+    } catch (error) {
+      // 401 here is expected when no session exists. Stay logged out.
     }
-    
+    clearUser();
     return { success: false };
   };
 
   const updateUserSettings = async (settings) => {
     if (!userId.value) return { success: false, message: 'Not logged in' };
-
     try {
-      console.log('Updating user settings:', settings);
-      
-      // Make sure ID is included
-      if (!settings.id) {
-        settings.id = userId.value;
-      }
-      
-      // Use $fetch directly instead of useFetch
-      const updatedUser = await $fetch('/api/users', {
+      const updated = await $fetch('/api/users', {
         method: 'PUT',
-        body: settings
+        body: { ...settings, id: settings.id || userId.value }
       });
-
-      if (updatedUser && updatedUser.id) {
-        // Update local state with new user info
-        console.log('User updated successfully:', updatedUser);
-        userName.value = updatedUser.name;
-        userAvatar.value = updatedUser.avatar;
-        useAuth.value = updatedUser.use_auth === 1;
-        isAdmin.value = updatedUser.isAdmin === 1;
-        
-        return { success: true, user: updatedUser };
+      if (updated?.id) {
+        setUser(updated);
+        return { success: true, user: updated };
       }
-      
       return { success: false, message: 'Failed to update user' };
     } catch (error) {
       console.error('Error updating user:', error);
-      return { success: false, message: error.message };
+      const message = error?.data?.statusMessage || error?.statusMessage || error.message;
+      return { success: false, message };
     }
   };
 
   const deleteAccount = async () => {
     if (!userId.value) return { success: false, message: 'Not logged in' };
-
     try {
-      console.log('Deleting account for user:', userId.value);
-      
-      // $fetch returns the data directly, not wrapped in a data property
       const response = await $fetch('/api/users/delete', {
         method: 'POST',
         body: { userId: userId.value }
       });
-      
-      console.log('Delete account response:', response);
-      
-      if (response && response.success) {
-        logout();
+      if (response?.success) {
+        clearUser();
+        router.push('/');
         return { success: true };
       }
-      
       return { success: false, message: response?.message || 'Failed to delete account' };
     } catch (error) {
       console.error('Error deleting account:', error);
-      return { success: false, message: error.message || 'Failed to delete account' };
+      const message = error?.data?.statusMessage || error?.statusMessage || error.message;
+      return { success: false, message };
     }
   };
 
@@ -208,8 +144,8 @@ export const useSession = () => {
     userName,
     userAvatar,
     isAuthenticated,
-    useAuth,
     isAdmin,
+    isActive,
     user,
     setUser,
     login,
