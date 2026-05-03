@@ -1,0 +1,18 @@
+# Normalize all text files to LF on checkin and checkout. Without this,
+# Windows clones with core.autocrlf=true ship CRLF into the working tree,
+# which breaks `frontend/scripts/entrypoint.sh` inside the Linux container
+# (the kernel reads `#!/bin/sh\r` and exits 127).
+* text=auto eol=lf
+
+# Belt-and-suspenders for the files where wrong line endings break execution.
+*.sh text eol=lf
+
+# Don't normalize binaries (this list is not exhaustive — `text=auto` above
+# already detects most binary files, but pinning the obvious ones is safer).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.webp binary
