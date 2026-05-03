@@ -250,6 +250,43 @@ test.describe('AdminPanel — Create User', () => {
     const row = page.getByText(newName);
     await expect(row).toBeVisible();
   });
+
+  test('admin-create surfaces server 409 for duplicate name', async ({ page }) => {
+    // First, create a user via API so the name collides on the second attempt.
+    const dupName = `dup-${Date.now()}`;
+    const { ctx: setupCtx } = await loginAdmin();
+    const created = await setupCtx.post('/api/users', {
+      data: { name: dupName, password: 'pw12345!' }
+    });
+    expect(created.ok()).toBeTruthy();
+    await setupCtx.dispose();
+
+    // Log in via the page context for the UI flow.
+    const admin = await getAdmin(page.request);
+    await page.request.post('/api/users/auth', {
+      data: { userId: admin.id, password: ADMIN_PASSWORD }
+    });
+
+    await page.goto('/courses');
+    await page.waitForLoadState('networkidle');
+
+    await page.locator('.user-profile').click();
+    await page.getByRole('button', { name: /admin panel/i }).click();
+    await expect(page.getByTestId('admin-panel')).toBeVisible();
+
+    await page.getByTestId('admin-create-user').click();
+    await expect(page.getByTestId('admin-create-user-modal')).toBeVisible();
+
+    // Submit the colliding name. Server should respond 409.
+    await page.getByTestId('admin-create-name').fill(dupName);
+    await page.getByTestId('admin-create-password').fill('pw12345!');
+    await page.getByTestId('admin-create-submit').click();
+
+    // Modal stays open and the error message contains the server's text.
+    await expect(page.getByTestId('admin-create-user-modal')).toBeVisible();
+    await expect(page.getByTestId('admin-create-error')).toBeVisible();
+    await expect(page.getByTestId('admin-create-error')).toContainText(/already exists/i);
+  });
 });
 
 test.describe('AdminPanel — Settings tab toggle', () => {
