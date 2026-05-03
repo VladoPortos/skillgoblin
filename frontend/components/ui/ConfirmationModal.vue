@@ -1,5 +1,9 @@
 <template>
-  <div v-if="show" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+  <div
+    v-if="show"
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+    @click.self="onBackdropClick"
+  >
     <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
       <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">{{ title }}</h2>
       <p class="text-gray-700 dark:text-gray-300 mb-6">
@@ -107,5 +111,14 @@ const props = defineProps({
  * @event confirm - Emitted when the confirm button is clicked
  * @event cancel - Emitted when the cancel button is clicked
  */
-defineEmits(['confirm', 'cancel']);
+const emit = defineEmits(['confirm', 'cancel']);
+
+// Backdrop click acts like Cancel — but blocked while a confirm action
+// is in flight so an accidental outside-click can't hide a pending
+// failure (e.g., the user thought delete was queued but the request
+// errored and the modal silently closed).
+function onBackdropClick() {
+  if (props.isLoading) return;
+  emit('cancel');
+}
 </script>

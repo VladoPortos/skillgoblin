@@ -3,6 +3,7 @@
     v-if="show"
     class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
     data-testid="admin-panel"
+    @click.self="close"
   >
     <div class="bg-gray-800 rounded-lg shadow-lg max-w-5xl w-full p-6 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
       <div class="flex justify-between items-center mb-4">
@@ -214,6 +215,7 @@
       v-if="sessionsTarget"
       class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
       data-testid="sessions-drilldown"
+      @click.self="sessionsTarget = null"
     >
       <div class="bg-gray-800 rounded-lg shadow-xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto custom-scrollbar">
         <div class="flex justify-between items-center mb-4">
@@ -273,6 +275,7 @@
     <div
       v-if="kickTarget"
       class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
+      @click.self="kickTarget = null"
     >
       <div class="bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
         <h3 class="text-lg font-bold text-white mb-2">Kick all sessions</h3>
@@ -297,6 +300,7 @@
     <div
       v-if="deleteTarget"
       class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
+      @click.self="deleteTarget = null"
     >
       <div class="bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
         <h3 class="text-lg font-bold text-white mb-2">Delete user</h3>

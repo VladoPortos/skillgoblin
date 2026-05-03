@@ -200,7 +200,7 @@ async function loginAndOpenProfileEditor(page, userId, password) {
   await page.goto('/courses');
   await page.waitForLoadState('networkidle');
   await page.locator('.user-profile').click();
-  await page.getByRole('button', { name: /user management/i }).click();
+  await page.getByRole('button', { name: /my profile/i }).click();
 }
 
 test.describe('Profile editor — credential panels', () => {
@@ -248,7 +248,7 @@ test.describe('Profile editor — credential panels', () => {
     await page.goto('/courses');
     await page.waitForLoadState('networkidle');
     await page.locator('.user-profile').click();
-    await page.getByRole('button', { name: /user management/i }).click();
+    await page.getByRole('button', { name: /my profile/i }).click();
 
     await expect(page.getByTestId('profile-password-action')).toHaveText(/add password/i);
     await expect(page.getByTestId('profile-pin-action')).toHaveText(/change pin/i);
@@ -308,7 +308,7 @@ test.describe('Profile editor — credential panels', () => {
     await page.goto('/courses');
     await page.waitForLoadState('networkidle');
     await page.locator('.user-profile').click();
-    await page.getByRole('button', { name: /user management/i }).click();
+    await page.getByRole('button', { name: /my profile/i }).click();
 
     for (let i = 0; i < 4; i++) {
       await page.locator(`[data-testid="profile-pin-digit-${i}"]`).fill(newPin[i]);
