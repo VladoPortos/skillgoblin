@@ -55,6 +55,13 @@ export default defineEventHandler(async (event) => {
       .prepare('SELECT id, name, avatar, password, pin, isAdmin, is_active FROM users WHERE id = ?')
       .get(userId);
 
+    // Read the current PIN policy once; used for the needsCredentialUpdate
+    // signal at the end of the handler.
+    const allowPinRow = db
+      .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
+      .get();
+    const allowPin = (allowPinRow?.value ?? 'true') === 'true';
+
     if (!user) {
       // Mirror the response shape AND timing of the "wrong password" path so
       // we don't leak user existence via response shape OR response time.
@@ -95,9 +102,13 @@ export default defineEventHandler(async (event) => {
     }
 
     if (!matched && pin) {
+      // PIN authentication is disabled when allow_pin=false UNLESS the user
+      // has no password (the one-time bridge so they're not locked out
+      // before they can set one).
+      const pinAuthAllowed = allowPin || !user.password;
       const target = user.pin || (await getDummyHash());
       const r = await verifyCredential(pin, target);
-      if (r.ok && user.pin) {
+      if (r.ok && user.pin && pinAuthAllowed) {
         matched = 'pin';
         needsRehash = r.needsRehash;
       }
@@ -127,8 +138,22 @@ export default defineEventHandler(async (event) => {
     setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
     recordSuccess(rlKey);
 
+    // Surface "you should add a password" prompts to the client. We do NOT
+    // refuse the login — the user gets in but the UI walks them through
+    // the upgrade flow on the next screen.
+    //   - 'pin_disabled' → the user only has a PIN, but the admin globally
+    //     disabled PINs. They must add a password before continuing.
+    //   - The 'no_creds' case is handled by the bootstrap-credentials
+    //     endpoint instead, since /api/users/auth itself rejects callers
+    //     with neither stored credential earlier.
+    let needsCredentialUpdate = null;
+    if (matched === 'pin' && !user.password && !allowPin) {
+      needsCredentialUpdate = 'pin_disabled';
+    }
+
     return {
       success: true,
+      needsCredentialUpdate,
       user: {
         id: user.id,
         name: user.name,

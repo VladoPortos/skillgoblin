@@ -65,7 +65,9 @@ export const useSession = () => {
         return { success: false, message: result?.message || 'Authentication failed' };
       }
       if (result.user) setUser(result.user);
-      return { success: true };
+      // Pass through the Phase 3 needsCredentialUpdate signal so callers
+      // can route the user into the SetCredentialsModal post-login flow.
+      return { success: true, needsCredentialUpdate: result.needsCredentialUpdate || null };
     } catch (error) {
       console.error('Login error:', error);
       const message = error?.data?.statusMessage || error?.statusMessage || error.message;

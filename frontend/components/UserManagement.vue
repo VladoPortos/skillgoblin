@@ -165,17 +165,9 @@
                     >
                       Switch Method
                     </button>
-                    <button 
-                      type="button"
-                      @click="updateAuthAction = 'remove'"
-                      class="px-3 py-1 sm:px-4 sm:py-2 rounded-full text-sm font-medium transition-colors duration-200"
-                      :class="{
-                        'bg-blue-500 text-white': updateAuthAction === 'remove',
-                        'text-gray-700 dark:text-gray-300 hover:bg-gray-100 hover:text-gray-900 dark:hover:bg-gray-600': updateAuthAction !== 'remove'
-                      }"
-                    >
-                      Remove
-                    </button>
+                    <!-- "Remove" tab dropped: every account must keep at
+                         least one credential under the new auth model. The
+                         server enforces a credential floor on PUT regardless. -->
                   </div>
                 </div>
                 
@@ -256,10 +248,8 @@
                   </div>
                 </div>
                 
-                <!-- Remove auth message -->
-                <div v-if="updateAuthAction === 'remove'" class="text-yellow-400 text-center mt-4">
-                  <p>Account protection will be removed. You will no longer need a password or PIN to log in.</p>
-                </div>
+                <!-- Remove-auth UI was dropped — auth is mandatory now. -->
+
               </div>
             </div>
           </div>
@@ -304,7 +294,6 @@ const userData = ref({
   avatar: '',
   password: null,
   pin: null,
-  use_auth: 0,
   isAdmin: 0
 });
 
@@ -360,14 +349,11 @@ watch(() => props.show, (isVisible) => {
   }
 }, { immediate: true });
 
-// Computed properties for authentication status
-const hasPin = computed(() => {
-  return props.user.use_auth === 1 && authState.value.hasPin;
-});
-
-const hasPassword = computed(() => {
-  return props.user.use_auth === 1 && authState.value.hasPassword;
-});
+// Computed properties for authentication status.
+// Phase 2 dropped the use_auth column — having a credential IS the auth
+// modality now. authState is the canonical source.
+const hasPin = computed(() => authState.value.hasPin);
+const hasPassword = computed(() => authState.value.hasPassword);
 
 // Helper functions for avatar handling
 const isValidAvatarJson = (avatarString) => {
@@ -399,7 +385,6 @@ watch(() => props.user, (newUser) => {
       avatar: newUser.avatar,
       password: null,
       pin: null,
-      use_auth: newUser.use_auth,
       isAdmin: newUser.isAdmin
     };
     
@@ -476,9 +461,7 @@ const updateUser = async () => {
       if (!hasPassword.value && !hasPin.value) {
         // Adding new protection
         if (enableAuth.value) {
-          updatePayload.use_auth = 1;
-          
-          if (authType.value === 'password') {
+if (authType.value === 'password') {
             // Only set password, explicitly set PIN to null
             updatePayload.password = userData.value.password;
             updatePayload.pin = null;
@@ -494,73 +477,57 @@ const updateUser = async () => {
             }
           }
         } else {
-          // No changes to auth - ensure both are null
-          updatePayload.use_auth = 0;
-          updatePayload.password = null;
-          updatePayload.pin = null;
+          // Adding-protection toggle off → no auth change, leave fields out.
+          delete updatePayload.password;
+          delete updatePayload.pin;
         }
       } else {
         // Updating existing protection
         if (updateAuthAction.value === 'change') {
-          updatePayload.use_auth = 1;
-          
           if (hasPassword.value) {
             if (userData.value.password) {
-              // Update password, keep PIN as null
               updatePayload.password = userData.value.password;
-              updatePayload.pin = null;
             } else {
-              // No new password provided, don't update auth
-              // Just continue to update other user fields
-              delete updatePayload.use_auth;
+              delete updatePayload.password;
             }
           } else if (hasPin.value) {
             const pinValue = managePinDigits.value.join('');
             if (pinValue.length === 4) {
-              // Update PIN, keep password as null
               updatePayload.pin = pinValue;
-              updatePayload.password = null;
             } else {
-              // Invalid PIN, don't update auth
-              // Just continue to update other user fields
-              delete updatePayload.use_auth;
+              delete updatePayload.pin;
             }
           }
         } else if (updateAuthAction.value === 'switch') {
-          // Switch from password to PIN or vice versa
-          updatePayload.use_auth = 1;
-
+          // Switch from password to PIN or vice versa.
           if (hasPassword.value) {
-            // Switch from password to PIN
             const pinValue = managePinDigits.value.join('');
             if (pinValue.length === 4) {
               updatePayload.password = null;
               updatePayload.pin = pinValue;
             } else {
               console.error('PIN must be 4 digits');
-              return; // Exit without completing
+              return;
             }
           } else if (hasPin.value) {
-            // Switch from PIN to password
             if (userData.value.password) {
               updatePayload.pin = null;
               updatePayload.password = userData.value.password;
             } else {
               console.error('Password cannot be empty');
-              return; // Exit without completing
+              return;
             }
           }
         } else if (updateAuthAction.value === 'remove') {
-          // Remove protection completely
-          updatePayload.use_auth = 0;
-          updatePayload.password = null;
-          updatePayload.pin = null;
+          // Phase 3: under the new rules every account must have a password
+          // or PIN. The server will refuse a no-creds update outright; the
+          // UI button is left visible for now but the action is a no-op.
+          console.warn('Remove-auth action is no longer supported; auth is mandatory.');
+          return;
         }
       }
     } else {
-      // User is only updating profile info (name, avatar), not auth
-      // Don't include auth fields in the update payload
-      delete updatePayload.use_auth;
+      // User is only updating profile info (name, avatar), not auth.
       delete updatePayload.password;
       delete updatePayload.pin;
     }

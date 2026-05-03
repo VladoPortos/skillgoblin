@@ -56,6 +56,23 @@ export default defineEventHandler(async (event) => {
       }
 
       const db = getDb();
+
+      const allowPinRow = db
+        .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
+        .get();
+      const allowPin = (allowPinRow?.value ?? 'true') === 'true';
+
+      // When PINs are globally disabled, a PIN-only signup must be refused
+      // (the user would not be able to log in without a password). A signup
+      // that supplies both is fine — we just drop the PIN.
+      if (!allowPin && !password) {
+        return createError({
+          statusCode: 400,
+          statusMessage: 'PINs are disabled on this instance — set a password.'
+        });
+      }
+      const effectivePin = allowPin ? pin : null;
+
       const existingUser = db.prepare('SELECT id FROM users WHERE name = ? COLLATE NOCASE').get(name);
       if (existingUser) {
         return createError({
@@ -72,7 +89,7 @@ export default defineEventHandler(async (event) => {
 
       const userId = uuidv4();
       const hashedPassword = password ? await hashCredential(password) : null;
-      const hashedPin = pin ? await hashCredential(pin) : null;
+      const hashedPin = effectivePin ? await hashCredential(effectivePin) : null;
 
       const result = db.prepare(`
         INSERT INTO users (id, name, avatar, password, pin, theme, isAdmin, is_active)
@@ -121,15 +138,67 @@ export default defineEventHandler(async (event) => {
       const fields = ['name = ?', 'avatar = ?'];
       const params = [body.name.trim(), avatar];
 
+      // Decide what the post-update credential state will be. Refuse the
+      // update if it would leave the row with neither password nor PIN —
+      // the new auth model requires at least one. We only consult the DB
+      // for the fields the body did NOT touch.
+      // When PINs are globally disabled, silently drop any incoming PIN value
+      // (we keep treating the field as "touched" with null, so that an active
+      // PIN in the DB gets cleared by the update — keeps profile management
+      // honest with the global policy).
+      const allowPinRow = db
+        .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
+        .get();
+      const allowPin = (allowPinRow?.value ?? 'true') === 'true';
+
+      const passwordTouched = body.password !== undefined;
+      let pinTouched = body.pin !== undefined;
+      const passwordWillBeSet = passwordTouched
+        ? (typeof body.password === 'string' && body.password.length > 0)
+        : null; // null = "unchanged, fall back to DB"
+      let pinWillBeSet;
+      if (!allowPin) {
+        // Force PIN to null regardless of body, but only flag pinTouched if
+        // the row currently has a PIN (so we don't write a no-op when the
+        // user wasn't trying to change PINs at all).
+        pinWillBeSet = false;
+        const cur = db.prepare(`SELECT pin FROM users WHERE id = ?`).get(body.id);
+        if (cur?.pin) pinTouched = true;
+      } else {
+        pinWillBeSet = pinTouched
+          ? (typeof body.pin === 'string' && body.pin.length > 0)
+          : null;
+      }
+
+      if (passwordTouched || pinTouched) {
+        const current = db.prepare(`
+          SELECT
+            CASE WHEN password IS NOT NULL AND password != '' THEN 1 ELSE 0 END AS has_password,
+            CASE WHEN pin      IS NOT NULL AND pin      != '' THEN 1 ELSE 0 END AS has_pin
+          FROM users WHERE id = ?
+        `).get(body.id);
+        const finalHasPassword = passwordWillBeSet ?? current.has_password === 1;
+        const finalHasPin      = pinWillBeSet      ?? current.has_pin      === 1;
+        if (!finalHasPassword && !finalHasPin) {
+          throw createError({
+            statusCode: 400,
+            statusMessage: 'A password or PIN is required — refusing to leave this account with no credentials.'
+          });
+        }
+      }
+
       let credentialsChanged = false;
-      if (body.password !== undefined) {
-        const v = typeof body.password === 'string' && body.password.length > 0 ? body.password : null;
+      if (passwordTouched) {
+        const v = passwordWillBeSet ? body.password : null;
         fields.push('password = ?');
         params.push(v ? await hashCredential(v) : null);
         credentialsChanged = true;
       }
-      if (body.pin !== undefined) {
-        const v = typeof body.pin === 'string' && body.pin.length > 0 ? body.pin : null;
+      if (pinTouched) {
+        // pinWillBeSet is forced to false when allow_pin=false; otherwise
+        // it reflects the body's intent. Either way, persist the resulting
+        // value (null = clear).
+        const v = pinWillBeSet ? body.pin : null;
         fields.push('pin = ?');
         params.push(v ? await hashCredential(v) : null);
         credentialsChanged = true;
