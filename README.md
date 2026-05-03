@@ -14,12 +14,14 @@ SkillGoblin is a lightweight, self-contained learning platform designed for loca
 
 ## Features
 
-- **User Management**
-  - Simple login with avatar-based selection
-  - Progress tracking across courses
-  - Favorites and "continue watching" functionality
+- **Authentication & users**
+  - Password and/or PIN login (every account must have at least one credential)
+  - First-run admin bootstrap from environment variables
+  - Multi-admin support with last-admin protection (server refuses any change that would leave zero active admins)
+  - Cookie-based sessions stored server-side with revocation support
+  - Admin panel for user activation, role/credential management, and session control
 
-- **Content Organization**
+- **Content organization**
   - Course categories with color-coding
   - Hierarchical lesson structure
   - Video playback with progress tracking
@@ -27,188 +29,254 @@ SkillGoblin is a lightweight, self-contained learning platform designed for loca
   - Natural sorting of video files
   - Real-time file monitoring for course updates and deletions
 
-- **Mobile-Friendly Interface**
+- **Mobile-friendly interface**
   - Responsive design works on all devices
   - Simple navigation for touch interfaces
   - Optimized video playback for mobile
 
-## Technical Stack
+## Technical stack
 
-- **Frontend**: Nuxt.js with Nitro server
-- **Database**: SQLite (file-based, no separate service needed)
+- **Frontend**: Nuxt 3 with Nitro server
+- **Database**: SQLite (file-based) with a forward-only migration framework
+- **Auth**: argon2id-hashed credentials, opaque cookie sessions
 - **Containerization**: Docker for development and production
-- **Video Handling**: Direct file serving via Nitro
-- **File Monitoring**: Chokidar for real-time content updates
+- **Video handling**: Direct file serving via Nitro
+- **File monitoring**: Chokidar for real-time content updates
 
-## Content Management
+## Authentication & users
 
-- **File Structure**:
-  ```
-  data/
-  ├── database/
-  │   └── database.sqlite    # SQLite database
-  └── content/
-      ├── Course Name/
-      │   ├── thumbnail.jpg    # Course thumbnail
-      │   ├── Lesson 1/        # First lesson folder
-      │   │   ├── 1. video1.mp4
-      │   │   ├── 2. video2.mp4
-      │   │   └── 3. video3.mp4
-      │   └── Lesson 2/        # Second lesson folder
-      │       ├── 1. video1.mp4
-      │       └── 2. video2.mp4
-      └── Another Course/
-          └── ...
-  ```
+The auth model assumes a **trusted local network** with a small number of named users (think family / homelab). It is not designed for public internet exposure — see [Security model](#security-model) below.
 
-- **File Monitoring**:
-  - Real-time monitoring of the content directory
-  - Automatic detection of new courses and course updates
-  - Automatic removal of deleted courses from the database
-  - Cleanup of user progress for deleted courses
+### First-run bootstrap
 
-- **Benefits**:
-  - Add/modify courses by simply copying folders
-  - No database interaction required for content management
-  - Easy to backup, version control, or transfer courses
-  - Natural organization that matches how video content is typically structured
+On a fresh install with no admin user, the server **refuses to boot** unless both `ADMIN_NAME` and `ADMIN_PASSWORD` are set in the container environment. It creates the first admin from those env vars, then ignores them on subsequent boots (admins manage their own credentials from the panel).
 
-The application scans the content directory on startup to index available courses.
-
-## Project Structure
-
+```yaml
+environment:
+  - ADMIN_NAME=admin
+  - ADMIN_PASSWORD=change-me-on-first-login
 ```
-skillgoblin/
-├── docker-compose.yml       # Development Docker configuration
-├── docker-compose.prod.yml  # Production Docker configuration
-├── Dockerfile.prod          # Production Docker build
-├── frontend/                # Nuxt application
-│   ├── pages/               # Page components
-│   ├── components/          # Reusable UI components
-│   ├── server/              # API routes and database access
-│   └── public/              # Static assets
-└── data/                    # Persistent data
-    ├── database/            # Database files
-    │   └── database.sqlite  # SQLite database
-    └── content/             # Course videos and images
-```
+
+This replaces the older "random password printed to logs" pattern, which was easy to miss in compose dashboards or stripped logs. See [docker-compose.example.yml](docker-compose.example.yml) for the recommended layout.
+
+### Auth modes
+
+Every account must have at least one of:
+- a password (any string), or
+- a 4-digit PIN
+
+Both is recommended — if the admin disables PINs globally, accounts with only a PIN are forced to set a password on next login.
+
+### Sessions
+
+A successful login sets an `HttpOnly`, `SameSite=Lax` cookie holding an opaque token. The server stores only the SHA-256 hash, one row per active session. Sessions live for 30 days with a sliding refresh (debounced to avoid hammering the DB during video progress saves). The same user can be logged in on multiple devices simultaneously; the admin panel can list and kick all sessions for any user.
+
+### Roles & last-admin protection
+
+Two-tier roles (`user` / `admin`). Multiple admins are supported. The server refuses any role demotion, deactivation, or deletion that would leave zero active admins — the "I locked myself out of my own homelab" scenario can't happen.
+
+### Admin panel
+
+Available to admins from the avatar dropdown in the top-right. Provides:
+- Full user list with activate/deactivate, promote/demote, reset password, reset PIN, kick sessions, delete
+- Pending-only filter for accounts awaiting admin approval
+- Sessions drilldown per user (user-agent, last-seen, expires)
+- System settings: toggle global `allow_pin` and `auto_approve_new_users`
+
+### Rate limiting
+
+`/api/users/auth` tracks failures per `(user_id, ip)` in process memory. After five wrong attempts, requests are 429-locked for 30 seconds, doubling on each subsequent block (60s, 120s, 240s, capped). Cooldown clears on a successful login. The bucket is per-process, so cluster-mode deployments would have separate buckets.
+
+## Security model
+
+SkillGoblin is **homelab-grade**. Concretely:
+
+- **Not internet-facing.** Run it on a LAN, on a tailnet, or behind a VPN. Don't expose it directly.
+- **Trust assumptions.** `X-Forwarded-Proto` and `X-Forwarded-For` are trusted unconditionally. This is fine behind a real reverse proxy (Caddy, Nginx, Traefik) where those headers are set authoritatively, but means a directly-exposed instance with no proxy can be lied to by a client.
+- **PIN brute-force surface.** A 4-digit PIN is 10,000 possibilities. Rate limiting helps but doesn't make PINs internet-grade. An admin who needs to expose a wider attack surface can disable PINs globally from the admin panel; existing PIN-only users are then prompted to set a password on next login.
+- **Credentials at rest.** Passwords and PINs are argon2id-hashed. Plaintext rows from older versions are detected on first login and rehashed inline.
+- **Sessions revoke server-side.** The cookie is opaque; revocation is a `DELETE` on the `user_sessions` row. "Log out all devices" and admin "kick sessions" both work this way.
+
+If you want production-grade hardening (WAF, internet-grade rate-limit budgets, 2FA), this isn't the right tool — and that's deliberate. The audience is one operator who knows their tenants.
 
 ## Configuration
 
-The application can be configured using environment variables:
+The application reads the following environment variables:
 
-*   **`CONTENT_DIR`**: (Optional) Specifies the directory path within the container where course content folders are located. Defaults to `/app/data/content`.
-*   **`DB_PATH`**: (Optional) Specifies the path within the container for the SQLite database file. Defaults to `/app/data/database/skillgoblin.db`.
-*   **`CHOKIDAR_POLLING_INTERVAL`**: (Optional) Sets the polling interval in milliseconds for the file watcher that detects new or removed course directories.
-    *   Defaults to `60000` (60 seconds).
-    *   Set to `0` to disable the file watcher completely. This can be useful on systems like Unraid to prevent the watcher's polling activity from keeping storage drives awake.
-    *   When disabled, new or removed courses will only be detected during the initial server startup scan or when a manual rescan is triggered through the application's interface (if available).
+| Variable | Required | Default | Purpose |
+|---|---|---|---|
+| `ADMIN_NAME` | First-run only | — | Name of the auto-created admin on first boot. Ignored once an admin row exists. |
+| `ADMIN_PASSWORD` | First-run only | — | Password for the auto-created admin. Ignored once an admin row exists. |
+| `CONTENT_DIR` | No | `/app/data/content` | Directory inside the container where course folders live. |
+| `DB_PATH` / `DATABASE_PATH` | No | `/app/data/database/skillgoblin.db` | Path to the SQLite database file. |
+| `CHOKIDAR_POLLING_INTERVAL` | No | `60000` | File watcher polling interval in milliseconds. Set to `0` to disable the watcher entirely (e.g. on Unraid, to stop drives spinning up). |
+| `HOST` | No | `0.0.0.0` | Bind address. |
+| `PORT` | No | `3000` | Listen port. |
 
-## Quick Start Guide
+`ADMIN_NAME` and `ADMIN_PASSWORD` are only consulted on a fresh install. Once any admin user exists in the database, both env vars are ignored — admins reset their own passwords from the panel.
 
-### Running the Application
+## Quick start
 
-#### Development Mode
+### Production (recommended)
 
-```bash
-# Start the application in development mode
-docker-compose up
-
-# Start in detached mode (background)
-docker-compose up -d
-
-# View logs when running in detached mode
-docker-compose logs -f
-
-# Stop the application
-docker-compose down
-```
-
-#### Production Mode
+Copy [docker-compose.example.yml](docker-compose.example.yml) to `docker-compose.prod.yml` and edit the `ADMIN_NAME` / `ADMIN_PASSWORD` values, then:
 
 ```bash
-# Build and start the application in production mode
-docker-compose -f docker-compose.prod.yml up --build
-
-# Start in detached mode (background)
-docker-compose -f docker-compose.prod.yml up -d
-
-# View logs when running in detached mode
-docker-compose -f docker-compose.prod.yml logs -f
-
-# Stop the application
-docker-compose -f docker-compose.prod.yml down
+docker compose -f docker-compose.prod.yml up --build -d
 ```
 
-### Adding New Courses
+Visit `http://<host>:3000`, sign in as the bootstrap admin, change the password, and create accounts for each user from the admin panel.
 
-1. Create a new folder under `data/content/` with your course name
-2. Create subfolders for each lesson and add your video files
-3. The application will automatically detect the new course (no restart required) / Optionally you can trigger a rescan from the interface in admin mode
-
-### Removing Courses
-
-1. Simply delete the course folder from `data/content/`
-2. The application will automatically detect the deletion and remove the course from the database
-3. User progress for the deleted course will be cleaned up automatically
-
-### Development Workflow
-
-1. The Nuxt application runs in development mode, so changes to files are reflected immediately
-2. The frontend code is in the `frontend` directory
-3. Database files are stored in the `data/database` directory
-4. Course content is in `data/content`
-
-### User Data
-
-User data is stored in SQLite at `data/database/database.sqlite`. You can inspect this database using any SQLite browser:
-
-```sql
--- Schema overview
-.tables
--- View users
-SELECT * FROM users;
--- View progress
-SELECT * FROM user_progress;
--- View courses
-SELECT * FROM courses;
-```
-
-## Production Deployment
-
-For production deployment, use the included Docker Compose production configuration:
+### Development
 
 ```bash
-# Build the production container
-docker-compose -f docker-compose.prod.yml build
+# Set the bootstrap admin once (subsequent boots ignore these)
+export ADMIN_NAME=admin
+export ADMIN_PASSWORD=dev-password
 
-# Run the production container
-docker-compose -f docker-compose.prod.yml up -d
+# Start in dev mode (hot reload)
+docker compose up
 ```
 
-The production setup includes:
+### Adding new courses
 
-1. Multi-stage build for smaller image size
-2. Production-optimized Nuxt configuration
-3. Proper volume mounting for persistent data
-4. Automatic restart policies
-5. Environment variable configuration
+1. Create a folder under `data/content/` named after the course.
+2. Add lesson subfolders with video files.
+3. The watcher picks them up automatically. You can also trigger a rescan from the admin avatar dropdown.
+
+### Removing courses
+
+Delete the course folder from `data/content/`. The watcher removes the course and its progress rows.
+
+## Upgrading from a previous version
+
+Existing installations are migrated forward automatically. The migration framework records each applied migration in a `migrations` table; on boot, any new migrations run in numeric order inside a transaction. Migrations are forward-only — there is no rollback step.
+
+The 002_auth_hardening migration (run on first boot of this version) does the following on existing databases:
+
+- Drops the legacy `use_auth` column. Auth is now mandatory for all accounts.
+- Adds an `is_active` column (defaulting to 1 for existing rows so nobody gets locked out by the upgrade).
+- Creates the `user_sessions` and `system_settings` tables.
+
+What you'll see depending on the prior state of your install:
+
+- **Plaintext passwords / PINs.** Detected on each user's next successful login and rehashed inline (argon2id). Users do not need to do anything — they just log in normally.
+- **Users with no credentials.** Boot prints a warning listing them; an admin must set a password or PIN for each from the admin panel before they can log in. Until then, those accounts simply don't appear as a valid login.
+- **No admin user exists.** The server refuses to boot until you set `ADMIN_NAME` / `ADMIN_PASSWORD` (see [First-run bootstrap](#first-run-bootstrap)).
+- **An admin already exists.** Bootstrap is skipped and the env vars are ignored. You log in with your existing admin credentials.
+
+## Content management
+
+### File structure
+
+```
+data/
+├── database/
+│   └── database.sqlite    # SQLite database
+└── content/
+    ├── Course Name/
+    │   ├── thumbnail.jpg     # Course thumbnail (or thumbnail.png)
+    │   ├── course.json       # Optional metadata override (title, description, etc.)
+    │   ├── Lesson 1/
+    │   │   ├── 1. video1.mp4
+    │   │   └── 2. video2.mp4
+    │   └── Lesson 2/
+    │       └── 1. video1.mp4
+    └── Another Course/
+        └── ...
+```
+
+### File monitoring
+
+- Real-time monitoring of the content directory
+- Automatic detection of new courses and course updates
+- Automatic removal of deleted courses from the database
+- Cleanup of user progress for deleted courses
+
+### Benefits
+
+- Add or modify courses by copying folders
+- No database interaction required for content management
+- Easy to backup, version control, or transfer courses
+- Natural organization that matches how video content is typically structured
+
+The application scans the content directory on startup to index available courses.
+
+## Project structure
+
+```
+skillgoblin/
+├── docker-compose.yml         # Development Docker config
+├── docker-compose.prod.yml    # Production Docker config
+├── docker-compose.example.yml # Recommended production layout with auth env vars
+├── docker-compose.test.yml    # Vitest + Playwright test stack
+├── Dockerfile.prod            # Production image (multi-stage build)
+├── frontend/                  # Nuxt application
+│   ├── pages/                 # Page components
+│   ├── components/            # Reusable UI components (incl. AdminPanel)
+│   ├── composables/           # Shared composables (useSession, etc.)
+│   ├── server/
+│   │   ├── api/               # Endpoint handlers
+│   │   ├── middleware/        # session.js — populates event.context.user
+│   │   ├── migrations/        # Numbered, forward-only schema migrations
+│   │   ├── plugins/           # bootstrap.js — first-run admin
+│   │   └── utils/             # authz, sessions, credentials, rate-limit, ...
+│   └── tests/
+│       ├── unit/              # Vitest
+│       └── e2e/               # Playwright
+└── data/                      # Persistent data
+    ├── database/              # database.sqlite
+    └── content/               # Course videos and assets
+```
+
+## Running tests
+
+The full test suite runs in Docker against a fresh production build of the app:
+
+```bash
+docker compose -f docker-compose.test.yml down -v
+docker compose -f docker-compose.test.yml run --rm --build tests
+```
+
+This runs the Vitest unit suite (~75 tests) followed by the Playwright e2e suite (~58 tests) against an isolated app container. The compose file sets a known `ADMIN_NAME` / `ADMIN_PASSWORD` for the test container; don't change those without also updating the test fixtures.
 
 ## Troubleshooting
 
-### Course Content Not Appearing
+### "SkillGoblin refused to start: no admin account exists..."
+
+The bootstrap plugin found no admin row and the env vars aren't set. Add `ADMIN_NAME` and `ADMIN_PASSWORD` to your container environment and restart. See [First-run bootstrap](#first-run-bootstrap).
+
+### Course content not appearing
 
 1. Check that the course folder exists in `data/content/`
 2. Check the application logs for any error messages
 3. Ensure video files are in supported formats (MP4 recommended)
+4. Try a manual rescan from the admin avatar dropdown
 
-### Database Issues
+### Locked out of admin
 
-1. If you experience database issues, you can reset the database by deleting `data/database/database.sqlite`
-2. The application will recreate the database on next startup
-3. Note that this will erase all user data and progress
+If you have any other admin user, log in as them and reset the locked-out admin's credentials from the admin panel. If you have no other admin and lost the bootstrap admin's credentials, stop the container, open `data/database/database.sqlite` with any SQLite browser, manually clear the admin row, and restart with `ADMIN_NAME` / `ADMIN_PASSWORD` set so the bootstrap re-creates a fresh admin.
+
+### Database issues
+
+If you need to reset the database, stop the container and delete `data/database/database.sqlite`. The application will recreate it on next startup. Note that this erases all users, progress, and session data.
 
 ## Changelog
+
+### 03.05.2026 — Auth hardening
+
+Major rewrite of the user/auth system:
+- argon2id-hashed credentials with inline rehash for legacy plaintext rows
+- Cookie-based sessions stored in `user_sessions`, with admin "kick sessions" and per-user "log out all devices"
+- Server-side `requireAuth` / `requireAdmin` / `requireSelfOrAdmin` enforcement on every mutating endpoint (replaces a spoofable `x-user-id` header pattern)
+- First-run admin bootstrap from `ADMIN_NAME` / `ADMIN_PASSWORD` env vars; refuses to start otherwise
+- Multi-admin with last-admin protection
+- Rate limiting on the auth endpoint
+- Forward-only migration framework (`migrations` table)
+- Admin panel UI (user activation, role/credential management, system settings, sessions drilldown, pending-only filter)
+- Login modes: password / PIN / both — never neither
+- Runtime-toggleable system settings (`allow_pin`, `auto_approve_new_users`)
+- Comprehensive test suite: ~75 vitest unit tests + ~58 Playwright e2e tests, all running in a dockerized test stack
 
 ### 23.05.2025
 

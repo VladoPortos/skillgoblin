@@ -45,3 +45,11 @@ Thumbs.db
 *.zip
 *.html
 course.json
+
+# Claude Code local state
+.claude
+
+# Test artifacts
+frontend/test-results
+frontend/playwright-report
+frontend/tests/e2e/.tmp-data

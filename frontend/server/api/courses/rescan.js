@@ -1,7 +1,9 @@
 import { defineEventHandler, readBody } from 'h3';
 import { scanCoursesOnStartup, initialScanStatus } from '../../utils/courseWatcher';
+import { requireAdmin } from '../../utils/authz';
 
 export default defineEventHandler(async (event) => {
+  requireAdmin(event);
   try {
     console.log('Rescan request received');
     

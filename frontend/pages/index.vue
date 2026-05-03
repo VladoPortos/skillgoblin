@@ -73,7 +73,8 @@
           <span class="text-white text-center truncate max-w-full" :title="user.name">
             {{ user.name.length > 12 ? user.name.substring(0, 12) + '...' : user.name }}
           </span>
-          <span v-if="user.use_auth" class="mt-1 text-xs text-gray-500">🔒</span>
+          <!-- Every account has credentials, so the lock icon is universal. -->
+          <span class="mt-1 text-xs text-gray-500">🔒</span>
         </div>
         
         <!-- New User Button -->
@@ -136,63 +137,71 @@
             </div>
           </ClientOnly>
           
-          <div class="mb-4">
-            <label class="flex items-center">
-              <input type="checkbox" v-model="useAuth" class="rounded text-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600" />
-              <span class="ml-2 text-sm text-gray-300">Protect account with password or PIN</span>
-            </label>
-          </div>
-          
+          <!-- Phase 3: auth is mandatory; the old "protect" checkbox is gone.
+               PIN tab is hidden when the admin globally disabled PINs. -->
           <div v-if="!hasAdmin" class="mb-4">
             <label class="flex items-center">
               <input type="checkbox" v-model="isAdminCheckbox" class="rounded text-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600" />
               <span class="ml-2 text-sm text-gray-300">Is Admin</span>
             </label>
           </div>
-          
-          <div v-if="useAuth" class="mb-4">
+
+          <div class="mb-4">
+            <p class="text-xs text-gray-400 mb-3">
+              Set a password, a PIN, or both. Both is recommended — quick-tap
+              PIN for daily use plus a password fallback if PINs are ever
+              disabled.
+            </p>
             <!-- Auth Type Toggle -->
-            <div class="flex justify-center mb-4">
+            <div v-if="systemSettings.allow_pin" class="flex justify-center mb-4">
               <div class="auth-toggle-container inline-flex bg-gray-200 dark:bg-gray-700 rounded-full p-1">
-                <button 
+                <button
                   type="button"
+                  data-testid="signup-mode-password"
                   @click="authType = 'password'"
                   class="px-3 py-1 sm:px-4 sm:py-2 rounded-full text-sm font-medium transition-colors duration-200"
                   :class="authType === 'password' ? 'bg-blue-500 text-white' : 'text-gray-300'"
-                >
-                  Password
-                </button>
-                <button 
+                >Password</button>
+                <button
                   type="button"
+                  data-testid="signup-mode-pin"
                   @click="authType = 'pin'"
                   class="px-3 py-1 sm:px-4 sm:py-2 rounded-full text-sm font-medium transition-colors duration-200"
                   :class="authType === 'pin' ? 'bg-blue-500 text-white' : 'text-gray-300'"
-                >
-                  PIN
-                </button>
+                >PIN</button>
+                <button
+                  type="button"
+                  data-testid="signup-mode-both"
+                  @click="authType = 'both'"
+                  class="px-3 py-1 sm:px-4 sm:py-2 rounded-full text-sm font-medium transition-colors duration-200"
+                  :class="authType === 'both' ? 'bg-blue-500 text-white' : 'text-gray-300'"
+                >Both</button>
               </div>
             </div>
-            
+
             <!-- Password Input -->
-            <div v-if="authType === 'password'">
+            <div v-if="authType === 'password' || authType === 'both' || !systemSettings.allow_pin" class="mb-4">
               <label for="password-input" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
               <input
                 ref="passwordInput"
                 id="password-input"
+                data-testid="signup-password-input"
                 v-model="newUser.password"
                 type="password"
                 class="w-full px-3 py-2 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
                 placeholder="Enter a password"
               />
             </div>
-            
-            <!-- PIN Input -->
-            <div v-if="authType === 'pin'">
+
+            <!-- PIN Input — only when PINs are globally enabled -->
+            <div v-if="(authType === 'pin' || authType === 'both') && systemSettings.allow_pin">
               <h3 class="block text-sm font-medium text-gray-300 mb-2">PIN (4 digits)</h3>
               <div class="flex justify-center space-x-2 pin-input-container">
                 <input
                   v-for="(digit, index) in 4"
                   :key="index"
+                  :id="`create-pin-${index}`"
+                  :data-testid="`signup-pin-${index}`"
                   :ref="el => { if (el && createPinInputs.value) createPinInputs.value[index] = el }"
                   v-model="createPinDigits[index]"
                   type="password"
@@ -236,12 +245,39 @@
     <div v-if="showAuthModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar">
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
         <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4">Authentication Required</h2>
-        
-        <form @submit.prevent="authenticateUser">
+
+        <form @submit.prevent="onAuthSubmit">
           <div class="mb-4">
             <div class="space-y-3">
-              <!-- Password input - only shown if user has password -->
-              <div v-if="!selectedUser.pin">
+              <!-- Toggle only when the user has BOTH credentials. Defaults to
+                   PIN (set in the watcher below) for the quick-tap path. -->
+              <div
+                v-if="selectedUser.password && selectedUser.pin"
+                class="flex justify-center mb-2"
+                data-testid="login-mode-toggle"
+              >
+                <div class="auth-toggle-container inline-flex bg-gray-200 dark:bg-gray-700 rounded-full p-1">
+                  <button
+                    type="button"
+                    data-testid="login-mode-pin"
+                    :aria-pressed="String(loginMode === 'pin')"
+                    @click="loginMode = 'pin'"
+                    class="px-3 py-1 sm:px-4 sm:py-2 rounded-full text-sm font-medium transition-colors duration-200"
+                    :class="loginMode === 'pin' ? 'bg-blue-500 text-white' : 'text-gray-500 dark:text-gray-300'"
+                  >PIN</button>
+                  <button
+                    type="button"
+                    data-testid="login-mode-password"
+                    :aria-pressed="String(loginMode === 'password')"
+                    @click="loginMode = 'password'"
+                    class="px-3 py-1 sm:px-4 sm:py-2 rounded-full text-sm font-medium transition-colors duration-200"
+                    :class="loginMode === 'password' ? 'bg-blue-500 text-white' : 'text-gray-500 dark:text-gray-300'"
+                  >Password</button>
+                </div>
+              </div>
+
+              <!-- Password input -->
+              <div v-if="loginMode === 'password'">
                 <label for="auth-password" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
                 <input
                   v-model="authData.password"
@@ -252,9 +288,9 @@
                   placeholder="Enter your password"
                 />
               </div>
-              
-              <!-- PIN input - only shown if user has PIN -->
-              <div v-if="selectedUser.pin" class="mt-4">
+
+              <!-- PIN input -->
+              <div v-if="loginMode === 'pin'" class="mt-4">
                 <h3 class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">PIN</h3>
                 <div class="flex justify-center space-x-2 pin-input-container">
                   <input
@@ -273,7 +309,7 @@
                   />
                 </div>
               </div>
-              
+
               <p v-if="authError" class="text-sm text-red-600 dark:text-red-400">
                 {{ authError }}
               </p>
@@ -300,6 +336,17 @@
         </form>
       </div>
     </div>
+
+    <!-- Phase 3: legacy bootstrap + post-login credential-update flow -->
+    <SetCredentialsModal
+      v-if="selectedUser"
+      :show="showSetCredentialsModal"
+      :mode="setCredentialsMode || 'bootstrap'"
+      :user="selectedUser"
+      :allow-pin="systemSettings.allow_pin"
+      :dismissible="false"
+      @success="finishCredentialUpdate"
+    />
   </div>
 </template>
 
@@ -309,6 +356,7 @@ import { useRouter } from 'vue-router';
 import { useSession } from '~/composables/useSession';
 import { useUserManagement } from '~/composables/useUserManagement';
 import AvatarSelector from '../components/AvatarSelector.vue';
+import SetCredentialsModal from '../components/SetCredentialsModal.vue';
 import { Beanhead } from 'beanheads-vue';
 
 const router = useRouter();
@@ -330,10 +378,14 @@ const {
   pinDigits,
   authData,
   createPinDigits,
+  showSetCredentialsModal,
+  setCredentialsMode,
+  systemSettings,
   fetchUsers,
   selectUser,
   authenticateUser,
-  createUser
+  createUser,
+  finishCredentialUpdate
 } = useUserManagement();
 
 // Local template refs - initialize arrays for PIN inputs
@@ -350,6 +402,33 @@ watch(() => authType.value, (newAuthType) => {
   }
 });
 const isAdminCheckbox = ref(false);
+
+// Login modal state — which credential the user picked when they have both.
+// Defaults to PIN (faster, what most family-mode users will tap), but the
+// modal exposes a toggle when both credentials exist on the account.
+const loginMode = ref('pin');
+watch(() => showAuthModal.value, (isOpen) => {
+  if (!isOpen) return;
+  // Reset on each open. PIN-default if the user has one; otherwise password.
+  loginMode.value = selectedUser.value?.pin ? 'pin' : 'password';
+  authData.value = { password: '', pin: '' };
+  pinDigits.value = ['', '', '', ''];
+  authError.value = '';
+});
+// Clear the inactive input when the user toggles modes so a stale value
+// doesn't get sent and trip the rate limiter on a wrong-credential miss.
+watch(loginMode, (mode) => {
+  if (mode === 'pin') {
+    authData.value.password = '';
+  } else {
+    pinDigits.value = ['', '', '', ''];
+  }
+  authError.value = '';
+});
+
+function onAuthSubmit() {
+  return authenticateUser(loginMode.value);
+}
 
 // Other reactive data
 const randomBanner = ref('/logos/skillgoblin-logo-wide.png');
@@ -379,8 +458,10 @@ const parseAvatar = (avatarString) => {
 const openCreateUserModal = () => {
   createPinDigits.value = ['', '', '', ''];
   isAdminCheckbox.value = false;
-  useAuth.value = false;
-  authType.value = 'password';
+  useAuth.value = true; // auth is mandatory now (the legacy "no-auth" path is gone)
+  // Default to password; force it when PINs are disabled globally so the
+  // PIN tab can never be selected when it cannot be used.
+  authType.value = systemSettings.value.allow_pin ? 'password' : 'password';
   authError.value = '';
   createError.value = '';
   
@@ -501,12 +582,30 @@ watch(showAuthModal, (newValue) => {
 // Fix user creation handler to properly pass data
 const handleCreateUser = async () => {
   try {
-    // Prepare user data
+    // Prepare user data — 'both' includes both fields; 'password' / 'pin'
+    // include only one. Server enforces at-least-one and 4-digit PIN format.
+    const wantsPassword = authType.value === 'password' || authType.value === 'both';
+    const wantsPin = (authType.value === 'pin' || authType.value === 'both') && systemSettings.value.allow_pin;
+    const passwordValue = newUser.value.password || '';
+    const pinValue = createPinDigits.value.join('');
+
+    // Mode-specific client-side validation. Without this, "Both" + only one
+    // input filled would silently fall back to that single credential at the
+    // composable level (it coerces empty strings to null).
+    if (wantsPassword && !passwordValue) {
+      createError.value = 'Please enter a password.';
+      return;
+    }
+    if (wantsPin && !/^\d{4}$/.test(pinValue)) {
+      createError.value = 'PIN must be exactly 4 digits.';
+      return;
+    }
+
     const userData = {
       name: newUser.value.name,
       avatar: newUser.value.avatar,
-      password: authType.value === 'password' ? newUser.value.password : null,
-      pin: authType.value === 'pin' ? createPinDigits.value.join('') : null,
+      password: wantsPassword ? passwordValue : null,
+      pin: wantsPin ? pinValue : null,
       isAdmin: isAdminCheckbox.value
     };
     
