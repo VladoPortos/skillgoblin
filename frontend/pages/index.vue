@@ -73,7 +73,9 @@
           <span class="text-white text-center truncate max-w-full" :title="user.name">
             {{ user.name.length > 12 ? user.name.substring(0, 12) + '...' : user.name }}
           </span>
-          <span v-if="user.use_auth" class="mt-1 text-xs text-gray-500">🔒</span>
+          <!-- Phase 2 dropped use_auth — every user has credentials now,
+               so the lock icon is universal and not informative. -->
+          <span class="mt-1 text-xs text-gray-500">🔒</span>
         </div>
         
         <!-- New User Button -->
@@ -136,25 +138,23 @@
             </div>
           </ClientOnly>
           
-          <div class="mb-4">
-            <label class="flex items-center">
-              <input type="checkbox" v-model="useAuth" class="rounded text-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600" />
-              <span class="ml-2 text-sm text-gray-300">Protect account with password or PIN</span>
-            </label>
-          </div>
-          
+          <!-- Phase 3: auth is mandatory; the old "protect" checkbox is gone.
+               PIN tab is hidden when the admin globally disabled PINs. -->
           <div v-if="!hasAdmin" class="mb-4">
             <label class="flex items-center">
               <input type="checkbox" v-model="isAdminCheckbox" class="rounded text-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600" />
               <span class="ml-2 text-sm text-gray-300">Is Admin</span>
             </label>
           </div>
-          
-          <div v-if="useAuth" class="mb-4">
+
+          <div class="mb-4">
+            <p class="text-xs text-gray-400 mb-3">
+              Pick a password or a PIN. You can add the other one from your profile later — having both means a quick-tap PIN for daily use plus a password fallback if PINs are ever disabled.
+            </p>
             <!-- Auth Type Toggle -->
-            <div class="flex justify-center mb-4">
+            <div v-if="systemSettings.allow_pin" class="flex justify-center mb-4">
               <div class="auth-toggle-container inline-flex bg-gray-200 dark:bg-gray-700 rounded-full p-1">
-                <button 
+                <button
                   type="button"
                   @click="authType = 'password'"
                   class="px-3 py-1 sm:px-4 sm:py-2 rounded-full text-sm font-medium transition-colors duration-200"
@@ -162,7 +162,7 @@
                 >
                   Password
                 </button>
-                <button 
+                <button
                   type="button"
                   @click="authType = 'pin'"
                   class="px-3 py-1 sm:px-4 sm:py-2 rounded-full text-sm font-medium transition-colors duration-200"
@@ -174,7 +174,7 @@
             </div>
             
             <!-- Password Input -->
-            <div v-if="authType === 'password'">
+            <div v-if="authType === 'password' || !systemSettings.allow_pin">
               <label for="password-input" class="block text-sm font-medium text-gray-300 mb-1">Password</label>
               <input
                 ref="passwordInput"
@@ -185,9 +185,9 @@
                 placeholder="Enter a password"
               />
             </div>
-            
-            <!-- PIN Input -->
-            <div v-if="authType === 'pin'">
+
+            <!-- PIN Input — only when PINs are globally enabled -->
+            <div v-if="authType === 'pin' && systemSettings.allow_pin">
               <h3 class="block text-sm font-medium text-gray-300 mb-2">PIN (4 digits)</h3>
               <div class="flex justify-center space-x-2 pin-input-container">
                 <input
@@ -300,6 +300,17 @@
         </form>
       </div>
     </div>
+
+    <!-- Phase 3: legacy bootstrap + post-login credential-update flow -->
+    <SetCredentialsModal
+      v-if="selectedUser"
+      :show="showSetCredentialsModal"
+      :mode="setCredentialsMode || 'bootstrap'"
+      :user="selectedUser"
+      :allow-pin="systemSettings.allow_pin"
+      :dismissible="false"
+      @success="finishCredentialUpdate"
+    />
   </div>
 </template>
 
@@ -309,6 +320,7 @@ import { useRouter } from 'vue-router';
 import { useSession } from '~/composables/useSession';
 import { useUserManagement } from '~/composables/useUserManagement';
 import AvatarSelector from '../components/AvatarSelector.vue';
+import SetCredentialsModal from '../components/SetCredentialsModal.vue';
 import { Beanhead } from 'beanheads-vue';
 
 const router = useRouter();
@@ -330,10 +342,14 @@ const {
   pinDigits,
   authData,
   createPinDigits,
+  showSetCredentialsModal,
+  setCredentialsMode,
+  systemSettings,
   fetchUsers,
   selectUser,
   authenticateUser,
-  createUser
+  createUser,
+  finishCredentialUpdate
 } = useUserManagement();
 
 // Local template refs - initialize arrays for PIN inputs
@@ -379,8 +395,10 @@ const parseAvatar = (avatarString) => {
 const openCreateUserModal = () => {
   createPinDigits.value = ['', '', '', ''];
   isAdminCheckbox.value = false;
-  useAuth.value = false;
-  authType.value = 'password';
+  useAuth.value = true; // auth is mandatory now (the legacy "no-auth" path is gone)
+  // Default to password; force it when PINs are disabled globally so the
+  // PIN tab can never be selected when it cannot be used.
+  authType.value = systemSettings.value.allow_pin ? 'password' : 'password';
   authError.value = '';
   createError.value = '';
   
