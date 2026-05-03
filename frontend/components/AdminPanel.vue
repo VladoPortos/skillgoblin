@@ -510,6 +510,7 @@ function onCreateUserBackdrop() {
 }
 
 async function submitCreateUser() {
+  if (createSaving.value) return;
   createError.value = '';
   const name = createForm.value.name.trim();
   if (!name) { createError.value = 'Name is required'; return; }
@@ -549,6 +550,11 @@ async function submitCreateUser() {
     }
     showCreateUser.value = false;
     await loadUsers();
+    // Admin-created users are always active. If "Pending only" is on, the
+    // newly created row would be filtered out of view — surprising UX
+    // ("I just created them, where are they?"). Clear the filter so the
+    // new row is visible.
+    filterPending.value = false;
   } catch (err) {
     createError.value = err.message || 'Create failed';
   } finally {
