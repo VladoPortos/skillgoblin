@@ -24,7 +24,7 @@
     "argon2": "^0.41.1",
     "lru-cache": "^11.3.5",
     "beanheads-vue": "1.0.0",
-    "chokidar": "^3.5.3",
+    "chokidar": "^5.0.0",
     "sharp": "^0.33.5",
     "busboy": "^1.6.0"
   },
