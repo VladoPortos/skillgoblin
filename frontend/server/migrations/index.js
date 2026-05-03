@@ -4,8 +4,10 @@
 // also tolerate being run against a partially-prepared DB where reasonable).
 import m001_initial from './001_initial.js';
 import m002_auth_hardening from './002_auth_hardening.js';
+import m003_allow_user_registration from './003_allow_user_registration.js';
 
 export default [
   m001_initial,
-  m002_auth_hardening
+  m002_auth_hardening,
+  m003_allow_user_registration
 ];

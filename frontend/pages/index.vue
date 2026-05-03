@@ -77,8 +77,9 @@
           <span class="mt-1 text-xs text-gray-500">🔒</span>
         </div>
         
-        <!-- New User Button -->
-        <div 
+        <!-- New User Button — hidden when self-registration is disabled. -->
+        <div
+          v-if="systemSettings.allow_user_registration"
           class="bg-gray-800 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-gray-700"
           @click="openCreateUserModal"
         >

@@ -37,6 +37,28 @@ export default defineEventHandler(async (event) => {
 
   if (method === 'POST') {
     try {
+      const db = getDb();
+
+      // Registration gate. Read the setting and the caller's session up
+      // front. We do NOT use requireAuth() here because we want to allow
+      // the anonymous signup path through when the setting is true; we
+      // also do not want a deactivated session-cookie holder to be
+      // treated the same as an anonymous caller.
+      const allowRegRow = db
+        .prepare("SELECT value FROM system_settings WHERE key = 'allow_user_registration'")
+        .get();
+      const allowRegistration = (allowRegRow?.value ?? 'true') === 'true';
+
+      const sessionUser = event.context.user || null;
+      const isAdminCaller = !!(sessionUser && sessionUser.is_active && sessionUser.isAdmin);
+
+      if (!allowRegistration && !isAdminCaller) {
+        return createError({
+          statusCode: 403,
+          statusMessage: 'Registration is disabled on this instance'
+        });
+      }
+
       const body = await readBody(event) || {};
       const name = typeof body.name === 'string' ? body.name.trim() : '';
 
@@ -65,8 +87,6 @@ export default defineEventHandler(async (event) => {
         });
       }
 
-      const db = getDb();
-
       const allowPinRow = db
         .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
         .get();
@@ -91,11 +111,19 @@ export default defineEventHandler(async (event) => {
         });
       }
 
-      const autoApproveRow = db
-        .prepare("SELECT value FROM system_settings WHERE key = 'auto_approve_new_users'")
-        .get();
-      const autoApprove = (autoApproveRow?.value ?? 'false') === 'true';
-      const isActive = autoApprove ? 1 : 0;
+      // Admin-create is an explicit, knowing action — it bypasses the
+      // global auto-approve setting and lands the user as is_active=1.
+      // Anonymous self-signup honors the setting as before.
+      let isActive;
+      if (isAdminCaller) {
+        isActive = 1;
+      } else {
+        const autoApproveRow = db
+          .prepare("SELECT value FROM system_settings WHERE key = 'auto_approve_new_users'")
+          .get();
+        const autoApprove = (autoApproveRow?.value ?? 'false') === 'true';
+        isActive = autoApprove ? 1 : 0;
+      }
 
       const userId = uuidv4();
       const hashedPassword = password ? await hashCredential(password) : null;
