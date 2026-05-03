@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
   try {
     const db = getDb();
     const user = db.prepare(`
-      SELECT id, name, avatar, use_auth, isAdmin,
+      SELECT id, name, avatar, isAdmin, is_active,
              CASE WHEN password IS NOT NULL AND password != '' THEN 1 ELSE 0 END AS has_password,
              CASE WHEN pin      IS NOT NULL AND pin      != '' THEN 1 ELSE 0 END AS has_pin
       FROM users WHERE id = ?
