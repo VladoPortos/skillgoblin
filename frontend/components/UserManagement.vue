@@ -28,13 +28,15 @@
           />
         </div>
         
-        <!-- Avatar preview -->
+        <!-- Avatar preview — sticky so it stays visible while the user
+             scrolls through the AvatarSelector options below, giving a
+             true live preview of every change. -->
         <ClientOnly>
-          <div class="mb-4">
+          <div class="sticky top-0 z-10 bg-gray-800 pt-2 pb-4 -mt-2 mb-4">
             <h3 class="block text-sm font-medium text-gray-300 mb-1">Avatar Preview</h3>
             <div class="flex justify-center">
               <div class="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center">
-                <Beanhead 
+                <Beanhead
                   v-if="isValidAvatarJson(userData.avatar)"
                   v-bind="parseAvatar(userData.avatar)"
                   width="96"
