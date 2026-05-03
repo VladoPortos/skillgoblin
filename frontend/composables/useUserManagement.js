@@ -29,7 +29,7 @@ export function useUserManagement() {
   // Phase 3: cached system-settings snapshot. Refreshed on init and after
   // any settings change. Read by the signup form to hide the PIN field
   // when allow_pin is false.
-  const systemSettings = ref({ allow_pin: true, auto_approve_new_users: false });
+  const systemSettings = ref({ allow_pin: true, auto_approve_new_users: false, allow_user_registration: true });
 
   const fetchSystemSettings = async () => {
     try {
@@ -38,7 +38,8 @@ export function useUserManagement() {
       const data = await r.json();
       systemSettings.value = {
         allow_pin: (data.allow_pin ?? 'true') === 'true',
-        auto_approve_new_users: (data.auto_approve_new_users ?? 'false') === 'true'
+        auto_approve_new_users: (data.auto_approve_new_users ?? 'false') === 'true',
+        allow_user_registration: (data.allow_user_registration ?? 'true') === 'true'
       };
       return systemSettings.value;
     } catch (err) {

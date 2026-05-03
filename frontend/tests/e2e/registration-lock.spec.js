@@ -177,3 +177,23 @@ test.describe('POST /api/users — registration lock', () => {
     await tmpCtx.dispose();
   });
 });
+
+test.describe('Login screen — New User tile', () => {
+  test.afterEach(async () => {
+    await setRegistration(true);
+  });
+
+  test('tile is visible when registration allowed', async ({ page }) => {
+    await setRegistration(true);
+    await page.goto('/');
+    await expect(page.getByText('New User')).toBeVisible();
+  });
+
+  test('tile is hidden when registration disabled', async ({ page }) => {
+    await setRegistration(false);
+    await page.goto('/');
+    // The "New User" label is the only place that string appears on the
+    // login screen; the tile being hidden makes it absent from the DOM.
+    await expect(page.getByText('New User')).toHaveCount(0);
+  });
+});
