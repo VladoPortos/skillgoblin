@@ -563,8 +563,7 @@ const saveCourse = async (courseData) => {
     `;
     document.body.appendChild(loadingDiv);
     
-    // Submit the form data to the server. Authorization is now session-cookie
-    // based (the legacy x-user-id header was spoofable and is gone).
+    // Authorization rides on the session cookie; no header to set here.
     const response = await $fetch('/api/courses/edit', {
       method: 'POST',
       body: courseData

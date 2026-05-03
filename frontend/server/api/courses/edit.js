@@ -7,7 +7,6 @@ import { getCourseRootPath } from '../../utils/thumbnailUtils';
 import { requireAdmin } from '../../utils/authz';
 
 export default defineEventHandler(async (event) => {
-  // Session-derived admin check (was: spoofable x-user-id header).
   requireAdmin(event);
   const db = getDb();
 

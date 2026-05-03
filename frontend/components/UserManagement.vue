@@ -357,9 +357,8 @@ watch(() => props.show, (isVisible) => {
   }
 }, { immediate: true });
 
-// Computed properties for authentication status.
-// Phase 2 dropped the use_auth column — having a credential IS the auth
-// modality now. authState is the canonical source.
+// Auth modality is derived from credential presence — there's no separate
+// flag. authState is the canonical source.
 const hasPin = computed(() => authState.value.hasPin);
 const hasPassword = computed(() => authState.value.hasPassword);
 

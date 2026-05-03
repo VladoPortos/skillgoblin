@@ -73,8 +73,7 @@
           <span class="text-white text-center truncate max-w-full" :title="user.name">
             {{ user.name.length > 12 ? user.name.substring(0, 12) + '...' : user.name }}
           </span>
-          <!-- Phase 2 dropped use_auth — every user has credentials now,
-               so the lock icon is universal and not informative. -->
+          <!-- Every account has credentials, so the lock icon is universal. -->
           <span class="mt-1 text-xs text-gray-500">🔒</span>
         </div>
         
