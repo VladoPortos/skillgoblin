@@ -1,0 +1,41 @@
+# Recommended production docker-compose layout for SkillGoblin.
+#
+# Copy to docker-compose.prod.yml (or to your preferred name) and edit the
+# ADMIN_NAME / ADMIN_PASSWORD values to a real bootstrap admin you'll use
+# for the first login. After that first login the env vars are ignored —
+# admins manage their own credentials from the admin panel.
+#
+# Reverse proxy: SkillGoblin trusts X-Forwarded-Proto / X-Forwarded-For
+# unconditionally. That's fine behind a real proxy (Caddy, Nginx, Traefik)
+# that sets those headers authoritatively, but means a directly-exposed
+# instance can be lied to. See the README "Security model" section.
+
+---
+services:
+  skillgoblin:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    volumes:
+      - ./data/database:/app/data/database
+      - ./data/content:/app/data/content
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3000
+      - NODE_ENV=production
+
+      # First-run admin bootstrap. Required on a fresh install (no admin row
+      # in the DB yet); ignored on every subsequent boot. Change BOTH before
+      # first start, then change the admin password again from the panel
+      # after you log in.
+      - ADMIN_NAME=admin
+      - ADMIN_PASSWORD=please-change-me-before-first-boot
+
+      # File-watcher polling interval, milliseconds. Set to 0 to disable
+      # polling entirely (e.g. on Unraid where you don't want drives spun
+      # up by the watcher); rescans then only run on startup or via the
+      # admin panel's "Rescan Database" action.
+      - CHOKIDAR_POLLING_INTERVAL=60000
+    ports:
+      - "3000:3000"
+    restart: always

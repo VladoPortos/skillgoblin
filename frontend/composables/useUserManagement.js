@@ -200,9 +200,9 @@ export function useUserManagement() {
         throw new Error('Username is required');
       }
       
-      // Phase 2: server ignores body.isAdmin (admin promotion is via the
-      // PUT endpoint, gated by an admin session). use_auth no longer
-      // exists. Server requires at least one of password / pin.
+      // Server ignores body.isAdmin on signup (admin promotion happens via
+      // the admin-gated PUT endpoint) and requires at least one of password
+      // / pin.
       const requestData = {
         name: userData.name.trim(),
         avatar: userData.avatar || null,
