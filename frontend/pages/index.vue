@@ -550,13 +550,23 @@ onMounted(async () => {
     });
   }
   
-  $fetch('/api/random-banner')
-    .then(({ path }) => {
-      if (path) {
-        const img = new Image();
-        img.onload = () => randomBanner.value = path;
-        img.src = path;
+  // Operator override probe: if /api/login-banner returns 200 the operator
+  // dropped a custom banner — use it directly, no rotation. Otherwise
+  // fall back to the existing random rotation from /api/random-banner so
+  // existing installs keep their current behavior exactly.
+  fetch('/api/login-banner', { method: 'HEAD' })
+    .then((probe) => {
+      if (probe.ok) {
+        randomBanner.value = '/api/login-banner';
+        return;
       }
+      return $fetch('/api/random-banner').then(({ path }) => {
+        if (path) {
+          const img = new Image();
+          img.onload = () => randomBanner.value = path;
+          img.src = path;
+        }
+      });
     })
     .catch(console.error);
 });
