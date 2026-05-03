@@ -107,6 +107,7 @@ The application reads the following environment variables:
 |---|---|---|---|
 | `ADMIN_NAME` | First-run only | — | Name of the auto-created admin on first boot. Ignored once an admin row exists. |
 | `ADMIN_PASSWORD` | First-run only | — | Password for the auto-created admin. Ignored once an admin row exists. |
+| `ALLOW_USER_REGISTRATION` | No | `true` | When `false`, the public "New User" tile on the login screen is hidden and self-signup is refused. Admins can still create accounts from the Admin Panel. Runtime-toggleable from Admin Panel → Settings after first boot. |
 | `CONTENT_DIR` | No | `/app/data/content` | Directory inside the container where course folders live. |
 | `DB_PATH` / `DATABASE_PATH` | No | `/app/data/database/skillgoblin.db` | Path to the SQLite database file. |
 | `CHOKIDAR_POLLING_INTERVAL` | No | `60000` | File watcher polling interval in milliseconds. Set to `0` to disable the watcher entirely (e.g. on Unraid, to stop drives spinning up). |
