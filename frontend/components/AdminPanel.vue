@@ -202,6 +202,23 @@
             </span>
           </label>
 
+          <label class="flex items-start gap-3">
+            <input
+              type="checkbox"
+              v-model="settings.allow_user_registration"
+              data-testid="settings-allow-registration"
+              class="mt-1"
+            />
+            <span>
+              <span class="block font-medium">Allow user self-registration</span>
+              <span class="block text-xs text-gray-400">
+                When off, the "New User" tile on the login screen is hidden and
+                public POST /api/users is refused. Admins can still create
+                accounts from the Users tab.
+              </span>
+            </span>
+          </label>
+
           <div class="flex items-center gap-3 pt-2">
             <button
               class="px-3 py-2 text-sm bg-blue-700 text-white rounded hover:bg-blue-600 disabled:opacity-50"
@@ -544,7 +561,7 @@ const sessionsList = ref([]);
 const sessionsLoading = ref(false);
 const sessionsError = ref('');
 
-const settings = ref({ allow_pin: true, auto_approve_new_users: false });
+const settings = ref({ allow_pin: true, auto_approve_new_users: false, allow_user_registration: true });
 const settingsLoading = ref(false);
 const settingsError = ref('');
 const settingsSaving = ref(false);
@@ -702,7 +719,8 @@ async function loadSettings() {
     const body = await r.json();
     settings.value = {
       allow_pin: coerceBool(body.allow_pin),
-      auto_approve_new_users: coerceBool(body.auto_approve_new_users)
+      auto_approve_new_users: coerceBool(body.auto_approve_new_users),
+      allow_user_registration: coerceBool(body.allow_user_registration)
     };
     settingsLoaded = true;
   } catch (err) {
@@ -738,6 +756,8 @@ async function saveSettings() {
     await putSetting('allow_pin', settings.value.allow_pin);
     committed++;
     await putSetting('auto_approve_new_users', settings.value.auto_approve_new_users);
+    committed++;
+    await putSetting('allow_user_registration', settings.value.allow_user_registration);
     committed++;
     settingsSaved.value = true;
   } catch (err) {
