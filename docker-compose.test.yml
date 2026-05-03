@@ -20,6 +20,11 @@ services:
       - PORT=3000
       - NODE_ENV=production
       - DATABASE_PATH=/app/data/database/database.sqlite
+      # The bootstrap server-plugin requires both vars on a fresh install.
+      # Tests use these credentials in tests/e2e/auth.spec.js — keep them
+      # in sync with PW_ADMIN_NAME / PW_ADMIN_PASSWORD on the tests service.
+      - ADMIN_NAME=root
+      - ADMIN_PASSWORD=TestAdminPass!
     tmpfs:
       - /app/data
     healthcheck:
@@ -44,6 +49,8 @@ services:
       - tester_node_modules:/work/node_modules
     environment:
       - PW_BASE_URL=http://app:3000
+      - PW_ADMIN_NAME=root
+      - PW_ADMIN_PASSWORD=TestAdminPass!
       - CI=1
     command:
       - bash
