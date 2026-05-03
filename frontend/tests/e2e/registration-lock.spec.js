@@ -134,4 +134,46 @@ test.describe('POST /api/users — registration lock', () => {
     expect(r.status()).toBe(403);
     await plebCtx.dispose();
   });
+
+  test('deactivated admin with stale cookie cannot bypass when registration disabled', async () => {
+    // Create a second admin via the root admin, log them in to capture a
+    // valid session cookie, then have root deactivate them. Their cookie
+    // is still valid; the registration gate's `is_active` requirement on
+    // isAdminCaller is the only thing standing between them and a
+    // successful POST. This locks in that property so a future refactor
+    // that drops the is_active check has a failing test.
+    const { ctx: root } = await loginAdmin();
+    const tmpName = `tmpadmin-${Date.now()}`;
+    const created = await root.post('/api/users', {
+      data: { name: tmpName, password: 'pw12345!' }
+    });
+    const tmp = await created.json();
+    // Activate + promote the new admin so they can actually log in and
+    // be a session-authenticated admin.
+    await root.put('/api/users', {
+      data: { id: tmp.id, name: tmp.name, is_active: 1, isAdmin: 1 }
+    });
+
+    // Log the temp admin in — captures their session cookie in tmpCtx.
+    const tmpCtx = await freshContext();
+    await tmpCtx.post('/api/users/auth', {
+      data: { userId: tmp.id, password: 'pw12345!' }
+    });
+
+    // Root deactivates the temp admin. The temp's cookie is unchanged.
+    await root.put('/api/users', {
+      data: { id: tmp.id, name: tmp.name, is_active: 0 }
+    });
+    await root.dispose();
+
+    await setRegistration(false);
+
+    // Temp admin's POST must be refused — the gate's is_active check
+    // demotes them to anonymous, and registration is disabled.
+    const r = await tmpCtx.post('/api/users', {
+      data: { name: `should-fail-${Date.now()}`, password: 'pw12345!' }
+    });
+    expect(r.status()).toBe(403);
+    await tmpCtx.dispose();
+  });
 });
