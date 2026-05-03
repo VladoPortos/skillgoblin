@@ -57,24 +57,22 @@ export function useUserManagement() {
     try {
       selectedUser.value = user;
       pinDigits.value = ['', '', '', ''];
-      
-      if (user.use_auth === 1) {
-        const response = await fetch(`/api/users/${user.id}`);
-        if (response.ok) {
-          const userData = await response.json();
-          selectedUser.value = {
-            ...userData,
-            pin: userData.has_pin === 1,
-            password: userData.has_password === 1
-          };
-        }
-        showAuthModal.value = true;
-        authData.value = { password: '', pin: '' };
-        authError.value = '';
-      } else {
-        const result = await login(user.id);
-        if (result.success) router.push('/courses');
+
+      // Phase 2: every user must have a password or PIN — there is no
+      // longer a "no-auth" path. Fetch the auth-presence flags so the
+      // modal can pick between password input and PIN input.
+      const response = await fetch(`/api/users/${user.id}`);
+      if (response.ok) {
+        const userData = await response.json();
+        selectedUser.value = {
+          ...userData,
+          pin: userData.has_pin === 1,
+          password: userData.has_password === 1
+        };
       }
+      showAuthModal.value = true;
+      authData.value = { password: '', pin: '' };
+      authError.value = '';
     } catch (error) {
       console.error('Error selecting user:', error);
       throw error;
@@ -123,14 +121,14 @@ export function useUserManagement() {
         throw new Error('Username is required');
       }
       
-      // Prepare request data
+      // Phase 2: server ignores body.isAdmin (admin promotion is via the
+      // PUT endpoint, gated by an admin session). use_auth no longer
+      // exists. Server requires at least one of password / pin.
       const requestData = {
         name: userData.name.trim(),
         avatar: userData.avatar || null,
         password: userData.password || null,
-        pin: userData.pin || null,
-        use_auth: useAuth.value ? 1 : 0,
-        isAdmin: userData.isAdmin ? 1 : 0
+        pin: userData.pin || null
       };
       
       const response = await fetch('/api/users', {

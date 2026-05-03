@@ -4,20 +4,27 @@ import { test, expect } from '@playwright/test';
 // selection screen is reachable. Real auth flows arrive in later phases.
 test.describe('smoke', () => {
   test('home page renders the user selection screen', async ({ page }) => {
+    // /api/auth/me legitimately returns 401 when no session cookie exists
+    // (the auth plugin probes it on every page load to restore sessions).
+    // The browser logs that as a console "Failed to load resource" error
+    // — filter it out and complain only about real errors.
+    const EXPECTED_NOISE = /Failed to load resource:.*401|\/api\/auth\/me.*401/i;
+
     const consoleErrors = [];
     page.on('console', msg => {
-      if (msg.type() === 'error') consoleErrors.push(msg.text());
+      if (msg.type() !== 'error') return;
+      const text = msg.text();
+      if (EXPECTED_NOISE.test(text)) return;
+      consoleErrors.push(text);
     });
 
     const response = await page.goto('/');
     expect(response?.status()).toBe(200);
     await expect(page).toHaveTitle(/SkillGoblin/i);
 
-    // Wait for the SPA to hydrate and the user list to appear (fetched from /api/users)
     await page.waitForLoadState('networkidle');
 
-    // The screen always shows the app shell even with zero users, so just
-    // confirm the API responded successfully.
+    // Confirm the user-listing API still responds (proxy for migration health).
     const apiUsers = await page.request.get('/api/users');
     expect(apiUsers.ok()).toBeTruthy();
     const body = await apiUsers.json();
