@@ -170,6 +170,14 @@
                          server enforces a credential floor on PUT regardless. -->
                   </div>
                 </div>
+
+                <p
+                  data-testid="encourage-both-hint"
+                  class="text-xs text-gray-400 text-center px-2"
+                >
+                  Tip: set both a password and a PIN — if an admin disables
+                  PINs, your password is still a working login.
+                </p>
                 
                 <!-- Change auth (password or PIN) -->
                 <div v-if="updateAuthAction === 'change'">

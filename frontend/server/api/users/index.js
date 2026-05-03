@@ -22,7 +22,7 @@ export default defineEventHandler(async (event) => {
     try {
       const db = getDb();
       const users = db.prepare(`
-        SELECT id, name, avatar, isAdmin, is_active,
+        SELECT id, name, avatar, isAdmin, is_active, created_at,
                CASE WHEN password IS NOT NULL AND password != '' THEN 1 ELSE 0 END AS has_password,
                CASE WHEN pin      IS NOT NULL AND pin      != '' THEN 1 ELSE 0 END AS has_pin
         FROM users
@@ -52,6 +52,16 @@ export default defineEventHandler(async (event) => {
         return createError({
           statusCode: 400,
           statusMessage: 'A password or PIN is required to create an account'
+        });
+      }
+
+      // PINs are exactly 4 digits — the login UI's split-input field can't
+      // produce anything else, so accepting `abc` server-side would silently
+      // lock out the user (admin-set PINs in particular).
+      if (pin !== null && !/^\d{4}$/.test(pin)) {
+        return createError({
+          statusCode: 400,
+          statusMessage: 'PIN must be exactly 4 digits'
         });
       }
 
@@ -134,9 +144,19 @@ export default defineEventHandler(async (event) => {
         return createError({ statusCode: 404, statusMessage: 'User not found' });
       }
 
-      const avatar = typeof body.avatar === 'string' ? body.avatar : null;
-      const fields = ['name = ?', 'avatar = ?'];
-      const params = [body.name.trim(), avatar];
+      // Build the field list incrementally. Untouched fields stay as-is in
+      // the DB so partial updates (e.g., admin-panel "activate" sending only
+      // { id, name, is_active }) don't accidentally clobber unrelated columns
+      // like the user's avatar. Same "if undefined → leave alone" pattern
+      // already used below for password/pin.
+      const fields = ['name = ?'];
+      const params = [body.name.trim()];
+
+      if (body.avatar !== undefined) {
+        const avatar = typeof body.avatar === 'string' ? body.avatar : null;
+        fields.push('avatar = ?');
+        params.push(avatar);
+      }
 
       // Decide what the post-update credential state will be. Refuse the
       // update if it would leave the row with neither password nor PIN —
@@ -156,6 +176,16 @@ export default defineEventHandler(async (event) => {
       const passwordWillBeSet = passwordTouched
         ? (typeof body.password === 'string' && body.password.length > 0)
         : null; // null = "unchanged, fall back to DB"
+
+      // Same 4-digit constraint as POST — applies whether self-edit or
+      // admin-reset. Empty/null is allowed (means "clear PIN" subject to
+      // credential-floor check below).
+      if (pinTouched && body.pin !== null && body.pin !== '' && !/^\d{4}$/.test(body.pin)) {
+        return createError({
+          statusCode: 400,
+          statusMessage: 'PIN must be exactly 4 digits'
+        });
+      }
       let pinWillBeSet;
       if (!allowPin) {
         // Force PIN to null regardless of body, but only flag pinTouched if
