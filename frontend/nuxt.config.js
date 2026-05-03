@@ -1,7 +1,16 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
-import { readBranding } from './server/utils/branding.js';
-
-const branding = readBranding();
+//
+// runtimeConfig.public.branding gets HARDCODED defaults here. The
+// operator-facing APP_* env vars are read at SERVER STARTUP by the
+// Nitro plugin at frontend/server/plugins/branding.js, which overwrites
+// these defaults with readBranding(process.env). Reading env in this
+// file would happen at Docker build time (when `npm run build` runs in
+// Dockerfile.prod) where compose `environment:` values do not exist —
+// causing operator-set values to be silently ignored.
+//
+// app.head likewise uses hardcoded defaults; app.vue calls useHead()
+// reading from runtimeConfig.public.branding so the head reflects
+// runtime values after hydration.
 
 export default defineNuxtConfig({
   devtools: { enabled: true },
@@ -40,12 +49,12 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      title: branding.name,
+      title: 'SkillGoblin',
       meta: [
-        { name: 'description', content: branding.description },
+        { name: 'description', content: 'A streamlined, self-hosted learning platform' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { name: 'msapplication-TileColor', content: branding.themeColor },
-        { name: 'theme-color', content: branding.themeColor },
+        { name: 'msapplication-TileColor', content: '#111827' },
+        { name: 'theme-color', content: '#111827' },
         // Add meta tags to control browser caching
         { 'http-equiv': 'Cache-Control', content: 'no-cache, no-store, must-revalidate' },
         { 'http-equiv': 'Pragma', content: 'no-cache' },
@@ -66,7 +75,16 @@ export default defineNuxtConfig({
     // Public keys that are exposed to the client
     public: {
       apiBase: '/api',
-      branding
+      // Hardcoded defaults — overwritten at server startup by the
+      // frontend/server/plugins/branding.js Nitro plugin reading
+      // process.env via readBranding().
+      branding: {
+        name: 'SkillGoblin',
+        shortName: 'SkillGoblin',
+        description: 'A streamlined, self-hosted learning platform',
+        themeColor: '#111827',
+        backgroundColor: '#111827'
+      }
     }
   }
 })
