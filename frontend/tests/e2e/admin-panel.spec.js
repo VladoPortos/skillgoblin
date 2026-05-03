@@ -416,7 +416,7 @@ test.describe('UserManagement — encourage-both hint', () => {
     await page.waitForLoadState('networkidle');
 
     await page.locator('.user-profile').click();
-    await page.getByRole('button', { name: /user management/i }).click();
+    await page.getByRole('button', { name: /my profile/i }).click();
     await expect(page.getByTestId('encourage-both-hint')).toBeVisible();
   });
 });
