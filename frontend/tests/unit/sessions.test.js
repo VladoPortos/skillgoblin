@@ -13,7 +13,6 @@ import {
   pruneExpiredSessions,
   hashSessionToken,
   generateSessionToken,
-  SESSION_LIFETIME_MS,
   SESSION_TOUCH_DEBOUNCE_MS
 } from '../../server/utils/sessions.js';
 

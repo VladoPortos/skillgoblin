@@ -2,7 +2,7 @@ import { defineEventHandler, readBody, createError } from 'h3';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../../utils/db';
 import { hashCredential } from '../../utils/credentials';
-import { requireAdmin, requireSelfOrAdmin } from '../../utils/authz';
+import { requireSelfOrAdmin } from '../../utils/authz';
 import { deleteUserSessions } from '../../utils/sessions';
 import { ensureNotLastAdmin } from '../../utils/lastAdminGuard';
 

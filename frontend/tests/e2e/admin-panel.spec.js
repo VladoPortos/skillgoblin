@@ -214,7 +214,7 @@ test.describe('AdminPanel — row actions', () => {
 
   test('promote then demote a regular user', async ({ page }) => {
     const { pleb } = await createPendingPleb(page.request, 'role');
-    const admin = await openPanelAsAdmin(page);
+    await openPanelAsAdmin(page);
 
     // Activate first so we can verify role transitions independent of activation.
     const row = page.getByTestId(`user-row-${pleb.id}`);
