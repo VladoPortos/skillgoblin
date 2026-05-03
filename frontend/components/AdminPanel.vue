@@ -46,6 +46,12 @@
           <span v-if="filterPending" class="text-xs text-gray-400">
             Showing only inactive accounts.
           </span>
+          <div class="flex-1"></div>
+          <button
+            data-testid="admin-create-user"
+            class="px-3 py-1 text-xs rounded bg-blue-700 text-white hover:bg-blue-600"
+            @click="openCreateUser"
+          >+ Create User</button>
         </div>
         <div v-if="actionError" class="text-red-400 text-sm" data-testid="action-error">{{ actionError }}</div>
         <div v-if="loading" class="text-gray-400 text-sm">Loading users…</div>
@@ -320,6 +326,106 @@
         </div>
       </div>
     </div>
+
+    <!-- Admin Create User -->
+    <div
+      v-if="showCreateUser"
+      class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
+      data-testid="admin-create-user-modal"
+      @click.self="onCreateUserBackdrop"
+    >
+      <div class="bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
+        <div class="flex justify-between items-center mb-4">
+          <h3 class="text-lg font-bold text-white">Create user</h3>
+          <button
+            @click="closeCreateUser"
+            class="text-gray-400 hover:text-white"
+            aria-label="Close"
+            :disabled="createSaving"
+          >×</button>
+        </div>
+
+        <form @submit.prevent="submitCreateUser" class="flex flex-col gap-3">
+          <label class="block">
+            <span class="block text-sm font-medium text-gray-300 mb-1">Name</span>
+            <input
+              v-model="createForm.name"
+              data-testid="admin-create-name"
+              type="text"
+              required
+              class="w-full px-3 py-2 border border-gray-600 rounded bg-gray-700 text-white"
+            />
+          </label>
+
+          <div v-if="createSettings.allow_pin" class="flex justify-center">
+            <div class="inline-flex bg-gray-700 rounded-full p-1">
+              <button
+                type="button"
+                data-testid="admin-create-mode-password"
+                class="px-3 py-1 rounded-full text-sm"
+                :class="createForm.mode === 'password' ? 'bg-blue-600 text-white' : 'text-gray-300'"
+                @click="createForm.mode = 'password'"
+              >Password</button>
+              <button
+                type="button"
+                data-testid="admin-create-mode-pin"
+                class="px-3 py-1 rounded-full text-sm"
+                :class="createForm.mode === 'pin' ? 'bg-blue-600 text-white' : 'text-gray-300'"
+                @click="createForm.mode = 'pin'"
+              >PIN</button>
+              <button
+                type="button"
+                data-testid="admin-create-mode-both"
+                class="px-3 py-1 rounded-full text-sm"
+                :class="createForm.mode === 'both' ? 'bg-blue-600 text-white' : 'text-gray-300'"
+                @click="createForm.mode = 'both'"
+              >Both</button>
+            </div>
+          </div>
+
+          <label v-if="createForm.mode === 'password' || createForm.mode === 'both'" class="block">
+            <span class="block text-sm font-medium text-gray-300 mb-1">Password</span>
+            <input
+              v-model="createForm.password"
+              data-testid="admin-create-password"
+              type="password"
+              autocomplete="new-password"
+              class="w-full px-3 py-2 border border-gray-600 rounded bg-gray-700 text-white"
+            />
+          </label>
+
+          <label v-if="createSettings.allow_pin && (createForm.mode === 'pin' || createForm.mode === 'both')" class="block">
+            <span class="block text-sm font-medium text-gray-300 mb-1">PIN (4 digits)</span>
+            <input
+              v-model="createForm.pin"
+              data-testid="admin-create-pin"
+              type="text"
+              inputmode="numeric"
+              pattern="\d{4}"
+              maxlength="4"
+              class="w-full px-3 py-2 border border-gray-600 rounded bg-gray-700 text-white"
+            />
+          </label>
+
+          <p v-if="createError" class="text-red-400 text-sm" data-testid="admin-create-error">{{ createError }}</p>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              class="px-3 py-2 text-sm bg-gray-700 text-white rounded hover:bg-gray-600"
+              :disabled="createSaving"
+              @click="closeCreateUser"
+            >Cancel</button>
+            <button
+              type="submit"
+              data-testid="admin-create-submit"
+              class="px-3 py-2 text-sm bg-blue-700 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+              :disabled="createSaving"
+            >{{ createSaving ? 'Creating…' : 'Create' }}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -352,6 +458,86 @@ const resetValue = ref('');
 
 const kickTarget = ref(null);
 const deleteTarget = ref(null);
+
+const showCreateUser = ref(false);
+const createForm = ref({ name: '', password: '', pin: '', mode: 'password' });
+const createSettings = ref({ allow_pin: true });
+const createSaving = ref(false);
+const createError = ref('');
+
+async function openCreateUser() {
+  createForm.value = { name: '', password: '', pin: '', mode: 'password' };
+  createError.value = '';
+  // Pull a fresh allow_pin so the PIN tab matches current policy.
+  try {
+    const r = await fetch('/api/system-settings');
+    if (r.ok) {
+      const body = await r.json();
+      createSettings.value = { allow_pin: (body.allow_pin ?? 'true') === 'true' };
+      // If PINs are disabled, force the mode to password.
+      if (!createSettings.value.allow_pin) createForm.value.mode = 'password';
+    }
+  } catch { /* default stays allow_pin=true */ }
+  showCreateUser.value = true;
+}
+
+function closeCreateUser() {
+  if (createSaving.value) return;
+  showCreateUser.value = false;
+}
+
+function onCreateUserBackdrop() {
+  // In-flight save guard mirrors the rest of the modals in this app.
+  if (createSaving.value) return;
+  showCreateUser.value = false;
+}
+
+async function submitCreateUser() {
+  createError.value = '';
+  const name = createForm.value.name.trim();
+  if (!name) { createError.value = 'Name is required'; return; }
+
+  const wantsPassword = createForm.value.mode === 'password' || createForm.value.mode === 'both';
+  const wantsPin = createSettings.value.allow_pin
+    && (createForm.value.mode === 'pin' || createForm.value.mode === 'both');
+
+  const password = wantsPassword ? createForm.value.password : '';
+  const pin = wantsPin ? createForm.value.pin : '';
+
+  if (!password && !pin) {
+    createError.value = 'Set a password, a PIN, or both.';
+    return;
+  }
+  if (pin && !/^\d{4}$/.test(pin)) {
+    createError.value = 'PIN must be exactly 4 digits.';
+    return;
+  }
+
+  createSaving.value = true;
+  try {
+    const r = await fetch('/api/users', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        password: password || null,
+        pin: pin || null
+      })
+    });
+    if (!r.ok) {
+      let msg = `Create failed (${r.status})`;
+      try { msg = (await r.json())?.statusMessage || msg; } catch {}
+      createError.value = msg;
+      return;
+    }
+    showCreateUser.value = false;
+    await loadUsers();
+  } catch (err) {
+    createError.value = err.message || 'Create failed';
+  } finally {
+    createSaving.value = false;
+  }
+}
 
 const sessionsTarget = ref(null);
 const sessionsList = ref([]);

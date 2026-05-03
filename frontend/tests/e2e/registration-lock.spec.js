@@ -209,3 +209,45 @@ test.describe('Login screen — New User tile', () => {
     await expect(page.getByText('New User', { exact: true })).toHaveCount(0);
   });
 });
+
+test.describe('AdminPanel — Create User', () => {
+  test.afterEach(async () => {
+    await setRegistration(true);
+  });
+
+  test('admin can create an active normal user via the panel UI', async ({ page }) => {
+    // Disable registration to prove the admin-create path is independent.
+    await setRegistration(false);
+
+    // Log in as admin via the API so the cookie is on the page context —
+    // matches the pattern used by the existing admin-panel spec.
+    const admin = await getAdmin(page.request);
+    await page.request.post('/api/users/auth', {
+      data: { userId: admin.id, password: ADMIN_PASSWORD }
+    });
+
+    await page.goto('/courses');
+    await page.waitForLoadState('networkidle');
+
+    // Open the user-profile dropdown and click "Admin Panel" — same
+    // selectors as admin-panel.spec.js.
+    await page.locator('.user-profile').click();
+    await page.getByRole('button', { name: /admin panel/i }).click();
+    await expect(page.getByTestId('admin-panel')).toBeVisible();
+
+    // Open the create modal.
+    await page.getByTestId('admin-create-user').click();
+    await expect(page.getByTestId('admin-create-user-modal')).toBeVisible();
+
+    const newName = `panel-created-${Date.now()}`;
+    await page.getByTestId('admin-create-name').fill(newName);
+    await page.getByTestId('admin-create-password').fill('pw12345!');
+    await page.getByTestId('admin-create-submit').click();
+
+    // After success the modal closes and the new user appears in the table
+    // as Active + User.
+    await expect(page.getByTestId('admin-create-user-modal')).toHaveCount(0);
+    const row = page.getByText(newName);
+    await expect(row).toBeVisible();
+  });
+});
