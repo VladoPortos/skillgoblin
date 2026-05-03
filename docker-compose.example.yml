@@ -31,6 +31,10 @@ services:
       - ADMIN_NAME=admin
       - ADMIN_PASSWORD=please-change-me-before-first-boot
 
+      # Set to "false" to lock self-signup; admins create accounts via
+      # the Admin Panel. Toggleable at runtime from Admin Panel → Settings.
+      # - ALLOW_USER_REGISTRATION=false
+
       # File-watcher polling interval, milliseconds. Set to 0 to disable
       # polling entirely (e.g. on Unraid where you don't want drives spun
       # up by the watcher); rescans then only run on startup or via the
