@@ -344,8 +344,8 @@
       :mode="setCredentialsMode || 'bootstrap'"
       :user="selectedUser"
       :allow-pin="systemSettings.allow_pin"
-      :dismissible="false"
       @success="finishCredentialUpdate"
+      @dismiss="dismissSetCredentials"
     />
   </div>
 </template>
@@ -392,6 +392,19 @@ const {
 const pinInputs = ref(Array(4).fill(null));
 const createPinInputs = ref(Array(4).fill(null));
 const passwordInput = ref(null);
+
+// Dismiss handler for SetCredentialsModal. Bootstrap dismissals just close
+// the modal (the user has no session yet). Post-login dismissals close the
+// modal AND route to /courses — the PIN bridge already issued a session,
+// so they're authenticated; they just deferred the password setup.
+function dismissSetCredentials() {
+  const wasPostLogin = setCredentialsMode.value === 'post-login';
+  showSetCredentialsModal.value = false;
+  setCredentialsMode.value = null;
+  if (wasPostLogin) {
+    router.push('/courses');
+  }
+}
 
 // Make sure refs are initialized when switching auth type
 watch(() => authType.value, (newAuthType) => {
