@@ -90,11 +90,6 @@ test.describe('admin content export — UI surface', () => {
     await page.context().addCookies(cookies.cookies);
 
     await page.goto('/courses');
-    // Wait for either the user-profile button or the avatar dropdown trigger.
-    // The exact selector for the dropdown trigger varies by markup; we use
-    // a stable fallback chain.
-    const adminTab = page.locator('[data-testid=admin-tab-content], [data-testid=admin-export-all-json]');
-
     // Open the Admin Panel from the user profile menu. Try a few common
     // selectors so the test isn't brittle.
     const candidates = [
