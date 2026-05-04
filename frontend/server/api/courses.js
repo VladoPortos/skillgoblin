@@ -1,6 +1,6 @@
 import { defineEventHandler, getMethod, readBody } from 'h3';
 import { getDb } from '../utils/db';
-import { getAllCoursesFromDb, getAllCoursesWithMeta, getCourseFromDb } from '../utils/courseDatabase';
+import { getAllCoursesWithMeta, getCourseFromDb } from '../utils/courseDatabase';
 import { parseNewBadgeDays, isWithinNewWindow } from '../utils/recencyHelpers.js';
 import { setupFileWatcher } from '../utils/courseWatcher';
 import { requireAdmin } from '../utils/authz';
