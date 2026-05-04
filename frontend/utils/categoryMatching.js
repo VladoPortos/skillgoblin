@@ -17,3 +17,34 @@ export function tokenize(text) {
     .split(/[^a-z0-9]+/)
     .filter(token => token.length > 0 && !STOPWORDS.has(token));
 }
+
+export function findMatchingCategories(title, categories, options = {}) {
+  if (typeof title !== 'string' || !Array.isArray(categories) || categories.length === 0) {
+    return [];
+  }
+
+  const titleTokens = new Set(tokenize(title));
+  if (titleTokens.size === 0) return [];
+
+  const currentNormalized = typeof options.currentCategory === 'string'
+    ? options.currentCategory.trim().toLowerCase()
+    : '';
+
+  const matches = [];
+  for (const category of categories) {
+    if (typeof category !== 'string') continue;
+
+    const normalized = category.trim().toLowerCase();
+    if (normalized.length === 0) continue;
+    if (normalized === 'uncategorized') continue;
+    if (currentNormalized && normalized === currentNormalized) continue;
+
+    const catTokens = tokenize(category);
+    if (catTokens.length === 0) continue;
+
+    const allFound = catTokens.every(token => titleTokens.has(token));
+    if (allFound) matches.push(category);
+  }
+
+  return matches;
+}
