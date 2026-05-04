@@ -159,22 +159,48 @@
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Leave empty to hide release date on course card</p>
       </div>
 
+      <!-- course.json banner -->
+      <div
+        v-if="hasJson"
+        data-testid="course-json-banner"
+        class="rounded border border-yellow-600 bg-yellow-900/20 text-yellow-200 text-sm px-3 py-2"
+      >
+        <strong>course.json detected.</strong>
+        This course has a JSON override on disk. Saving here updates only the
+        database; click <em>Export to course.json</em> to also write the JSON,
+        otherwise the next rescan will revert your edits.
+      </div>
+
       <!-- Submit buttons -->
-      <div class="flex justify-end space-x-4">
-        <button 
-          type="button"
-          @click="$emit('cancel')"
-          class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-xs text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
-        >
-          Cancel
-        </button>
-        <button 
-          type="submit"
-          class="px-4 py-2 border border-transparent rounded-md shadow-xs text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          :disabled="isSaving"
-        >
-          {{ isSaving ? 'Saving...' : 'Save Course' }}
-        </button>
+      <div class="flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <button
+            v-if="isEditing"
+            type="button"
+            data-testid="course-export-json"
+            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+            :disabled="exportingThisCourse"
+            @click="exportThisCourseJson"
+          >
+            {{ exportingThisCourse ? 'Exporting…' : 'Export to course.json' }}
+          </button>
+        </div>
+        <div class="flex space-x-4">
+          <button
+            type="button"
+            @click="$emit('cancel')"
+            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-xs text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="px-4 py-2 border border-transparent rounded-md shadow-xs text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+            :disabled="isSaving"
+          >
+            {{ isSaving ? 'Saving...' : 'Save Course' }}
+          </button>
+        </div>
       </div>
     </form>
   </div>
@@ -196,6 +222,54 @@ const props = defineProps({
 const emit = defineEmits(['save', 'cancel']);
 
 const isSaving = ref(false);
+const hasJson = ref(false);
+const exportingThisCourse = ref(false);
+
+async function probeHasJson(courseId) {
+  if (!courseId) {
+    hasJson.value = false;
+    return;
+  }
+  try {
+    const res = await $fetch(`/api/courses/${encodeURIComponent(courseId)}/has-json`);
+    hasJson.value = !!res?.hasJson;
+  } catch {
+    hasJson.value = false;
+  }
+}
+
+async function exportThisCourseJson() {
+  if (!formData.value.id) return;
+  exportingThisCourse.value = true;
+  try {
+    // Build the same FormData the parent's saveCourse handler expects.
+    const courseData = {
+      id: formData.value.id,
+      title: formData.value.title,
+      description: formData.value.description,
+      category: formData.value.category,
+      releaseDate: formData.value.releaseDate,
+    };
+    const data = new FormData();
+    data.append('course', JSON.stringify(courseData));
+    if (formData.value.thumbnail) {
+      data.append('thumbnail', formData.value.thumbnail);
+    }
+    const saveRes = await $fetch('/api/courses/edit', { method: 'POST', body: data });
+    if (!saveRes?.success) {
+      console.error('Save before export failed:', saveRes);
+      return;
+    }
+    await $fetch(`/api/courses/${encodeURIComponent(formData.value.id)}/export-json`, {
+      method: 'POST',
+    });
+    hasJson.value = true;
+  } catch (err) {
+    console.error('Export failed:', err);
+  } finally {
+    exportingThisCourse.value = false;
+  }
+}
 const thumbnailPreview = ref('');
 const thumbnailFile = ref(null);
 
@@ -329,6 +403,7 @@ onMounted(async () => {
 watch(() => props.course, (newCourse) => {
   if (newCourse && newCourse.id) {
     formData.value.id = newCourse.id;
+    probeHasJson(newCourse.id);
     formData.value.title = newCourse.title;
     formData.value.description = newCourse.description;
     formData.value.category = newCourse.category || ''; // Handle potential null/undefined
@@ -351,6 +426,7 @@ watch(() => props.course, (newCourse) => {
   } else {
     // Reset form if course prop is empty or invalid
     resetForm();
+    hasJson.value = false;
   }
 }, { immediate: true, deep: true });
 

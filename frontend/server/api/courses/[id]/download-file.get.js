@@ -1,10 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { getDb } from '../../../utils/db';
-import { getContentDir } from '../../../utils/courseHelpers';
+import { resolveCourseDir, resolvePathInCourse } from '../../../utils/courseHelpers';
+import { requireAuth } from '../../../utils/authz';
 import { sendStream } from 'h3';
 
 export default defineEventHandler(async (event) => {
+  requireAuth(event);
   const courseId = event.context.params.id;
   const query = getQuery(event);
   const filePathRelative = query.filePath;
@@ -20,24 +22,34 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 404, statusMessage: 'Course or course folder not found.' });
   }
 
-  const contentDir = getContentDir();
-  const courseBasePath = path.join(contentDir, course.folder_name);
-  
-  const absoluteFilePath = path.normalize(path.join(courseBasePath, filePathRelative));
-
-  if (!absoluteFilePath.startsWith(courseBasePath)) {
-    throw createError({ statusCode: 403, statusMessage: 'Forbidden: Access to this path is not allowed.' });
+  let courseBasePath;
+  try {
+    courseBasePath = resolveCourseDir(course.folder_name);
+  } catch {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
   }
 
-  if (!fs.existsSync(absoluteFilePath) || !fs.statSync(absoluteFilePath).isFile()) {
+  let absoluteFilePath;
+  try {
+    absoluteFilePath = resolvePathInCourse(courseBasePath, filePathRelative);
+  } catch {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid file path' });
+  }
+
+  if (!fs.existsSync(absoluteFilePath)) {
     throw createError({ statusCode: 404, statusMessage: 'File not found.' });
   }
 
+  const stat = fs.statSync(absoluteFilePath);
+  if (!stat.isFile()) {
+    throw createError({ statusCode: 400, statusMessage: 'Not a file' });
+  }
+
   const fileName = path.basename(absoluteFilePath);
-  
+
   event.node.res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
   // MIME type can be set more dynamically if needed, for now, octet-stream is generic
-  event.node.res.setHeader('Content-Type', 'application/octet-stream'); 
+  event.node.res.setHeader('Content-Type', 'application/octet-stream');
 
   return sendStream(event, fs.createReadStream(absoluteFilePath));
 });

@@ -8,6 +8,38 @@ import { getDb } from './db';
 import { readAndProcessThumbnail, getCourseRootPath } from './thumbnailUtils';
 import { generateCourseId } from './courseHelpers'; // Added generateCourseId import explicitly for clarity within processCourseDirWithMetadataPreservation
 
+// Read just the keys of course.json so we know which fields the operator
+// pinned. Returns an empty Set on any read/parse failure so the caller treats
+// the course as "no pinned fields."
+function readCourseJsonKeys(courseDirPath) {
+  const filePath = path.join(courseDirPath, 'course.json');
+  let raw;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.warn(`[courseWatcher] cannot read ${filePath}: ${err.message}`);
+    }
+    return new Set();
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw.replace(/^﻿/, ''));
+  } catch (err) {
+    console.warn(`[courseWatcher] malformed JSON in ${filePath}: ${err.message}`);
+    return new Set();
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return new Set();
+  const ALLOWED = ['title', 'description', 'category', 'releaseDate'];
+  const pinned = new Set();
+  for (const key of ALLOWED) {
+    if (key in parsed && typeof parsed[key] === 'string') {
+      pinned.add(key);
+    }
+  }
+  return pinned;
+}
+
 // Status tracking for initial scan
 export const initialScanStatus = {
   inProgress: false,
@@ -200,14 +232,25 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
     const courseData = generateCourseJson(courseDir, courseDirPath);
 
     if (existingCourseResult && courseData) {
+      // course.json (already applied inside generateCourseJson) is the source of
+      // truth when present. DB-preserved metadata is the fallback for fields that
+      // the operator did NOT pin in course.json.
+      const jsonPinned = readCourseJsonKeys(courseDirPath);
+
       const updatedCourseData = {
-        ...courseData, // Start with new data from filesystem
-        title: existingCourseResult.title || courseData.title,
-        description: existingCourseResult.description || courseData.description,
-        category: existingCourseResult.category || courseData.category,
-        releaseDate: existingCourseResult.release_date || courseData.releaseDate,
-        // thumbnail: existingCourseResult.thumbnail || courseData.thumbnail, // Keep existing thumbnail filename, handled by generateCourseJson
-        // lessons will be from new scan via courseData.lessons
+        ...courseData,
+        title: jsonPinned.has('title')
+          ? courseData.title
+          : (existingCourseResult.title || courseData.title),
+        description: jsonPinned.has('description')
+          ? courseData.description
+          : (existingCourseResult.description || courseData.description),
+        category: jsonPinned.has('category')
+          ? courseData.category
+          : (existingCourseResult.category || courseData.category),
+        releaseDate: jsonPinned.has('releaseDate')
+          ? courseData.releaseDate
+          : (existingCourseResult.release_date || courseData.releaseDate),
       };
 
       // saveCourseToDb does not accept a third "preserveMetadata" arg —
