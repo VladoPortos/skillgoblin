@@ -265,6 +265,13 @@ function applyImageFile(file) {
     showError('Image files only.');
     return;
   }
+  // Clear any prior error now that we have a valid image. The size warning
+  // below (if any) replaces it via showError.
+  uploadError.value = '';
+  if (errorTimer) {
+    clearTimeout(errorTimer);
+    errorTimer = null;
+  }
   if (file.size > SOFT_SIZE_WARN) {
     showError('Warning: file is larger than 10 MB and may be rejected by the server.');
   }

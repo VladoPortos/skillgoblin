@@ -4,10 +4,10 @@ import fs from 'fs';
 import os from 'os';
 
 // PR-B e2e: validates the new dropzone UI in CourseEditor. The dockerized
-// test fixture has no admin-edit course pre-seeded, so the UI navigation
-// portion is gated behind a quick "is the dropzone visible at all?"
-// existence check; if the editor cannot be opened in this fixture, the test
-// skips with a clear message rather than flake.
+// test stack mounts `frontend/tests/fixtures/content` at `/app/data/content`
+// (see docker-compose.test.yml). A `beforeAll` triggers a rescan so the
+// fixture course is in the DB before the editor is opened. Tests fail
+// loudly if the fixture is missing — no skip fallback.
 
 const ADMIN_NAME = process.env.PW_ADMIN_NAME || 'root';
 const ADMIN_PASSWORD = process.env.PW_ADMIN_PASSWORD || 'TestAdminPass!';
@@ -48,32 +48,33 @@ function tinyPngPath() {
   return tmp;
 }
 
-async function tryOpenCourseEditor(page) {
-  // The Edit-course button is a small pencil icon on each CourseCard, only
-  // rendered when isAdmin is true. The button has no stable data-testid, so
-  // we fall back to the title attribute the existing markup uses.
+async function openCourseEditor(page) {
   const editBtn = page.locator('button[title="Edit course"]').first();
-  if ((await editBtn.count()) === 0) return false;
-  await editBtn.click({ timeout: 5_000 });
-  // Wait for the dropzone to appear (proxy for editor-open).
-  try {
-    await page.waitForSelector('[data-testid=thumbnail-dropzone]', { timeout: 5_000 });
-    return true;
-  } catch {
-    return false;
-  }
+  await expect(editBtn).toBeVisible({ timeout: 10_000 });
+  await editBtn.click();
+  await page.waitForSelector('[data-testid=thumbnail-dropzone]', { timeout: 5_000 });
 }
 
 test.describe('thumbnail dropzone', () => {
+  test.beforeAll(async ({ request }) => {
+    await loginAdmin(request);
+    const rescan = await request.post('/api/courses/rescan', { data: { preserveMetadata: true } });
+    expect(rescan.ok()).toBeTruthy();
+    for (let i = 0; i < 30; i += 1) {
+      const s = await request.get('/api/status/scan');
+      const body = await s.json();
+      if (body.complete) return;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    throw new Error('Rescan did not complete in time');
+  });
+
   test('clicking the dropzone hidden input uploads a real image', async ({ page, request }) => {
     await loginAdmin(request);
     await attachAuthCookie(page, request);
     await page.goto('/courses');
 
-    const opened = await tryOpenCourseEditor(page);
-    if (!opened) {
-      test.skip(true, 'No course in fixture to edit; dropzone wiring is also covered by the unit-level review.');
-    }
+    await openCourseEditor(page);
 
     const fileInput = page.locator('#thumbnailUpload');
     await fileInput.setInputFiles(tinyPngPath());
@@ -88,8 +89,7 @@ test.describe('thumbnail dropzone', () => {
     await attachAuthCookie(page, request);
     await page.goto('/courses');
 
-    const opened = await tryOpenCourseEditor(page);
-    if (!opened) test.skip(true, 'No course in fixture to edit.');
+    await openCourseEditor(page);
 
     await page.evaluate(() => {
       const dz = document.querySelector('[data-testid=thumbnail-dropzone]');
@@ -108,8 +108,7 @@ test.describe('thumbnail dropzone', () => {
     await attachAuthCookie(page, request);
     await page.goto('/courses');
 
-    const opened = await tryOpenCourseEditor(page);
-    if (!opened) test.skip(true, 'No course in fixture to edit.');
+    await openCourseEditor(page);
 
     await page.evaluate(() => {
       const dz = document.querySelector('[data-testid=thumbnail-dropzone]');
@@ -131,8 +130,7 @@ test.describe('thumbnail dropzone', () => {
     await attachAuthCookie(page, request);
     await page.goto('/courses');
 
-    const opened = await tryOpenCourseEditor(page);
-    if (!opened) test.skip(true, 'No course in fixture to edit.');
+    await openCourseEditor(page);
 
     const inputClicked = await page.evaluate(() => {
       let clicked = false;
