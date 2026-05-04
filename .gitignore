@@ -53,6 +53,7 @@ course.json
 frontend/test-results
 frontend/playwright-report
 frontend/tests/e2e/.tmp-data
+frontend/tests/fixtures/content/**/course.json
 
 # Local manual-test sandbox (course content + scratch DB; never tracked)
 manual-test/
