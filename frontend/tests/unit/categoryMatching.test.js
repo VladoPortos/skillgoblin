@@ -141,4 +141,10 @@ describe('findMatchingCategories', () => {
       findMatchingCategories('Unreal stuff', ['Unreal', null, undefined, 42])
     ).toEqual(['Unreal']);
   });
+
+  it('skips empty-string and whitespace-only category entries', () => {
+    expect(
+      findMatchingCategories('Unreal stuff', ['', '   ', 'Unreal'])
+    ).toEqual(['Unreal']);
+  });
 });

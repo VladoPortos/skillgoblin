@@ -34,6 +34,8 @@ export function findMatchingCategories(title, categories, options = {}) {
   for (const category of categories) {
     if (typeof category !== 'string') continue;
 
+    // normalized is used only for exclusion checks; catTokens drives the actual match.
+    // The length===0 guard cheaply skips whitespace-only categories before tokenize() runs.
     const normalized = category.trim().toLowerCase();
     if (normalized.length === 0) continue;
     if (normalized === 'uncategorized') continue;
@@ -42,8 +44,7 @@ export function findMatchingCategories(title, categories, options = {}) {
     const catTokens = tokenize(category);
     if (catTokens.length === 0) continue;
 
-    const allFound = catTokens.every(token => titleTokens.has(token));
-    if (allFound) matches.push(category);
+    if (catTokens.every(token => titleTokens.has(token))) matches.push(category);
   }
 
   return matches;
