@@ -22,16 +22,22 @@ function readCourseJsonKeys(courseDirPath) {
     }
     return new Set();
   }
+  let parsed;
   try {
-    const parsed = JSON.parse(raw.replace(/^﻿/, ''));
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return new Set(Object.keys(parsed));
-    }
-    return new Set();
+    parsed = JSON.parse(raw.replace(/^﻿/, ''));
   } catch (err) {
     console.warn(`[courseWatcher] malformed JSON in ${filePath}: ${err.message}`);
     return new Set();
   }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return new Set();
+  const ALLOWED = ['title', 'description', 'category', 'releaseDate'];
+  const pinned = new Set();
+  for (const key of ALLOWED) {
+    if (key in parsed && typeof parsed[key] === 'string') {
+      pinned.add(key);
+    }
+  }
+  return pinned;
 }
 
 // Status tracking for initial scan

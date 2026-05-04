@@ -43,7 +43,8 @@ export default defineEventHandler((event) => {
       fs.writeFileSync(path.join(dir, 'course.json'), JSON.stringify(payload, null, 2) + '\n', 'utf8');
       written.push(row.id);
     } catch (err) {
-      failed.push({ id: row.id, reason: err.message });
+      console.error(`[export-json-all] write failed for ${row.id}:`, err);
+      failed.push({ id: row.id, reason: 'write failed' });
     }
   }
 

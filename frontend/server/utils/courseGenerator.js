@@ -4,15 +4,17 @@ import { generateCourseId, naturalSort } from './courseHelpers';
 import { applyCourseJsonOverride } from './courseJsonOverride.js';
 
 // Build a per-video subtitle hint: if `lesson1.srt` exists next to
-// `lesson1.mp4`, return the .srt filename so the client can request a
-// converted .vtt sibling. Returns null when no sibling exists.
+// `lesson1.mp4`, return the corresponding `.vtt` filename so the client can
+// request it directly. The content endpoint converts the sibling .srt on
+// demand; clients don't need to know about the .srt.
 function findSubtitleSibling(videoFilePath) {
   const dir = path.dirname(videoFilePath);
   const base = path.basename(videoFilePath, path.extname(videoFilePath));
   const srtName = `${base}.srt`;
+  const vttName = `${base}.vtt`;
   const candidate = path.join(dir, srtName);
   try {
-    return fs.existsSync(candidate) ? srtName : null;
+    return fs.existsSync(candidate) ? vttName : null;
   } catch {
     return null;
   }

@@ -23,6 +23,20 @@ export function resolveCourseDir(folderName) {
   return candidate;
 }
 
+// Resolve a path inside a specific course's directory, rejecting any
+// segment that escapes the course root. Used by the content endpoint
+// after the course folder is identified, so URL path traversal in later
+// segments cannot reach files outside the course directory.
+export function resolvePathInCourse(courseDir, ...segments) {
+  const root = path.resolve(courseDir);
+  const candidate = path.resolve(root, ...segments);
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  if (candidate !== root && !candidate.startsWith(rootWithSep)) {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid path' });
+  }
+  return candidate;
+}
+
 // Function to generate a course ID from a title
 export const generateCourseId = (title) => {
   return title
