@@ -20,6 +20,12 @@ on:
   schedule:
     - cron: "45 3 * * 1"
 
+# Default deny — any job without an explicit permissions: block runs with
+# the GITHUB_TOKEN restricted to read-only contents access. Per-job
+# permissions below opt back into the additional scopes they actually need.
+permissions:
+  contents: read
+
 jobs:
   trivy-filesystem:
     name: Trivy filesystem scan

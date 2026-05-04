@@ -22,11 +22,13 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy the build output from the builder stage
-COPY --from=builder /app/.output ./.output
+# Copy the build output from the builder stage. Chown to the unprivileged
+# `node` user (uid 1000) shipped by the official node:20-alpine image so the
+# runtime stage can drop privileges via USER below.
+COPY --from=builder --chown=node:node /app/.output ./.output
 
 # Copy public directory and static assets
-COPY frontend/public ./public
+COPY --chown=node:node frontend/public ./public
 
 # Copy the entrypoint script that maps APP_* -> NUXT_PUBLIC_BRANDING_* env
 # vars at container start (see scripts/entrypoint.sh for the why).
@@ -38,10 +40,21 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 ENV NODE_ENV=production
 
-# Create necessary directories
-RUN mkdir -p /app/data/database
+# Create necessary directories owned by `node`. /app/data is the bind-mount
+# target for the host's data volume — the host directory must be writable
+# by uid 1000 (host: `chown -R 1000:1000 ./data` if migrating from a
+# pre-USER-drop install where files were created by root in the container).
+RUN mkdir -p /app/data/database && chown -R node:node /app/data
 
 EXPOSE 3000
+
+# Drop root before running the app — addresses Trivy/CodeQL DS-0002.
+USER node
+
+# Liveness probe — uses the same /api/users endpoint and shape that
+# docker-compose.test.yml's healthcheck uses.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/api/users >/dev/null 2>&1 || exit 1
 
 # Start the server (entrypoint script maps APP_* -> NUXT_PUBLIC_BRANDING_*
 # then exec's node .output/server/index.mjs)

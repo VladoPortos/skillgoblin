@@ -53,10 +53,10 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName) {
     else if (dbThumbnailData && !localThumbnailExists) {
       console.log(`[${courseId}] DB thumb exists, local does not. Writing DB thumb to local file.`);
       try {
-        if (!fs.existsSync(courseRoot)) {
-          fs.mkdirSync(courseRoot, { recursive: true });
-        }
-        fs.writeFileSync(localThumbnailPath, dbThumbnailData); // Just write it
+        // mkdirSync with recursive:true is idempotent — no exists-check needed,
+        // and dropping the check closes a TOCTOU window between exists and mkdir.
+        fs.mkdirSync(courseRoot, { recursive: true });
+        fs.writeFileSync(localThumbnailPath, dbThumbnailData);
         console.log(`[${courseId}] Local thumbnail.png created from DB data at ${localThumbnailPath}`);
       } catch (writeError) {
         console.error(`[${courseId}] Error writing DB thumbnail to ${localThumbnailPath}:`, writeError);
@@ -193,18 +193,19 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
         // lessons will be from new scan via courseData.lessons
       };
 
-      // Use saveCourseToDb which handles metadata updates carefully
-      // The `true` for preserveMetadata in saveCourseToDb is about not nullifying thumbnail_data if it exists.
-      // synchronizeCourseThumbnail will handle the actual data sync afterwards.
-      await saveCourseToDb(updatedCourseData, courseDir, true); 
+      // saveCourseToDb does not accept a third "preserveMetadata" arg —
+      // its UPDATE statement already excludes thumbnail_data so existing
+      // blob data survives unchanged. synchronizeCourseThumbnail handles
+      // the actual data sync afterwards.
+      await saveCourseToDb(updatedCourseData, courseDir);
       console.log(`Course metadata updated (preserved) for ${courseDir}`);
       // After saving/updating course data, synchronize the thumbnail
       await synchronizeCourseThumbnail(updatedCourseData.id, courseDir);
 
     } else if (courseData) {
       // New course or no existing metadata to preserve, treat as new
-      // saveCourseToDb will handle insert, setting thumbnail_data to NULL initially if preserveMetadata is false.
-      await saveCourseToDb(courseData, courseDir, false);
+      // saveCourseToDb's INSERT branch sets thumbnail_data to NULL initially.
+      await saveCourseToDb(courseData, courseDir);
       console.log(`New course data saved (or no metadata to preserve) for ${courseDir}`);
       // After saving basic course data, synchronize the thumbnail
       await synchronizeCourseThumbnail(courseData.id, courseDir);

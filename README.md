@@ -192,6 +192,16 @@ What you'll see depending on the prior state of your install:
 - **No admin user exists.** The server refuses to boot until you set `ADMIN_NAME` / `ADMIN_PASSWORD` (see [First-run bootstrap](#first-run-bootstrap)).
 - **An admin already exists.** Bootstrap is skipped and the env vars are ignored. You log in with your existing admin credentials.
 
+### Upgrading to the non-root container (one-time host fix-up)
+
+Recent versions drop privileges inside the container — the app runs as the unprivileged `node` user (uid/gid `1000`) instead of root. If you're upgrading from a prior release, the bind-mounted host data directory is likely owned by root from when the container created files as root. Once on the host:
+
+```sh
+sudo chown -R 1000:1000 ./data
+```
+
+(Or whatever path you mapped to `/app/data`.) After that, restart the container as usual. New installs are unaffected — Docker creates the bind-mount target with the right ownership automatically.
+
 ## Content management
 
 ### File structure
@@ -287,6 +297,18 @@ If you have any other admin user, log in as them and reset the locked-out admin'
 ### Database issues
 
 If you need to reset the database, stop the container and delete `data/database/database.sqlite`. The application will recreate it on next startup. Note that this erases all users, progress, and session data.
+
+## License
+
+SkillGoblin is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0). See [LICENSE](LICENSE) for the full text.
+
+In short:
+
+- **You can** run SkillGoblin yourself, modify it, and share modified versions — for personal, internal, or community use.
+- **You must** keep the source open: if you distribute a modified version, **or run a modified version on a server that other users interact with over a network**, you must make the modified source available to those users under the same AGPL-3.0 terms.
+- **You must** include the copyright notice and license text in any copy or derivative.
+
+This is the standard license for self-hosted web apps (Bitwarden, Mastodon, Nextcloud, Plausible) — it lets you do whatever you want privately while preventing closed-source SaaS rebrands.
 
 ## Changelog
 
