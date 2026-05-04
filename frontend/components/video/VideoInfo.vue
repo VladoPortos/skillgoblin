@@ -1,5 +1,5 @@
 <template>
-  <div class="bg-white dark:bg-gray-800 p-4 mb-6 rounded-lg shadow border-l-4 border-primary-500 dark:border-primary-400">
+  <div class="bg-white dark:bg-gray-800 p-4 mb-6 rounded-lg shadow-sm border-l-4 border-primary-500 dark:border-primary-400">
     <div class="flex items-center mb-2">
       <span class="text-sm font-medium text-primary-600 dark:text-primary-400 mr-2">Now Playing:</span>
       <h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ video?.title || 'No video selected' }}</h2>

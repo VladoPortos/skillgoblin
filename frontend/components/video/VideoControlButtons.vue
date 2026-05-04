@@ -1,5 +1,5 @@
 <template>
-  <div class="flex-shrink-0 flex space-x-2">
+  <div class="shrink-0 flex space-x-2">
     <button 
       @click="$emit('toggle-completion')"
       class="rounded-full flex items-center justify-center w-7 h-7"

@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="show"
-    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
+    class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
     @click.self="tryClose"
   >
     <div class="bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -23,7 +23,7 @@
             id="name"
             type="text"
             required
-            class="w-full px-3 py-2 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
+            class="w-full px-3 py-2 border border-gray-600 rounded-md shadow-xs focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
             placeholder="Enter your name"
           />
         </div>
@@ -89,7 +89,7 @@
               v-model="newPasswordValue"
               type="password"
               data-testid="profile-password-input"
-              class="flex-1 px-3 py-2 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
+              class="flex-1 px-3 py-2 border border-gray-600 rounded-md shadow-xs focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
               :placeholder="hasPassword ? 'New password' : 'Set a password'"
               @keyup.enter="savePassword"
             />

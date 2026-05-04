@@ -13,7 +13,7 @@
             v-model="formData.id"
             :readonly="isEditing"
             :class="{'bg-gray-100 dark:bg-gray-700': isEditing}"
-            class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
+            class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-xs focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
             placeholder="e.g. my-course-name"
             required
           />
@@ -34,7 +34,7 @@
               @input="filterCategories"
               @focus="showCategoryDropdown = formData.category && filteredCategories.length > 0"
               @blur="handleCategoryBlur"
-              class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
+              class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-xs focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
               placeholder="e.g. Programming"
               required
             />
@@ -58,7 +58,7 @@
           type="text" 
           id="courseTitle" 
           v-model="formData.title"
-          class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
+          class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-xs focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
           placeholder="Course title"
           required
         />
@@ -72,7 +72,7 @@
           id="courseDescription" 
           v-model="formData.description"
           rows="3"
-          class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
+          class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-xs focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
           placeholder="Course description"
           required
         ></textarea>
@@ -100,7 +100,7 @@
             </div>
           </div>
           <div class="flex flex-col items-start space-y-2">
-            <label for="thumbnailUpload" class="cursor-pointer inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
+            <label for="thumbnailUpload" class="cursor-pointer inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-xs text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
               <span>Upload image</span>
               <input 
                 id="thumbnailUpload" 
@@ -127,12 +127,12 @@
             type="date" 
             id="releaseDate" 
             v-model="formData.releaseDate"
-            class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
+            class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-xs focus:border-primary-500 focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm px-3 py-2"
           />
           <button 
             type="button" 
             @click="formData.releaseDate = ''" 
-            class="ml-2 inline-flex items-center p-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
+            class="ml-2 inline-flex items-center p-2 border border-transparent rounded-md shadow-xs text-sm font-medium text-white bg-red-600 hover:bg-red-700"
             title="Clear date"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -148,13 +148,13 @@
         <button 
           type="button"
           @click="$emit('cancel')"
-          class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+          class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-xs text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
         >
           Cancel
         </button>
         <button 
           type="submit"
-          class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+          class="px-4 py-2 border border-transparent rounded-md shadow-xs text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
           :disabled="isSaving"
         >
           {{ isSaving ? 'Saving...' : 'Save Course' }}

@@ -1,0 +1,44 @@
+/*
+ * Tailwind 4 entry point. Replaces the old @tailwind base/components/utilities
+ * triple in favor of a single @import. Custom config (primary palette, dark
+ * mode variant, default ring/border overrides) goes inline as @theme / @plugin
+ * / @variant blocks since v4 doesn't auto-load tailwind.config.js.
+ *
+ * Migration decisions (locked 2026-05-04 in
+ * notes/nuxt4-tailwind4-migration-plan.md):
+ *   3. Preserve v3 ring defaults globally (3px width, blue-500 color)
+ *   4. Preserve v3 default border color (gray-200)
+ * Both are global overrides so we don't need to chase per-occurrence rewrites.
+ */
+
+@import "tailwindcss";
+
+@plugin "@tailwindcss/forms";
+
+@variant dark (.dark &);
+
+@theme {
+  /* Custom primary palette (was theme.extend.colors.primary in v3) */
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-primary-950: #1e1b4b;
+
+  /* Decision 3: preserve v3 ring defaults (3px width, blue-500 color). */
+  --default-ring-width: 3px;
+  --default-ring-color: var(--color-blue-500);
+}
+
+/* Decision 4: preserve v3 default border color (gray-200). */
+@layer base {
+  *, ::after, ::before, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+}

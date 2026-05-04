@@ -94,7 +94,7 @@
     <!-- Create User Modal -->
     <div
       v-if="showCreateUser"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
       @click.self="onCreateUserBackdropClick"
     >
       <div class="bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -109,7 +109,7 @@
               id="name"
               type="text"
               required
-              class="w-full px-3 py-2 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
+              class="w-full px-3 py-2 border border-gray-600 rounded-md shadow-xs focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
               placeholder="Enter your name"
             />
           </div>
@@ -193,7 +193,7 @@
                 data-testid="signup-password-input"
                 v-model="newUser.password"
                 type="password"
-                class="w-full px-3 py-2 border border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
+                class="w-full px-3 py-2 border border-gray-600 rounded-md shadow-xs focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
                 placeholder="Enter a password"
               />
             </div>
@@ -250,7 +250,7 @@
     <!-- Auth Modal -->
     <div
       v-if="showAuthModal"
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
       @click.self="onAuthBackdropClick"
     >
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg max-w-md w-full p-6 my-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
@@ -294,7 +294,7 @@
                   id="auth-password"
                   ref="passwordInput"
                   type="password"
-                  class="w-full px-3 py-2 border dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
+                  class="w-full px-3 py-2 border dark:border-gray-600 rounded-md shadow-xs focus:outline-none focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white"
                   placeholder="Enter your password"
                 />
               </div>
