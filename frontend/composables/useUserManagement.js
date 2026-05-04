@@ -256,7 +256,7 @@ export function useUserManagement() {
   };
 
   // Initialize
-  if (process.client && users.value.length === 0) {
+  if (import.meta.client && users.value.length === 0) {
     fetchUsers();
     fetchSystemSettings();
   }

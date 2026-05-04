@@ -30,7 +30,7 @@ useTheme();
 const nuxtApp = useNuxtApp();
 
 // Force page refresh on client-side
-if (process.client) {
+if (import.meta.client) {
   console.log('App initialized in client mode');
 
   // Add debugging for client-side rendering
