@@ -1,19 +1,18 @@
-# Handover — picking up after the dependency-cleanup marathon
+# Handover — picking up after the Nuxt 4 + Tailwind 4 migration
 
-You are starting a fresh session. The previous session(s) cleared the bulk of the Dependabot backlog: 31 open PRs at the start are now down to **3 open PRs**. Tests still green: 98 vitest + 103 Playwright. Main on commit `1136516`.
+You are starting a fresh session. The previous session(s) shipped both halves of the major-framework migration on top of the Dependabot cleanup marathon. Tests still green: 98 vitest + 103 Playwright. Main on commit `876fd03`.
 
-The user's first message after `/clear` will tell you whether to start the Nuxt 4 + Tailwind 4 migration (the next planned big slice — see `notes/nuxt4-tailwind4-migration-plan.md`), or do something else. Until then: read this doc, glance at the new migration plan, wait for direction.
+The user's first message after `/clear` will tell you what to work on next. Until then: read this doc, glance at the open PRs, wait for direction.
 
 ---
 
 ## TL;DR
 
-- **Repo:** SkillGoblin — self-hosted homelab learning platform. Nuxt 3.16.1 + Nitro 2.11.7 + better-sqlite3 12.x SQLite. SPA mode (`ssr: false`). Designed for trusted local networks.
-- **State of `main`:** auth + admin + branding + UI polish + CI + .gitattributes-locked LF + Node 20 + 22 patch/minor bumps shipped. Last merged commit: `1136516` (codeql-action 3→4). Tests green in Docker.
-- **What's open:** 3 PRs, all deferred/blocked:
-  - [#19](https://github.com/VladoPortos/skillgoblin/pull/19) tailwindcss 3 → 4 — needs visual review (handled in the migration plan)
-  - [#25](https://github.com/VladoPortos/skillgoblin/pull/25) nuxt 3 → 4 — multi-day project (handled in the migration plan)
-  - [#50](https://github.com/VladoPortos/skillgoblin/pull/50) npm-minor-patch group — broken on `@nuxtjs/tailwindcss 6.14.0` (resolves with Nuxt 4 + Tailwind 4)
+- **Repo:** SkillGoblin — self-hosted homelab learning platform. **Nuxt 4.x + Tailwind 4.x** + better-sqlite3 12.x SQLite. SPA mode (`ssr: false`). Designed for trusted local networks.
+- **State of `main`:** auth + admin + branding + UI polish + CI + .gitattributes-locked LF + Node 20 + 22 patch/minor bumps + Nuxt 4 + Tailwind 4 (CSS-first via `@tailwindcss/vite`) shipped. Last merged commit: `876fd03` (Tailwind 4 migration).
+- **What's open:** 2 PRs, both fresh dependabot:
+  - [#58](https://github.com/VladoPortos/skillgoblin/pull/58) playwright + @playwright/test bump
+  - [#59](https://github.com/VladoPortos/skillgoblin/pull/59) npm-minor-patch group (4 updates, regenerated after Phase A merged)
 - **The user's first message after `/clear`** will pick a slice. Don't pre-empt.
 
 ---
@@ -40,118 +39,90 @@ The user's first message after `/clear` will tell you whether to start the Nuxt 
 
 ---
 
-## What shipped this session — 31 merge commits
+## What shipped this session — Nuxt 4 + Tailwind 4 migration
 
-In rough chronological order, ~22 Dependabot PRs + infrastructure changes:
+Two PRs in sequence, both green on Docker, both visually verified by the user.
 
-### Cleanup PR ([#48](https://github.com/VladoPortos/skillgoblin/pull/48))
-- `.gitattributes` to lock LF on all text files (Windows `core.autocrlf=true` was breaking `frontend/scripts/entrypoint.sh` shebang)
-- 4 unused-var deletes (CodeQL cleanup notes): `requireAdmin` import in `users/index.js`, `SESSION_LIFETIME_MS` import in `sessions.test.js`, unused `admin` const in `admin-panel.spec.js`, dead `freshContext` helper + `pwRequest` import in `branding-runtime-env.spec.js`
+### Phase A — Nuxt 3.16 → 4.x ([PR #57](https://github.com/VladoPortos/skillgoblin/pull/57), merge sha `9c83671`)
 
-### Node bump ([#55](https://github.com/VladoPortos/skillgoblin/pull/55))
-- `Dockerfile.prod` and `docker-compose.yml` from `node:18-alpine` to `node:20-alpine`
-- Native modules (better-sqlite3, argon2, sharp) recompile cleanly
+- `nuxt ^3.9.0` → `^4.0.0` in `package.json` + regenerated `package-lock.json` (786 packages on Node 20)
+- **Replaced `window.__NUXT__` test access** in `frontend/tests/e2e/branding-runtime-env.spec.js` — Nuxt 4 deletes that global post-hydration. Now asserts on rendered `<title>` + `<meta name="description">` + `<meta name="theme-color">` (all driven by `app.vue`'s `useHead()` reading from `runtimeConfig.public.branding`)
+- **Dropped the dead local `navigateTo` helper** in `frontend/pages/courses/[id].vue` (had zero callers; would have been auto-import-shadowed in Nuxt 4)
+- **`process.client` → `import.meta.client`** across 6 occurrences (Nuxt 4 idiom; old form still works as a deprecated alias)
+- **Added `frontend/.npmrc` with `legacy-peer-deps=true`** + extended `Dockerfile.prod`'s `COPY` to include it. Reason: Nuxt 4 pulls `@bomb.sh/tab` which declares `commander@^13.1.0` as an *optional* peer; svgo in parallel pulls `commander@^11`. Without `legacy-peer-deps`, `npm ci` fails the lockfile-vs-tree consistency check despite the `optional: true` flag. **This is a critical compatibility fix — don't remove it.**
+- We did NOT migrate to Nuxt 4's new `app/` directory layout. Flat-structure auto-detect works and the move is mechanical churn for ~zero benefit on this SPA. Can be done in a future cleanup PR if ever desired.
 
-### Action majors (#14 in autonomous batch, #15 + #16 user-merged via web UI)
-- `actions/upload-artifact` 4 → 7
-- `actions/checkout` 4 → 6
-- `github/codeql-action` 3 → 4
+### Phase B — Tailwind 3.4 → 4.x ([PR #60](https://github.com/VladoPortos/skillgoblin/pull/60), merge sha `876fd03`)
 
-### npm patches/minors merged via gh-side merge (single-package bumps)
-- ✅ #20 uuid 9 → 14
-- ✅ #21 chokidar 3 → 5
-- ✅ #22 vitest 2 → 4 (test count rose to 98)
-- ✅ #23 ossf/scorecard-action 2.4.0 → 2.4.3
-- ✅ #24 better-sqlite3 9 → 12
-- ✅ #26 lru-cache 10 → 11
-- ✅ #27 minimatch
-- ✅ #28 tar (replaced by #53 after revert)
-- ✅ #29 postcss 8.5.3 → 8.5.13
-- ✅ #30 rollup (replaced by #54 after revert)
-- ✅ #31 svgo 3.3.2 → 3.3.3
-- ✅ #32 tar-fs 2.1.2 → 2.1.4
-- ✅ #33 nanotar 0.2.0 → 0.2.1
-- ✅ #35 lodash 4.17.21 → 4.18.1
-- ✅ #38 simple-git 3.27.0 → 3.36.0
-- ✅ #39 brace-expansion 2.0.1 → 2.1.0
-- ✅ #40 devalue 5.1.1 → 5.8.0
-- ✅ #41 yaml 2.7.0 → 2.8.4 (cleared a Trivy MEDIUM CVE)
-- ✅ #43 node-forge (replaced by #52 after revert)
-- ✅ #45 @nuxt/devtools 2.3.1 → 2.7.0
-- ✅ #49 picomatch 2.3.1 → 2.3.2
+- **Switched to `@tailwindcss/vite` plugin** (Tailwind team's official Nuxt path per their docs) instead of `@nuxtjs/tailwindcss` v7 — v7 of the bridge module is still in beta only as of 2026-05-04 (`7.0.0-beta.0` / `7.0.0-beta.1`). The `@tailwindcss/vite` path is officially supported and stable. Removed `@nuxtjs/tailwindcss`, `postcss`, and `autoprefixer`.
+- **CSS-first config** in new `frontend/assets/css/tailwind.css`:
+  ```css
+  @import "tailwindcss";
+  @plugin "@tailwindcss/forms";
+  @variant dark (.dark &);
+  @theme { ...primary palette + ring overrides... }
+  @layer base { *, ::before, ::after { border-color: ... } }
+  ```
+  Deleted `frontend/tailwind.config.js`.
+- **Decisions 3+4 applied as global overrides** so we didn't need per-occurrence rewrites:
+  - `--default-ring-width: 3px` + `--default-ring-color: var(--color-blue-500)` (preserves v3 ring default)
+  - Border `gray-200` default in `@layer base` (preserves v3 border default)
+- **Decision 2 outline-none audit**: NO-OP. All 14 occurrences are already paired with `focus:ring-*`. Kept as plain v4 `outline-none`. Did NOT blanket-replace with `outline-hidden` (that would have hidden focus indicators visually for screen readers).
+- **Utility renames** (~40 sites across 12 files):
+  - `bg-{color} bg-opacity-N` → `bg-{color}/N` (15 sites)
+  - `focus:ring-{color} focus:ring-opacity-N` → `focus:ring-{color}/N`
+  - `hover:bg-opacity-90` → `hover:opacity-90` (CategoryFilterBar — different effect, same intent)
+  - `flex-shrink-0` → `shrink-0` (4 sites)
+  - `shadow-sm` → `shadow-xs` (15 sites)
+  - bare `shadow` → `shadow-sm` (5 sites)
+- **`@reference "../assets/css/tailwind.css";`** added to `frontend/components/CourseFilesModal.vue` (the only Vue file in the codebase using `@apply` in a scoped style — Tailwind 4 needs this to resolve utility names from outside the file)
 
-### Reverted ([#34](https://github.com/VladoPortos/skillgoblin/pull/34) + revert [#51](https://github.com/VladoPortos/skillgoblin/pull/51))
-- #34 (serialize-javascript + nitropack group) merged then broke the build via `nitropack 2.12.4` — its bundled `unplugin` crashed with `path.resolve()` on undefined. Nitropack 2.12 is incompatible with Nuxt 3.16.1.
-- #51 reverted #34 entirely. The serialize-javascript security part is collateral damage; can be pursued post-Nuxt-4.
-
-### Re-merged after revert (Dependabot recreated as fresh PRs)
-- ✅ #52 node-forge (re-do of #43)
-- ✅ #53 tar (re-do of #28)
-- ✅ #54 rollup (re-do of #30)
-
-### Auto-closed by Dependabot (transitively satisfied)
-- #18 npm-minor-patch original group (replaced by [#50](https://github.com/VladoPortos/skillgoblin/pull/50))
-- #36 picomatch first attempt (replaced by #49)
-- #37 h3 (was already at target via nitropack chain at the time of close)
+Net deps: 786 → 661 packages.
 
 ---
 
-## What's left — 3 open PRs
+## What's left — 2 open PRs (both fresh dependabot, unrelated to the migration)
 
-### Already-planned: Nuxt 4 + Tailwind 4
-**See [notes/nuxt4-tailwind4-migration-plan.md](nuxt4-tailwind4-migration-plan.md)** — the full cold-start plan with decisions locked, codebase audit, codemods, and step-by-step tasks.
-
-- [#19](https://github.com/VladoPortos/skillgoblin/pull/19) tailwindcss 3.4 → 4.2 — Phase B of the migration plan. ~110 class instances need rename (mostly via codemod). Visual review by user is the long pole.
-- [#25](https://github.com/VladoPortos/skillgoblin/pull/25) nuxt 3.16 → 4.4 — Phase A of the migration plan. Backward-compat with our flat directory layout works, so no `app/` directory move needed. Real breakage: 1 test (`branding-runtime-env.spec.js` reads `window.__NUXT__` which is deleted post-hydration in Nuxt 4) + 1 local function shadowing Nuxt's `navigateTo` auto-import.
-
-**Decisions locked from the user:**
-1. Browser support floor (Safari 16.4+ / Chrome 111+ / Firefox 128+) accepted
-2. `outline-none` audit per-occurrence — fix focus a11y properly, do NOT blanket-replace with `outline-hidden`
-3. Ring 3px width preserved globally via `@theme` override
-4. Border `gray-200` default preserved globally via `@layer base` override
-
-### Blocked, will resolve after Nuxt 4 + Tailwind 4
-- [#50](https://github.com/VladoPortos/skillgoblin/pull/50) npm-minor-patch group with 7 updates — still has the broken `@nuxtjs/tailwindcss 6.14.0` from the original #18. The globby/unicorn-magic ESM/CJS chain that breaks tailwind/jiti's CJS loader on Nuxt 3 doesn't apply to Nuxt 4 + `@nuxtjs/tailwindcss` v7. After Phase B merges, this should auto-close (or be closeable manually).
+- [#58](https://github.com/VladoPortos/skillgoblin/pull/58) `@playwright/test` + `playwright` group bump — easy, just merge after rebase
+- [#59](https://github.com/VladoPortos/skillgoblin/pull/59) npm-minor-patch group — 4 updates, regenerated by dependabot after Phase A merged. Run the standard "rebase + merge + verify on main" loop from the workflow section below.
 
 ---
 
 ## Lessons learned this session (READ BEFORE doing similar work)
 
-### 1. `gh pr merge` requires `workflow` scope to merge PRs that touch `.github/workflows/*`
-Symptoms: `GraphQL: refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope`. Our `gh` token only has `gist, read:org, repo`. Workaround: either run `gh auth refresh -h github.com -s workflow` (one-time interactive browser auth), or merge those specific PRs via GitHub web UI. We hit this on #15 and #16 — user clicked them in the web UI.
+### 1. `@nuxtjs/tailwindcss` v7 is still beta-only — go straight to `@tailwindcss/vite`
+The plan recommended `@nuxtjs/tailwindcss` v7 as the conservative path, but `npm view @nuxtjs/tailwindcss versions` showed only `7.0.0-beta.0` and `7.0.0-beta.1`. The `@tailwindcss/vite` plugin is the Tailwind team's official Nuxt path (per their docs at https://tailwindcss.com/docs/installation/framework-guides/nuxt) and is stable. It's also a cleaner setup: drop `@nuxtjs/tailwindcss`/`postcss`/`autoprefixer`, register the plugin in `nuxt.config.js`'s `vite.plugins`, point `css:` at the entry file. CSS-first config in `assets/css/tailwind.css` replaces `tailwind.config.js`.
 
-### 2. Don't regenerate the lockfile locally; trust Dependabot's lockfile + gh-side merge
-Tried `npm install --package-lock-only` from `node:20-alpine` Docker to handle a stale lockfile. Result: the regenerated lockfile lost the `@rollup/rollup-linux-x64-gnu` optional-dep entry needed by the Playwright Ubuntu test runner. `npm ci` in tests container failed with `MODULE_NOT_FOUND`. Lesson: for Dependabot PRs, **trigger `@dependabot rebase`, wait ~30s for `MERGEABLE/CLEAN`, then `gh pr merge --merge --delete-branch`**. Skip the local checkout + merge main flow. Test main locally after each merge for safety, and revert if broken.
+### 2. Nuxt 4's optional peer deps break `npm ci` without `legacy-peer-deps=true`
+`@bomb.sh/tab@0.0.14` declares `commander@^13.1.0` as a `peerDependenciesMeta.commander.optional: true` peer. svgo in the same tree pulls `commander@^11.1.0`. `npm install` resolves cleanly (it respects the optional flag), but `npm ci` checks lockfile-vs-tree consistency and rejects the install with `Invalid: lock file's commander@11.1.0 does not satisfy commander@13.1.0`. Fix: `frontend/.npmrc` with `legacy-peer-deps=true` AND extend `Dockerfile.prod`'s `COPY` so the `.npmrc` reaches the build context (otherwise the prod build still fails). Test runner picks `.npmrc` up automatically since it mounts `frontend/` as `/work`.
 
-### 3. nitropack majors break Nuxt builds silently. Watch `mergeStateStatus`.
-PR #34 bumped nitropack 2.11.7 → 2.12.4 inside a Dependabot group. It merged with `MERGEABLE/UNSTABLE` — I dismissed UNSTABLE as "CI still running" but it actually meant a downstream check was failing. Result: prod build crashed with `path.resolve()` on undefined inside nitropack's bundled unplugin. **Always run a Docker test pass on main after merging anything that changes nitropack, h3, devalue, or other Nuxt internals.** When in doubt, revert via `git revert -m 1 <merge-sha>` (PR #51 is the template).
+### 3. `@apply` in Vue scoped styles needs `@reference` in Tailwind 4
+Tailwind 4's PostCSS-replacement compiler can't resolve utility names that come from outside the file being compiled. So `<style scoped>` blocks using `@apply dark:bg-gray-800` fail with `Cannot apply unknown utility class \`dark:bg-gray-800\``. Fix: add `@reference "../assets/css/tailwind.css";` (path relative to the file's location, not project root) at the top of the `<style scoped>` block. Only one Vue file uses `@apply` in our codebase (`components/CourseFilesModal.vue`), so this was a one-line fix — but it's a footgun for any future `@apply` usage.
 
-### 4. Sequential rebase+merge is faster than parallel for Dependabot lockfile PRs
-Tried bulk `gh pr merge` across 16 PRs with conflicts — only 2 merged because each merge advances main and the rest go stale. Tried bulk `npm update` on a single branch — hit the Node 18 vs Node 20+ ceiling (chokidar 5, lru-cache 11, vitest 4 all need Node 20+, and `@clack/core` needs `node:util.styleText` which is Node 20.12+). Going single-PR with `@dependabot rebase` (Dependabot is fast — 30s typical) + sequential merge is the simplest reliable path.
+### 4. `sed -E 's/(\b)shadow(\b)([^-])/.../'` for bare-utility renames catches CSS properties
+Renaming bare Tailwind `shadow` → `shadow-sm` looks like a clean word-boundary problem, but the regex `\bshadow\b[^-]` matches inside `box-shadow: ...` (because `:` isn't a hyphen) and inside `transition-shadow ` (because both `shadow` boundaries are preserved). My first run silently produced `box-shadow-sm: 0 4px ...` and `transition-shadow-sm` across 5 files. **Always run a `grep -rEn 'box-shadow|transition-shadow|drop-shadow' --include="*.vue" .` after a bare-utility rename and confirm no compound utilities or CSS properties got caught.** Recovery is a targeted reverse-sed for each compound (`box-shadow-sm: → box-shadow:`, `transition-shadow-sm → transition-shadow`).
 
 ---
 
 ## How to start the next round
 
 1. **Read [notes/handover.md](handover.md)** — this doc. You're here.
-2. **Read [notes/nuxt4-tailwind4-migration-plan.md](nuxt4-tailwind4-migration-plan.md)** — the full execution plan for #19 + #25 with codebase audit and locked decisions.
-3. **Optional reads:**
+2. **Optional reads:**
    - [notes/feature-wishlist.md](feature-wishlist.md) — original wishlist; most shipped
    - [notes/architecture-map.md](architecture-map.md) — implementation map. Stale on auth + branding details (predates Phase 1) but accurate on overall structure.
-4. **Confirm green starting state**:
+3. **Confirm green starting state**:
    ```
    docker compose -f docker-compose.test.yml run --rm --build tests
    ```
    Should print 11 vitest files / 98 tests + 103 Playwright passed. If not — investigate before doing anything else.
-5. **Wait for the user's first message** to pick the slice. The most likely picks:
-   - **"Run the migration plan"** — execute Phase A (Nuxt 4) then Phase B (Tailwind 4). Probably ~3 hours including the user's visual review.
-   - **"Do Phase A only"** — Nuxt 4 in isolation. Tailwind 4 saved for another day.
-   - **Something unrelated** — course content polish, fresh feature, etc.
-6. **Don't assume** — wait for direction.
+4. **Wait for the user's first message** to pick the slice. Likely picks:
+   - **"Merge [#58](https://github.com/VladoPortos/skillgoblin/pull/58)/[#59](https://github.com/VladoPortos/skillgoblin/pull/59)"** — standard Dependabot rebase-merge loop. ~10 min.
+   - **A new feature** — course content polish, fresh capability, etc.
+5. **Don't assume** — wait for direction.
 
 ---
 
-## Workflow per change (proven this session)
+## Workflow per change (proven across two sessions)
 
 For Dependabot PRs:
 1. **Trigger rebase**: `gh pr comment <N> --body "@dependabot rebase"`
@@ -159,9 +130,9 @@ For Dependabot PRs:
 3. **Merge via gh** (DON'T checkout locally first): `gh pr merge <N> --merge --delete-branch`
 4. **Sync main**: `git fetch origin main && git checkout --detach origin/main && git -C E:/skillgoblin pull --ff-only origin main`
 5. **Test on main**: full Docker test pass
-6. **If broken: `git revert -m 1 <merge-sha>`** as a new PR ([#51](https://github.com/VladoPortos/skillgoblin/pull/51) is the template)
+6. **If broken: `git revert -m 1 <merge-sha>`** as a new PR ([#51](https://github.com/VladoPortos/skillgoblin/pull/51) is the template from the nitropack break in the dependency-cleanup session)
 
-For our own work (cleanups, features, the migration plan):
+For our own work (cleanups, features, future migrations):
 1. **Branch off `origin/main`**: `git checkout -b <name> origin/main`
 2. **Brainstorm if creative work** — invoke `superpowers:brainstorming` skill. Skip if the user says "quick in place".
 3. **Plan if non-trivial** — invoke `superpowers:writing-plans` after brainstorm. Skip for one-line fixes.
@@ -187,10 +158,8 @@ Work happens in worktrees at `E:/skillgoblin/.claude/worktrees/<name>/`. The mai
 - Plugin at `C:/Users/vlado/.claude/plugins/cache/openai-codex/codex/1.0.2/`
 - Auth: already done. If `codex --version` says `unauthenticated`, run `codex login`.
 
-### Lockfile changes (Dependabot will produce them)
-**Don't regenerate manually** — see Lesson 2 above. Dependabot updates the lockfile in its PRs automatically; gh-side merge handles the rest correctly.
-
-If we ever need to bump deps ourselves:
+### Lockfile changes
+**Don't regenerate manually unless deps changed** — for Dependabot PRs the lockfile is already updated in the PR; `gh pr merge` works as long as `npm ci` accepts the lockfile. If we ever need to bump deps ourselves:
 ```
 MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$(pwd -W)/frontend:/work" -w "//work" node:20-alpine \
@@ -202,22 +171,11 @@ MSYS_NO_PATHCONV=1 docker run --rm \
 
 ## Architectural cheat sheet (60-second version)
 
-- **Stack:** Nuxt 3.16.1 (SSR off — pure SPA), Tailwind 3.4, Vue 3 composition API, better-sqlite3 12.x SQLite. Node 20.
+- **Stack:** Nuxt 4.x (SSR off — pure SPA), Tailwind 4.x via `@tailwindcss/vite` (CSS-first config in `frontend/assets/css/tailwind.css`), Vue 3 composition API, better-sqlite3 12.x SQLite. Node 20.
 - **Auth:** `sg_session` cookie (HttpOnly, SameSite=Lax, 30-day) issued by `/api/users/auth`. Server middleware [session.js](frontend/server/middleware/session.js) reads it, populates `event.context.user`, slides expiry forward (debounced 5 min). Skips cookie processing for `/api/content/`, `/api/course-thumbnail/`, `/api/random-banner`, `/api/logo`, `/api/login-banner`, `/api/webmanifest`, `/_nuxt/`, `/favicon`, `/banners/`, `/images/`, `/logos/` so those endpoints can be publicly cached without leaking Set-Cookie.
 - **Authz:** every mutating endpoint calls `requireAuth` / `requireAdmin` / `requireSelfOrAdmin` from [authz.js](frontend/server/utils/authz.js). Static rule: no caller can act on someone else unless admin; mutations of role / activation are admin-only. The single exception is `POST /api/users` which gates on `system_settings.allow_user_registration` instead.
 - **Credentials:** argon2id. Legacy plaintext detected on read and rehashed inline.
 - **Branding:** env vars read at server startup via `frontend/scripts/entrypoint.sh` mapping `APP_*` → `NUXT_PUBLIC_BRANDING_*`. Nuxt's runtimeConfig populates `runtimeConfig.public.branding` which `app.vue` consumes via `useHead`. `/api/webmanifest` reads `process.env` directly via `readBranding()`.
 - **First-run:** server plugin [bootstrap.js](frontend/server/plugins/bootstrap.js) refuses to start on a fresh install if `ADMIN_NAME` / `ADMIN_PASSWORD` env aren't set. Same plugin warns about invalid `APP_THEME_COLOR` / `APP_BACKGROUND_COLOR` hex values.
+- **Tailwind:** Tailwind 4 entry point is `frontend/assets/css/tailwind.css`. All custom config (primary palette, dark variant, ring/border defaults) lives in there as `@theme`/`@plugin`/`@variant`/`@layer base` blocks — no `tailwind.config.js`. Vue scoped styles using `@apply` need `@reference "../assets/css/tailwind.css";` at the top of the `<style scoped>` block.
 - **Migrations:** numbered, forward-only, in `frontend/server/migrations/`. Latest is `003_allow_user_registration.js`. Manifest in `index.js`.
-
----
-
-## Recommended starting slice
-
-**Run the Nuxt 4 + Tailwind 4 migration per [notes/nuxt4-tailwind4-migration-plan.md](nuxt4-tailwind4-migration-plan.md).**
-
-Phase A (Nuxt 4) is straightforward — codemod handles most of it, the only real changes are 1 test rewrite and 1 function rename. Should take ~30 min for execution + a Docker test pass.
-
-Phase B (Tailwind 4) is bigger because of the visual review. The `@tailwindcss/upgrade` codemod handles ~110 class renames automatically, but the `outline-none` audit needs human judgment per-occurrence (Decision 2 — fix a11y properly), and the user wants to walk through every page visually. Plan ~2 hours including the visual review.
-
-After both merge, [#50](https://github.com/VladoPortos/skillgoblin/pull/50) should auto-close, leaving 0 open Dependabot PRs.
