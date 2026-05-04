@@ -98,7 +98,7 @@ Pure module, no Vue imports. Exports:
       :key="suggestion"
       type="button"
       @click="formData.category = suggestion"
-      class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800 hover:bg-primary-200 dark:bg-primary-900/40 dark:text-primary-200 dark:hover:bg-primary-900/60"
+      class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800 hover:bg-primary-200 dark:bg-primary-900 dark:text-primary-200 dark:hover:bg-primary-800 transition-colors"
       :aria-label="`Set category to ${suggestion}`"
     >
       {{ suggestion }}
@@ -107,7 +107,7 @@ Pure module, no Vue imports. Exports:
   ```
   - `type="button"` so the click never submits the form.
   - Only renders in edit mode (`isEditing === true`) and only when there is at least one suggestion.
-  - Tailwind classes follow patterns already used elsewhere in the app (rounded-full, primary-tinted, dark-mode aware).
+  - Tailwind classes match the canonical interactive pill pattern in `frontend/components/course/CourseCard.vue` (rounded-full, primary-tinted, dark-mode aware, `transition-colors`).
 
 ### `frontend/tests/unit/categoryMatching.test.js`
 
