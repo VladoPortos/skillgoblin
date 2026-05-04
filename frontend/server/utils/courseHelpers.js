@@ -1,7 +1,52 @@
 import path from 'path';
+import { createError } from 'h3';
 
 // Content directory path
 export const getContentDir = () => path.resolve(process.cwd(), '/app/data/content');
+
+// Resolve a course folder name relative to the content directory and verify
+// the result stays inside the content root. Throws on traversal attempts,
+// empty/null input, or absolute paths. Used by every endpoint that turns a
+// DB-stored folder_name into a real fs path.
+export function resolveCourseDir(folderName) {
+  if (!folderName || typeof folderName !== 'string' || folderName.length === 0) {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
+  }
+  // A course folder name is a single directory name. Reject anything that
+  // looks like a path (separators) or starts with a dot (hidden dirs and
+  // traversal anchors). Windows uses both '/' and '\\'.
+  if (
+    folderName === '.' ||
+    folderName === '..' ||
+    folderName.startsWith('.') ||
+    folderName.includes('/') ||
+    folderName.includes('\\') ||
+    folderName.includes('\0')
+  ) {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
+  }
+  const root = path.resolve(getContentDir());
+  const candidate = path.resolve(root, folderName);
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  if (!candidate.startsWith(rootWithSep) || candidate === root) {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
+  }
+  return candidate;
+}
+
+// Resolve a path inside a specific course's directory, rejecting any
+// segment that escapes the course root. Used by the content endpoint
+// after the course folder is identified, so URL path traversal in later
+// segments cannot reach files outside the course directory.
+export function resolvePathInCourse(courseDir, ...segments) {
+  const root = path.resolve(courseDir);
+  const candidate = path.resolve(root, ...segments);
+  const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
+  if (candidate !== root && !candidate.startsWith(rootWithSep)) {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid path' });
+  }
+  return candidate;
+}
 
 // Function to generate a course ID from a title
 export const generateCourseId = (title) => {

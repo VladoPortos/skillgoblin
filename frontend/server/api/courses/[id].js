@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs';
 
 // Import the helper functions from the new modular structure
-import { generateCourseId, getContentDir } from '../../utils/courseHelpers';
+import { generateCourseId, getContentDir, resolveCourseDir } from '../../utils/courseHelpers';
 import { generateCourseJson } from '../../utils/courseGenerator';
 import { saveCourseToDb } from '../../utils/courseDatabase';
 import { requireAdmin } from '../../utils/authz';
@@ -66,8 +66,13 @@ export default defineEventHandler(async (event) => {
           return { error: 'Course not found' };
         }
         
-        const coursePath = path.join(contentDir, course.folder_name);
-        
+        let coursePath;
+        try {
+          coursePath = resolveCourseDir(course.folder_name);
+        } catch {
+          return { error: 'Invalid course folder' };
+        }
+
         if (!fs.existsSync(coursePath)) {
           return { error: 'Course directory not found' };
         }

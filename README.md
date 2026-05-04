@@ -217,12 +217,49 @@ data/
     │   ├── course.json       # Optional metadata override (title, description, etc.)
     │   ├── Lesson 1/
     │   │   ├── 1. video1.mp4
-    │   │   └── 2. video2.mp4
+    │   │   ├── 2. video2.mp4
+    │   │   └── 1. video1.srt    # Optional subtitle sidecar (auto-converted to WebVTT)
     │   └── Lesson 2/
     │       └── 1. video1.mp4
     └── Another Course/
         └── ...
 ```
+
+### `course.json` override
+
+Drop a `course.json` next to `thumbnail.png` to pin metadata for that course.
+The scanner reads it after auto-detection, and the values win over both
+auto-detected metadata *and* values stored in the database. Schema:
+
+```json
+{
+  "title": "Optional human title",
+  "description": "Optional description shown on cards and the detail page",
+  "category": "Optional category",
+  "releaseDate": "2025-01-15"
+}
+```
+
+All fields are optional and must be strings. Unknown keys are ignored with a
+console warning. The thumbnail, lessons, and id are still derived from the
+folder structure and the `thumbnail.png` convention.
+
+#### Exporting from the admin panel
+
+Admins can write a `course.json` for every course at once: open the avatar
+dropdown → Admin Panel → **Content** → **Export all to course.json**. The
+existing CourseEditor modal also has a per-course **Export to course.json**
+button; it shows a yellow banner when a `course.json` is already present so
+you know your edits will be reverted on the next rescan unless you re-export.
+
+### Subtitles
+
+Drop a sidecar `.srt` next to a video (same basename, e.g. `01-intro.mp4`
+and `01-intro.srt`). The server detects it at scan time, exposes a
+`subtitle` field on the video payload, and serves the matching `.vtt` URL
+via on-the-fly SRT-to-VTT conversion. The player UI to actually attach the
+WebVTT track and toggle CC ships in a follow-up PR (`feat/player-correctness`);
+this PR sets up the server side so the follow-up just wires the `<track>`.
 
 ### File monitoring
 
