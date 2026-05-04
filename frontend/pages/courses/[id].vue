@@ -20,11 +20,22 @@
         class="mb-4"
         :src="currentVideoUrl"
         :autoplay="false"
+        :current-time="currentTimeForPlayer"
         @timeupdate="updateProgress"
         @ended="markAsCompleted"
         @loadedmetadata="handleVideoLoaded"
       />
-      
+      <div class="text-xs text-gray-500 dark:text-gray-400 mb-3 text-right">
+        <button
+          type="button"
+          data-testid="start-from-beginning"
+          class="underline hover:text-gray-700 dark:hover:text-gray-200"
+          @click="startFromBeginning"
+        >
+          Start from beginning
+        </button>
+      </div>
+
       <!-- Video Info -->
       <VideoInfo 
         v-if="currentVideo" 
@@ -124,6 +135,7 @@ import CourseFilesModal from '~/components/CourseFilesModal.vue';
 import CourseHeader from '../../components/course/CourseHeader.vue';
 import VideoPlayer from '../../components/video/VideoPlayer.vue';
 import VideoInfo from '../../components/video/VideoInfo.vue';
+import { pickNextNotCompleted } from '~/utils/smartOpen.js';
 import VideoControlButtons from '../../components/video/VideoControlButtons.vue';
 
 // Apply auth middleware
@@ -159,81 +171,103 @@ const currentVideoId = ref(null);
 const completedVideos = ref({});
 const videoProgress = ref({});
 const videoPlayer = ref(null);
+const currentTimeForPlayer = ref(0);
 const courseProgress = ref({});
 const isLoading = ref(true);
 const showFilesModal = ref(false);
+// Smart-open must wait until BOTH the course payload AND the user-progress
+// fetch have settled, otherwise we would pick the first video with empty
+// progress and the early-exit-on-currentVideo guard prevents the later
+// progress-loaded trigger from correcting it.
+const progressReady = ref(false);
+// One-shot flag: when set, the next handleVideoLoaded forces seek to 0,
+// bypassing any saved partial progress. Used by "Start from beginning"
+// when the new src differs from the previous one.
+const forceFromZero = ref(false);
 
 // Fetch course data and user progress
 onMounted(async () => {
   try {
     isLoading.value = true;
-    
+
     // Fetch course data
     const data = await $fetch(`/api/courses/${route.params.id}`);
     course.value = data;
-    
+
     // Auto-expand first lesson
     if (course.value.lessons && course.value.lessons.length > 0) {
       expandedLessons.value[course.value.lessons[0].id] = true;
     }
-    
+
     // Load user progress from the database
     if (userId.value) {
-      const progressData = await $fetch(`/api/user-progress/${userId.value}`);
-      
-      if (progressData && progressData.progress) {
-        const userProgress = progressData.progress;
-        
-        // Get progress for this specific course
-        if (userProgress[course.value.id]) {
-          courseProgress.value = userProgress[course.value.id];
-          
-          // Set completed videos
-          if (courseProgress.value.completed) {
-            completedVideos.value = courseProgress.value.completed;
+      try {
+        const progressData = await $fetch(`/api/user-progress/${userId.value}`);
+
+        if (progressData && progressData.progress) {
+          const userProgress = progressData.progress;
+
+          if (userProgress[course.value.id]) {
+            courseProgress.value = userProgress[course.value.id];
+            if (courseProgress.value.completed) {
+              completedVideos.value = courseProgress.value.completed;
+            }
+            if (courseProgress.value.progress) {
+              videoProgress.value = courseProgress.value.progress;
+            }
+            isFavorite.value = courseProgress.value.favorite || false;
           }
-          
-          // Set video progress
-          if (courseProgress.value.progress) {
-            videoProgress.value = courseProgress.value.progress;
-          }
-          
-          // Set favorite status
-          isFavorite.value = courseProgress.value.favorite || false;
         }
+      } catch (err) {
+        console.error('Error loading user progress:', err);
       }
     }
-    
+
     isLoading.value = false;
   } catch (error) {
     console.error('Error loading course:', error);
     isLoading.value = false;
+  } finally {
+    // Always mark progress as ready, even on failure — without this signal
+    // the smart-open watcher would never pick anything and the page would
+    // stay stuck on the placeholder.
+    progressReady.value = true;
   }
 });
 
-// Watch for course data to load and select the first video
-watch(course, (newCourseData) => {
-  if (newCourseData && newCourseData.lessons && newCourseData.lessons.length > 0) {
-    const firstLesson = newCourseData.lessons[0];
-    
-    // Clear any previous lesson expansions to ensure only the first is expanded
-    Object.keys(expandedLessons.value).forEach(id => {
-      expandedLessons.value[id] = false;
-    });
-    
-    // Expand only the first lesson
-    expandedLessons.value[firstLesson.id] = true;
-    
-    if (firstLesson.videos && firstLesson.videos.length > 0) {
-      // Only auto-select if no video is currently selected
-      if (!currentVideo.value) { 
-        console.log('Auto-selecting first video (paused):', firstLesson.videos[0].title);
-        // Load the first video into the player but don't auto-play it
-        playVideo(firstLesson, firstLesson.videos[0], false); 
-      }
-    }
-  }
-}, { immediate: true }); // immediate: true ensures it runs once on load if data is already available
+// Watch for course data to load and select the first video. The watcher
+// fires when EITHER the course or the progressReady signal flips, but the
+// body bails until BOTH are present so we never pick with stale empty progress.
+watch([course, progressReady], () => {
+  const newCourseData = course.value;
+  if (!newCourseData?.lessons?.length) return;
+  if (!progressReady.value) return;
+  // Collapse all lessons (matches the previous "expand only one" UX)
+  Object.keys(expandedLessons.value).forEach((id) => {
+    expandedLessons.value[id] = false;
+  });
+
+  // If a video is already selected (e.g. the user clicked one), don't override.
+  if (currentVideo.value) return;
+
+  const pick = pickNextNotCompleted(newCourseData.lessons, {
+    completed: completedVideos.value,
+    progress: videoProgress.value,
+  });
+  if (!pick) return;
+
+  const lesson = newCourseData.lessons.find((l) => l.id === pick.lessonId);
+  if (!lesson) return;
+  const video = lesson.videos[pick.videoIndex];
+  if (!video) return;
+
+  expandedLessons.value[lesson.id] = true;
+  currentLesson.value = lesson;
+  currentVideo.value = video;
+  currentVideoId.value = `${lesson.id}-${pick.videoIndex}`;
+  // Initial seek time is computed once duration is known, in handleVideoLoaded.
+  currentTimeForPlayer.value = 0;
+}, { immediate: true });
 
 // Computed values
 const currentVideoUrl = computed(() => {
@@ -334,16 +368,28 @@ function updateProgress(event) {
 
 // Video progress handling is done via loadedmetadata event in the template
 
-// Handle video loaded event
-function handleVideoLoaded(event) {
+function handleVideoLoaded() {
   if (!videoPlayer.value || !currentVideoId.value) return;
-  
-  // Set the current time based on saved progress
-  const savedProgress = videoProgress.value[currentVideoId.value];
-  if (savedProgress && savedProgress > 0) {
-    const duration = videoPlayer.value.getDuration();
-    const timeToSeek = (savedProgress / 100) * duration;
-    videoPlayer.value.setCurrentTime(timeToSeek);
+  const duration = videoPlayer.value.getDuration();
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  // One-shot override from "Start from beginning": the caller wants 0
+  // regardless of saved progress.
+  if (forceFromZero.value) {
+    currentTimeForPlayer.value = 0;
+    forceFromZero.value = false;
+    return;
+  }
+  // A completed video should always reopen at 0 even if a stale partial-progress
+  // entry exists for it (e.g. user re-watched, then was auto-marked completed).
+  if (completedVideos.value[currentVideoId.value]) {
+    currentTimeForPlayer.value = 0;
+    return;
+  }
+  const savedProgress = videoProgress.value[currentVideoId.value] || 0;
+  if (savedProgress > 0 && savedProgress < 100) {
+    currentTimeForPlayer.value = (savedProgress / 100) * duration;
+  } else {
+    currentTimeForPlayer.value = 0;
   }
 }
 
@@ -445,6 +491,32 @@ async function saveProgress() {
     });
   } catch (error) {
     console.error('Error saving progress:', error);
+  }
+}
+
+function startFromBeginning() {
+  if (!course.value?.lessons?.length) return;
+  const firstLesson = course.value.lessons[0];
+  if (!firstLesson?.videos?.length) return;
+  const firstVideo = firstLesson.videos[0];
+  // Tell handleVideoLoaded to ignore any saved progress for this seek
+  // — applies to BOTH the same-video case (no src change, no loadedmetadata)
+  // and the cross-video case (new src triggers loadedmetadata which would
+  // otherwise reapply saved progress).
+  forceFromZero.value = true;
+  Object.keys(expandedLessons.value).forEach((id) => {
+    expandedLessons.value[id] = false;
+  });
+  expandedLessons.value[firstLesson.id] = true;
+  currentLesson.value = firstLesson;
+  currentVideo.value = firstVideo;
+  currentVideoId.value = `${firstLesson.id}-0`;
+  currentTimeForPlayer.value = 0;
+  // If the first video was already the selected one, the prop didn't change
+  // and the watcher in VideoPlayer won't seek. Force it explicitly. The
+  // forceFromZero flag is consumed in handleVideoLoaded if a new src does load.
+  if (videoPlayer.value && typeof videoPlayer.value.setCurrentTime === 'function') {
+    videoPlayer.value.setCurrentTime(0);
   }
 }
 
