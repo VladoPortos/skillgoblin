@@ -56,7 +56,7 @@
               :key="suggestion"
               type="button"
               @click="formData.category = suggestion"
-              class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800 hover:bg-primary-200 dark:bg-primary-900/40 dark:text-primary-200 dark:hover:bg-primary-900/60"
+              class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary-100 text-primary-800 hover:bg-primary-200 dark:bg-primary-900 dark:text-primary-200 dark:hover:bg-primary-800 transition-colors"
               :aria-label="`Set category to ${suggestion}`"
             >
               {{ suggestion }}
@@ -204,14 +204,6 @@ const availableCategories = ref([]);
 const filteredCategories = ref([]);
 const showCategoryDropdown = ref(false);
 
-const categorySuggestions = computed(() =>
-  findMatchingCategories(
-    formData.value.title,
-    availableCategories.value,
-    { currentCategory: formData.value.category }
-  )
-);
-
 // Form state
 const isEditing = computed(() => !!props.course.id);
 const formData = ref({
@@ -222,6 +214,14 @@ const formData = ref({
   thumbnail: null,
   releaseDate: ''
 });
+
+const categorySuggestions = computed(() =>
+  findMatchingCategories(
+    formData.value.title,
+    availableCategories.value,
+    { currentCategory: formData.value.category }
+  )
+);
 
 // Initialize form with course data
 const initializeForm = (course) => {
