@@ -19,6 +19,13 @@ on:
     # current main even when no commits land.
     - cron: "0 3 * * 1"
 
+# Default deny — any job without an explicit permissions: block runs with
+# the GITHUB_TOKEN restricted to read-only contents access. Per-job
+# permissions below opt back into the additional scopes they actually need
+# (security-events: write for SARIF upload, etc.).
+permissions:
+  contents: read
+
 jobs:
   analyze:
     name: Analyze JavaScript/Vue
