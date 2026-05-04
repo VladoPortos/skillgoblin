@@ -58,6 +58,27 @@ test.describe('admin content export — auth and shape', () => {
     const r = await request.post('/api/courses/definitely-not-a-real-course/export-json');
     expect(r.status()).toBe(404);
   });
+
+  test('export-all writes course.json into the fixture course folder', async ({ request }) => {
+    await loginAdmin(request);
+    // Trigger a rescan first so the fixture course is in the DB.
+    const rescan = await request.post('/api/courses/rescan', { data: { preserveMetadata: true } });
+    expect(rescan.ok()).toBeTruthy();
+    // Wait for the scan to complete.
+    for (let i = 0; i < 20; i += 1) {
+      const s = await request.get('/api/status/scan');
+      const body = await s.json();
+      if (body.complete) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+
+    const r = await request.post('/api/courses/export-json-all');
+    expect(r.ok()).toBeTruthy();
+    const body = await r.json();
+    // The fixture has at least one course; export-all should report it.
+    expect(body.written.length).toBeGreaterThanOrEqual(1);
+    expect(body.failed).toEqual([]);
+  });
 });
 
 test.describe('admin content export — UI surface', () => {

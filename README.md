@@ -254,9 +254,11 @@ you know your edits will be reverted on the next rescan unless you re-export.
 ### Subtitles
 
 Drop a sidecar `.srt` next to a video (same basename, e.g. `01-intro.mp4`
-and `01-intro.srt`) and the player attaches it as a WebVTT track. The
-server converts SRT to VTT on the fly — you do not need to convert files
-manually. The CC toggle in the player ships in a follow-up PR.
+and `01-intro.srt`). The server detects it at scan time, exposes a
+`subtitle` field on the video payload, and serves the matching `.vtt` URL
+via on-the-fly SRT-to-VTT conversion. The player UI to actually attach the
+WebVTT track and toggle CC ships in a follow-up PR (`feat/player-correctness`);
+this PR sets up the server side so the follow-up just wires the `<track>`.
 
 ### File monitoring
 

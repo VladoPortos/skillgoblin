@@ -166,7 +166,9 @@
         class="rounded border border-yellow-600 bg-yellow-900/20 text-yellow-200 text-sm px-3 py-2"
       >
         <strong>course.json detected.</strong>
-        Edits saved here will be reverted on the next rescan unless you re-export.
+        This course has a JSON override on disk. Saving here updates only the
+        database; click <em>Export to course.json</em> to also write the JSON,
+        otherwise the next rescan will revert your edits.
       </div>
 
       <!-- Submit buttons -->
@@ -240,10 +242,28 @@ async function exportThisCourseJson() {
   if (!formData.value.id) return;
   exportingThisCourse.value = true;
   try {
+    // Build the same FormData the parent's saveCourse handler expects.
+    const courseData = {
+      id: formData.value.id,
+      title: formData.value.title,
+      description: formData.value.description,
+      category: formData.value.category,
+      releaseDate: formData.value.releaseDate,
+    };
+    const data = new FormData();
+    data.append('course', JSON.stringify(courseData));
+    if (formData.value.thumbnail) {
+      data.append('thumbnail', formData.value.thumbnail);
+    }
+    const saveRes = await $fetch('/api/courses/edit', { method: 'POST', body: data });
+    if (!saveRes?.success) {
+      console.error('Save before export failed:', saveRes);
+      return;
+    }
     await $fetch(`/api/courses/${encodeURIComponent(formData.value.id)}/export-json`, {
       method: 'POST',
     });
-    hasJson.value = true; // file now exists, so banner appears
+    hasJson.value = true;
   } catch (err) {
     console.error('Export failed:', err);
   } finally {

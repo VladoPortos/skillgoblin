@@ -45,6 +45,7 @@ services:
         tmpfs:
           mode: 01777
       - ./frontend/tests/fixtures/branding:/app/data/branding
+      - ./frontend/tests/fixtures/content:/app/data/content
     healthcheck:
       # 127.0.0.1 (not localhost) because busybox wget on alpine resolves
       # localhost to [::1] first and the server is bound to 0.0.0.0 only.
