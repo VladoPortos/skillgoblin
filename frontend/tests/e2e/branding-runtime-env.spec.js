@@ -8,30 +8,27 @@
 // this test only asserts the runtime-config-driven shape. The actual
 // "with APP_NAME=Foo, the page shows Foo" verification is in the
 // manual smoke step.
+//
+// Pre-Nuxt-4 this test read window.__NUXT__.config.public.branding,
+// but Nuxt 4 deletes that global post-hydration. We now assert on the
+// rendered <title> + meta tags that app.vue's useHead() writes from
+// runtimeConfig.public.branding — if runtimeConfig didn't reach the
+// client, useHead would never run and those tags would fall back to
+// the static defaults baked in nuxt.config.js's app.head. Asserting
+// three independently-driven head fields catches the regression.
 import { test, expect } from '@playwright/test';
 
 test.describe('Runtime branding wiring', () => {
   test('useRuntimeConfig().public.branding reaches the client', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
-    // Read the runtime config from the client-side Nuxt app. If the
-    // BLOCKER regresses (env baked at build time, runtimeConfig.public.branding
-    // never overwritten), this assertion still passes — but it proves the
-    // wiring is in place. The runtime override is verified by the env-set
-    // manual smoke step.
-    const branding = await page.evaluate(() => {
-      // The Nuxt app exposes useRuntimeConfig via window.__NUXT__ during
-      // dev, but in production we have to grab it via the global config.
-      // Easiest path: read from window.__NUXT__.config.public.branding.
-      return window.__NUXT__?.config?.public?.branding ?? null;
-    });
-    expect(branding).not.toBeNull();
-    expect(branding).toMatchObject({
-      name: 'SkillGoblin',
-      shortName: 'SkillGoblin',
-      description: 'A streamlined, self-hosted learning platform',
-      themeColor: '#111827',
-      backgroundColor: '#111827'
-    });
+
+    await expect(page).toHaveTitle('SkillGoblin');
+
+    const description = await page.locator('head meta[name="description"]').getAttribute('content');
+    expect(description).toBe('A streamlined, self-hosted learning platform');
+
+    const themeColor = await page.locator('head meta[name="theme-color"]').getAttribute('content');
+    expect(themeColor).toBe('#111827');
   });
 });

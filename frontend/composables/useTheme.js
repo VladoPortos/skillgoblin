@@ -7,7 +7,7 @@ export const useTheme = () => {
   
   // Initialize theme on client-side
   onMounted(async () => {
-    if (process.client) {
+    if (import.meta.client) {
       // Default to dark mode always
       let shouldUseDark = true;
       
@@ -52,7 +52,7 @@ export const useTheme = () => {
   
   // Apply theme to document
   const applyTheme = () => {
-    if (process.client) {
+    if (import.meta.client) {
       if (isDark.value) {
         document.documentElement.classList.add('dark');
       } else {
@@ -62,7 +62,7 @@ export const useTheme = () => {
   };
   
   // Apply theme to document immediately on import
-  if (process.client) {
+  if (import.meta.client) {
     // Default to dark mode for initial page load before Vue hydration
     document.documentElement.classList.add('dark');
   }
@@ -97,7 +97,7 @@ export const useTheme = () => {
   
   // Watch for login/logout to update theme
   watch(userId, async (newUserId) => {
-    if (newUserId && process.client) {
+    if (newUserId && import.meta.client) {
       // User logged in, fetch their theme preference
       try {
         // Server reads the user from the session cookie now.
