@@ -12,7 +12,17 @@
       <div v-else class="w-full h-full flex items-center justify-center bg-primary-100 dark:bg-primary-900">
         <span class="text-primary-600 dark:text-primary-200 text-xl">{{ course.title.charAt(0) }}</span>
       </div>
-      
+
+      <!-- NEW badge -->
+      <div
+        v-if="course.isNew"
+        data-testid="course-new-badge"
+        class="absolute top-2 left-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-primary-500 text-white shadow"
+        :title="newBadgeTitle"
+      >
+        NEW
+      </div>
+
       <!-- Admin Edit Button -->
       <div v-if="isAdmin" class="absolute top-2 right-2">
         <button 
@@ -203,6 +213,17 @@ const formattedReleaseDate = computed(() => {
   } catch (e) {
     console.error('Error formatting date:', e);
     return null;
+  }
+});
+
+const newBadgeTitle = computed(() => {
+  if (!props.course.created_at) return 'Recently added';
+  try {
+    const d = new Date(String(props.course.created_at).replace(' ', 'T'));
+    if (Number.isNaN(d.getTime())) return 'Recently added';
+    return `Added ${d.toLocaleDateString()}`;
+  } catch {
+    return 'Recently added';
   }
 });
 

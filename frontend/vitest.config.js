@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ['tests/unit/**/*.test.js'],
     environment: 'node',
+    setupFiles: ['./tests/setup.js'],
     testTimeout: 10000,
     pool: 'forks',
     poolOptions: {

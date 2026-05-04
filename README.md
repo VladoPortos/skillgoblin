@@ -121,6 +121,7 @@ The application reads the following environment variables:
 | `DB_PATH` / `DATABASE_PATH` | No | `/app/data/database/skillgoblin.db` | Path to the SQLite database file. |
 | `CHOKIDAR_POLLING_INTERVAL` | No | `60000` | File watcher polling interval in milliseconds. Set to `0` to disable the watcher entirely (e.g. on Unraid, to stop drives spinning up). |
 | `HOST` | No | `0.0.0.0` | Bind address. |
+| `NEW_BADGE_DAYS` | No | `7` | How recent (in days) a course must be to render the `NEW` badge on its card. Set to `0` to disable the badge entirely. |
 | `PORT` | No | `3000` | Listen port. |
 
 `ADMIN_NAME` and `ADMIN_PASSWORD` are only consulted on a fresh install. Once any admin user exists in the database, both env vars are ignored — admins reset their own passwords from the panel.
@@ -275,6 +276,12 @@ this PR sets up the server side so the follow-up just wires the `<track>`.
 - Natural organization that matches how video content is typically structured
 
 The application scans the content directory on startup to index available courses.
+
+### Newest-first sort
+
+The courses page has a sort dropdown next to the search bar. Pick "Newest
+first" to order courses by `created_at DESC` (most recently added first).
+The choice is stored in the URL so reloads and bookmarks preserve it.
 
 ## Project structure
 
