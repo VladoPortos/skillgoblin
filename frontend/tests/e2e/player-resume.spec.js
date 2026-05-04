@@ -78,14 +78,9 @@ test.describe('player resume + smart open', () => {
     // manually, then assert the parent's handleVideoLoaded ran (currentTime
     // was set based on saved progress) instead of the previous bug where the
     // internal listener overwrote it to 0.
-    await loginAdmin(request);
+    const admin = await loginAdmin(request);
     await attachAuthCookie(page, request);
-
-    // Seed 50% saved progress for the first video.
-    const userIdRes = await request.get('/api/auth/me');
-    expect(userIdRes.ok()).toBeTruthy();
-    const me = await userIdRes.json();
-    const userId = me?.id;
+    const userId = admin.id;
     expect(userId).toBeTruthy();
 
     // Pull course list to find a real course id and lesson layout.
