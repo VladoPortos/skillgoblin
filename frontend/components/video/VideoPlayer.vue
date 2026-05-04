@@ -34,7 +34,7 @@
         v-if="subtitleSrc"
         type="button"
         data-testid="player-cc-toggle"
-        class="px-2 py-1 rounded border"
+        class="px-2 py-1 rounded border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
         :class="ccOn ? 'border-primary-400 bg-primary-700/30' : 'border-gray-600 hover:border-gray-400'"
         :aria-pressed="ccOn"
         @click="toggleCc"
@@ -45,7 +45,7 @@
         <span class="text-xs uppercase tracking-wide text-gray-400">Speed</span>
         <select
           data-testid="player-speed"
-          class="bg-gray-900 border border-gray-700 rounded px-1 py-0.5"
+          class="bg-gray-900 border border-gray-700 rounded px-1 py-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
           :value="playbackRate"
           @change="onRateChange"
         >

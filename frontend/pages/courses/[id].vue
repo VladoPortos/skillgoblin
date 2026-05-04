@@ -176,59 +176,69 @@ const currentTimeForPlayer = ref(0);
 const courseProgress = ref({});
 const isLoading = ref(true);
 const showFilesModal = ref(false);
+// Smart-open must wait until BOTH the course payload AND the user-progress
+// fetch have settled, otherwise we would pick the first video with empty
+// progress and the early-exit-on-currentVideo guard prevents the later
+// progress-loaded trigger from correcting it.
+const progressReady = ref(false);
 
 // Fetch course data and user progress
 onMounted(async () => {
   try {
     isLoading.value = true;
-    
+
     // Fetch course data
     const data = await $fetch(`/api/courses/${route.params.id}`);
     course.value = data;
-    
+
     // Auto-expand first lesson
     if (course.value.lessons && course.value.lessons.length > 0) {
       expandedLessons.value[course.value.lessons[0].id] = true;
     }
-    
+
     // Load user progress from the database
     if (userId.value) {
-      const progressData = await $fetch(`/api/user-progress/${userId.value}`);
-      
-      if (progressData && progressData.progress) {
-        const userProgress = progressData.progress;
-        
-        // Get progress for this specific course
-        if (userProgress[course.value.id]) {
-          courseProgress.value = userProgress[course.value.id];
-          
-          // Set completed videos
-          if (courseProgress.value.completed) {
-            completedVideos.value = courseProgress.value.completed;
+      try {
+        const progressData = await $fetch(`/api/user-progress/${userId.value}`);
+
+        if (progressData && progressData.progress) {
+          const userProgress = progressData.progress;
+
+          if (userProgress[course.value.id]) {
+            courseProgress.value = userProgress[course.value.id];
+            if (courseProgress.value.completed) {
+              completedVideos.value = courseProgress.value.completed;
+            }
+            if (courseProgress.value.progress) {
+              videoProgress.value = courseProgress.value.progress;
+            }
+            isFavorite.value = courseProgress.value.favorite || false;
           }
-          
-          // Set video progress
-          if (courseProgress.value.progress) {
-            videoProgress.value = courseProgress.value.progress;
-          }
-          
-          // Set favorite status
-          isFavorite.value = courseProgress.value.favorite || false;
         }
+      } catch (err) {
+        console.error('Error loading user progress:', err);
       }
     }
-    
+
     isLoading.value = false;
   } catch (error) {
     console.error('Error loading course:', error);
     isLoading.value = false;
+  } finally {
+    // Always mark progress as ready, even on failure — without this signal
+    // the smart-open watcher would never pick anything and the page would
+    // stay stuck on the placeholder.
+    progressReady.value = true;
   }
 });
 
-// Watch for course data to load and select the first video
-watch([course, () => Object.keys(courseProgress.value).length], () => {
+// Watch for course data to load and select the first video. The watcher
+// fires when EITHER the course or the progressReady signal flips, but the
+// body bails until BOTH are present so we never pick with stale empty progress.
+watch([course, progressReady], () => {
   const newCourseData = course.value;
   if (!newCourseData?.lessons?.length) return;
+  if (!progressReady.value) return;
   // Collapse all lessons (matches the previous "expand only one" UX)
   Object.keys(expandedLessons.value).forEach((id) => {
     expandedLessons.value[id] = false;
