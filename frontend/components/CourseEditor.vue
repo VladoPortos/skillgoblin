@@ -121,6 +121,8 @@
             role="button"
             tabindex="0"
             aria-label="Upload course thumbnail"
+            :aria-invalid="!!uploadError"
+            aria-describedby="thumbnail-help thumbnail-error-text"
             class="flex-1 flex flex-col items-center justify-center cursor-pointer rounded-md border-2 border-dashed transition-colors px-4 py-6 text-center select-none"
             :class="[
               uploadError ? 'border-red-400 dark:border-red-500' : isDragging
@@ -140,7 +142,7 @@
             <p class="text-sm text-gray-700 dark:text-gray-200">
               <span class="font-medium">Drop an image here</span> or click to browse
             </p>
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            <p id="thumbnail-help" class="text-xs text-gray-500 dark:text-gray-400 mt-1">
               Recommended size: 480 × 270 px
             </p>
             <input
@@ -153,7 +155,13 @@
             />
           </div>
         </div>
-        <p v-if="uploadError" data-testid="thumbnail-upload-error" class="mt-2 text-sm text-red-500 dark:text-red-400">
+        <p
+          id="thumbnail-error-text"
+          v-if="uploadError"
+          data-testid="thumbnail-upload-error"
+          role="alert"
+          class="mt-2 text-sm text-red-500 dark:text-red-400"
+        >
           {{ uploadError }}
         </p>
       </div>
@@ -206,7 +214,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { findMatchingCategories } from '~/utils/categoryMatching.js';
 
 const props = defineProps({
@@ -230,6 +238,13 @@ const dragDepth = ref(0); // counter to handle dragleave firing on children
 const uploadError = ref('');
 const fileInputRef = ref(null);
 let errorTimer = null;
+let lastObjectUrl = null;
+function revokeLastObjectUrl() {
+  if (lastObjectUrl) {
+    try { URL.revokeObjectURL(lastObjectUrl); } catch {}
+    lastObjectUrl = null;
+  }
+}
 
 const ACCEPTED_PREFIXES = ['image/'];
 const SOFT_SIZE_WARN = 10 * 1024 * 1024; // 10 MB — server enforces hard limit
@@ -254,7 +269,10 @@ function applyImageFile(file) {
     showError('Warning: file is larger than 10 MB and may be rejected by the server.');
   }
   thumbnailFile.value = file;
-  thumbnailPreview.value = URL.createObjectURL(file);
+  revokeLastObjectUrl();
+  const url = URL.createObjectURL(file);
+  lastObjectUrl = url;
+  thumbnailPreview.value = url;
   formData.value.thumbnail = file;
 }
 
@@ -295,19 +313,21 @@ function onDrop(event) {
       }
     }
   }
+  const itemsCanDetectFolders = items.length > 0 && items.some(
+    (it) => it.kind === 'file' && typeof it.webkitGetAsEntry === 'function',
+  );
+  if (items.length > 0 && !itemsCanDetectFolders) {
+    showError('Drop unsupported in this browser; click to choose an image.');
+    return;
+  }
 
   const files = dt.files ? Array.from(dt.files) : [];
   if (files.length === 0) return;
-
-  const firstImage = files.find(fileLooksLikeImage);
-  if (!firstImage) {
-    showError('Image files only.');
+  if (files.length > 1) {
+    showError('Drop a single image file.');
     return;
   }
-  if (files.length > 1) {
-    showError('Only the first image was used.');
-  }
-  applyImageFile(firstImage);
+  applyImageFile(files[0]);
 }
 
 function openFilePicker() {
@@ -376,6 +396,7 @@ const initializeForm = (course) => {
 
 // Reset form to empty values
 const resetForm = () => {
+  revokeLastObjectUrl();
   formData.value = {
     id: '',
     title: '',
@@ -494,4 +515,9 @@ const handleCategoryBlur = () => {
     showCategoryDropdown.value = false;
   }, 200);
 };
+
+onUnmounted(() => {
+  revokeLastObjectUrl();
+  if (errorTimer) clearTimeout(errorTimer);
+});
 </script>
