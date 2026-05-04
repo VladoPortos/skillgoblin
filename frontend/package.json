@@ -20,11 +20,11 @@
     "tailwindcss": "^4.2.4",
     "@tailwindcss/vite": "^4.2.4",
     "@tailwindcss/forms": "^0.5.7",
-    "argon2": "^0.41.1",
+    "argon2": "^0.44.0",
     "lru-cache": "^11.3.5",
-    "beanheads-vue": "1.0.0",
+    "beanheads-vue": "1.2.1",
     "chokidar": "^5.0.0",
-    "sharp": "^0.33.5",
+    "sharp": "^0.34.5",
     "busboy": "^1.6.0"
   },
   "devDependencies": {
