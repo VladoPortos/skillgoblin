@@ -53,3 +53,13 @@ course.json
 frontend/test-results
 frontend/playwright-report
 frontend/tests/e2e/.tmp-data
+
+# Local manual-test sandbox (course content + scratch DB; never tracked)
+manual-test/
+
+# AI-assistant working notes (handover.md, planning records, design drafts).
+# These were primarily produced for cross-session context inside Claude Code
+# and aren't user-facing documentation — README.md / SECURITY.md / LICENSE
+# are. Keeping them out of git so the repo stays focused on code + the
+# docs operators actually need.
+notes/
