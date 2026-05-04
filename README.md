@@ -192,6 +192,16 @@ What you'll see depending on the prior state of your install:
 - **No admin user exists.** The server refuses to boot until you set `ADMIN_NAME` / `ADMIN_PASSWORD` (see [First-run bootstrap](#first-run-bootstrap)).
 - **An admin already exists.** Bootstrap is skipped and the env vars are ignored. You log in with your existing admin credentials.
 
+### Upgrading to the non-root container (one-time host fix-up)
+
+Recent versions drop privileges inside the container — the app runs as the unprivileged `node` user (uid/gid `1000`) instead of root. If you're upgrading from a prior release, the bind-mounted host data directory is likely owned by root from when the container created files as root. Once on the host:
+
+```sh
+sudo chown -R 1000:1000 ./data
+```
+
+(Or whatever path you mapped to `/app/data`.) After that, restart the container as usual. New installs are unaffected — Docker creates the bind-mount target with the right ownership automatically.
+
 ## Content management
 
 ### File structure
