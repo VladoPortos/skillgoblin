@@ -151,6 +151,7 @@
               type="file"
               accept="image/*"
               class="hidden"
+              @click.stop
               @change="handleThumbnailUpload"
             />
           </div>
