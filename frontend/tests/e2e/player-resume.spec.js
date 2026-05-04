@@ -72,20 +72,6 @@ test.describe('player resume + smart open', () => {
     await expect(page.locator('[data-testid=player-speed]')).toBeVisible({ timeout: 5_000 });
   });
 
-  test('CC toggle is hidden when no subtitle sidecar exists', async ({ page, request }) => {
-    await loginAdmin(request);
-    await attachAuthCookie(page, request);
-    await page.goto('/courses');
-    await page.waitForLoadState('networkidle');
-
-    const firstCard = page.locator('main h3').first();
-    await firstCard.click();
-    await page.waitForURL(/\/courses\/[^/]+/);
-    // Without an .srt next to the .mp4, the API does not emit a `subtitle`
-    // field and the CC button is not rendered.
-    await expect(page.locator('[data-testid=player-cc-toggle]')).toHaveCount(0);
-  });
-
   test('parent owns the seek (regression for the loadedmetadata race bug)', async ({ page, request }) => {
     // This test verifies the architectural fix without relying on a valid
     // video file. We stub `video.duration` and dispatch `loadedmetadata`

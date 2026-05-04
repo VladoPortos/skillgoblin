@@ -21,7 +21,6 @@
         :src="currentVideoUrl"
         :autoplay="false"
         :current-time="currentTimeForPlayer"
-        :subtitle-src="subtitleSrc"
         @timeupdate="updateProgress"
         @ended="markAsCompleted"
         @loadedmetadata="handleVideoLoaded"
@@ -278,19 +277,6 @@ const currentVideoUrl = computed(() => {
   
   const lessonPath = lessonFolder ? `/${lessonFolder}` : '';
   return `/api/content/${courseId}${lessonPath}/${videoFile}`;
-});
-
-const subtitleSrc = computed(() => {
-  if (!currentVideo.value || !currentLesson.value) return '';
-  if (!currentVideo.value.subtitle) return '';
-  const courseId = encodeURIComponent(route.params.id);
-  const lessonFolder = currentLesson.value.folder
-    ? encodeURIComponent(currentLesson.value.folder)
-    : '';
-  // The .vtt URL is the same path as the video, with the extension swapped.
-  const subtitleFilename = String(currentVideo.value.subtitle).replace(/\.srt$/i, '.vtt');
-  const lessonPath = lessonFolder ? `/${lessonFolder}` : '';
-  return `/api/content/${courseId}${lessonPath}/${encodeURIComponent(subtitleFilename)}`;
 });
 
 const totalVideos = computed(() => {

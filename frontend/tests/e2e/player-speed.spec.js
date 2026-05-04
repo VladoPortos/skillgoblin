@@ -44,7 +44,7 @@ async function openFirstCourse(page) {
   await page.waitForSelector('[data-testid=player-speed]', { timeout: 5_000 });
 }
 
-test.describe('player CC + speed', () => {
+test.describe('player speed memory', () => {
   test.beforeAll(async ({ request }) => {
     await loginAdmin(request);
     await rescanAndWait(request);
@@ -56,7 +56,6 @@ test.describe('player CC + speed', () => {
     await openFirstCourse(page);
 
     await page.selectOption('[data-testid=player-speed]', '1.5');
-    // Verify the value stuck.
     await expect(page.locator('[data-testid=player-speed]')).toHaveValue('1.5');
 
     // Navigate away and back; speed should rehydrate from localStorage.
@@ -65,20 +64,11 @@ test.describe('player CC + speed', () => {
     await openFirstCourse(page);
     await expect(page.locator('[data-testid=player-speed]')).toHaveValue('1.5');
 
-    // Cleanup: reset to 1× so subsequent tests start fresh.
+    // Cleanup so subsequent tests start fresh.
     await page.selectOption('[data-testid=player-speed]', '1');
   });
 
-  test('CC button is hidden when no subtitle is available', async ({ page, request }) => {
-    await loginAdmin(request);
-    await attachAuthCookie(page, request);
-    await openFirstCourse(page);
-    await expect(page.locator('[data-testid=player-cc-toggle]')).toHaveCount(0);
-  });
-
-  test('speed dropdown rejects invalid values via the allowed-rates list', async ({ page, request }) => {
-    // We can't really pass an out-of-allowlist value through the <select>,
-    // but we can verify the rendered options are exactly the documented set.
+  test('speed dropdown options exactly match the documented allowlist', async ({ page, request }) => {
     await loginAdmin(request);
     await attachAuthCookie(page, request);
     await openFirstCourse(page);
