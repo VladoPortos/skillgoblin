@@ -9,6 +9,8 @@ export const STOPWORDS = new Set([
 ]);
 
 export function tokenize(text) {
+  // Short-circuit non-strings and empty input — split+filter would handle '' correctly,
+  // but the early return avoids the allocation.
   if (typeof text !== 'string' || text.length === 0) return [];
   return text
     .toLowerCase()

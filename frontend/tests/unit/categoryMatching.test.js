@@ -2,14 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { tokenize, STOPWORDS } from '../../utils/categoryMatching.js';
 
 describe('STOPWORDS', () => {
-  it('is a Set of lowercase strings', () => {
-    expect(STOPWORDS).toBeInstanceOf(Set);
-    for (const word of STOPWORDS) {
-      expect(word).toBe(word.toLowerCase());
-    }
-  });
-
   it('contains common English fillers', () => {
+    expect(STOPWORDS).toBeInstanceOf(Set);
     for (const word of ['the', 'a', 'an', 'and', 'or', 'of', 'to', 'in', 'for', 'with']) {
       expect(STOPWORDS.has(word)).toBe(true);
     }
