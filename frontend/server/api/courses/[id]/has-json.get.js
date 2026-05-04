@@ -1,7 +1,6 @@
-import path from 'path';
 import { defineEventHandler, createError } from 'h3';
 import { getDb } from '../../../utils/db';
-import { getContentDir } from '../../../utils/courseHelpers';
+import { resolveCourseDir } from '../../../utils/courseHelpers';
 import { hasCourseJson } from '../../../utils/courseJsonOverride.js';
 import { requireAdmin } from '../../../utils/authz';
 
@@ -18,6 +17,6 @@ export default defineEventHandler((event) => {
     throw createError({ statusCode: 404, statusMessage: 'Course not found' });
   }
 
-  const courseDir = path.join(getContentDir(), row.folder_name);
+  const courseDir = resolveCourseDir(row.folder_name);
   return { hasJson: hasCourseJson(courseDir) };
 });

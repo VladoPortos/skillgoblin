@@ -51,4 +51,41 @@ describe('srtToVtt', () => {
     expect(vtt).toContain('Hello, world'); // comma in text is preserved
     expect(vtt).toContain('00:00:01.000 --> 00:00:02.000');
   });
+
+  it('preserves an inline arrow in cue text without breaking the conversion', () => {
+    const srt = [
+      '1',
+      '00:00:01,000 --> 00:00:02,000',
+      'Look at the arrow --> here',
+      '',
+    ].join('\n');
+    const vtt = srtToVtt(srt);
+    // The cue line still contains its original arrow; the timestamp line is converted
+    expect(vtt).toContain('Look at the arrow --> here');
+    expect(vtt).toContain('00:00:01.000 --> 00:00:02.000');
+  });
+
+  it('passes through HTML-like tags in cue text unchanged (VTT spec allows a subset)', () => {
+    const srt = [
+      '1',
+      '00:00:01,000 --> 00:00:02,000',
+      '<i>Italic</i> and <b>bold</b>',
+      '',
+    ].join('\n');
+    const vtt = srtToVtt(srt);
+    expect(vtt).toContain('<i>Italic</i> and <b>bold</b>');
+  });
+
+  it('preserves cue text that starts with WEBVTT-reserved words like NOTE', () => {
+    const srt = [
+      '1',
+      '00:00:01,000 --> 00:00:02,000',
+      'NOTE this is part of the dialogue, not a comment',
+      '',
+    ].join('\n');
+    const vtt = srtToVtt(srt);
+    expect(vtt).toContain('NOTE this is part of the dialogue');
+    // The line is part of a cue (timing precedes it), not a top-level NOTE block,
+    // so VTT parsers treat it as cue payload. Document this behavior.
+  });
 });

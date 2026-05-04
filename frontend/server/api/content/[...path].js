@@ -334,8 +334,13 @@ export default defineEventHandler(async (event) => {
           setResponseHeader(event, 'Cache-Control', 'public, max-age=600');
           return vttBuffer;
         } catch (err) {
-          console.error(`SRT→VTT conversion failed for ${srtCandidate}:`, err);
-          throw createError({ statusCode: 500, statusMessage: 'Subtitle conversion failed' });
+          if (err && err.code === 'ENOENT') {
+            // The .srt disappeared between existsSync and read — fall through to the
+            // normal not-found handling below.
+          } else {
+            console.error(`SRT to VTT conversion failed for ${srtCandidate}:`, err);
+            throw createError({ statusCode: 500, statusMessage: 'Subtitle conversion failed' });
+          }
         }
       }
     }

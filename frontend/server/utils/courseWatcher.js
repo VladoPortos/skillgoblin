@@ -12,16 +12,26 @@ import { generateCourseId } from './courseHelpers'; // Added generateCourseId im
 // pinned. Returns an empty Set on any read/parse failure so the caller treats
 // the course as "no pinned fields."
 function readCourseJsonKeys(courseDirPath) {
+  const filePath = path.join(courseDirPath, 'course.json');
+  let raw;
   try {
-    const raw = fs.readFileSync(path.join(courseDirPath, 'course.json'), 'utf8');
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.warn(`[courseWatcher] cannot read ${filePath}: ${err.message}`);
+    }
+    return new Set();
+  }
+  try {
     const parsed = JSON.parse(raw.replace(/^﻿/, ''));
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return new Set(Object.keys(parsed));
     }
-  } catch {
-    // missing / malformed — no pinned fields
+    return new Set();
+  } catch (err) {
+    console.warn(`[courseWatcher] malformed JSON in ${filePath}: ${err.message}`);
+    return new Set();
   }
-  return new Set();
 }
 
 // Status tracking for initial scan

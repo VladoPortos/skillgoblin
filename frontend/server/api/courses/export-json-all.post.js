@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { defineEventHandler } from 'h3';
 import { getDb } from '../../utils/db';
-import { getContentDir } from '../../utils/courseHelpers';
+import { resolveCourseDir } from '../../utils/courseHelpers';
 import { requireAdmin } from '../../utils/authz';
 
 export default defineEventHandler((event) => {
@@ -12,7 +12,6 @@ export default defineEventHandler((event) => {
     .prepare('SELECT id, title, description, category, release_date, folder_name FROM courses')
     .all();
 
-  const contentDir = getContentDir();
   const written = [];
   const failed = [];
 
@@ -21,7 +20,13 @@ export default defineEventHandler((event) => {
       failed.push({ id: row.id, reason: 'no folder_name in DB' });
       continue;
     }
-    const dir = path.join(contentDir, row.folder_name);
+    let dir;
+    try {
+      dir = resolveCourseDir(row.folder_name);
+    } catch {
+      failed.push({ id: row.id, reason: 'invalid folder_name in DB' });
+      continue;
+    }
     if (!fs.existsSync(dir)) {
       failed.push({ id: row.id, reason: 'folder missing on disk' });
       continue;
