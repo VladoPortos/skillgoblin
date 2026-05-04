@@ -99,38 +99,63 @@
         <h3 class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Thumbnail
         </h3>
-        <div class="mt-1 flex items-center space-x-4">
-          <div class="w-32 h-24 bg-gray-100 dark:bg-gray-700 overflow-hidden rounded-md">
-            <img 
-              v-if="thumbnailPreview" 
-              :src="thumbnailPreview" 
+        <div class="mt-1 flex items-stretch space-x-4">
+          <div class="w-32 h-24 shrink-0 bg-gray-100 dark:bg-gray-700 overflow-hidden rounded-md">
+            <img
+              v-if="thumbnailPreview"
+              :src="thumbnailPreview"
               alt="Course thumbnail"
               class="w-full h-full object-cover"
             />
             <div v-else class="w-full h-full flex items-center justify-center">
-              <img 
-                :src="`/images/placeholder.png?t=${Date.now()}`" 
-                alt="Default thumbnail" 
+              <img
+                :src="`/images/placeholder.png?t=${Date.now()}`"
+                alt="Default thumbnail"
                 class="w-full h-full object-cover"
               />
             </div>
           </div>
-          <div class="flex flex-col items-start space-y-2">
-            <label for="thumbnailUpload" class="cursor-pointer inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-xs text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
-              <span>Upload image</span>
-              <input 
-                id="thumbnailUpload" 
-                type="file" 
-                @change="handleThumbnailUpload" 
-                accept="image/*" 
-                class="hidden"
-              />
-            </label>
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              Recommended size: 480x270px
+
+          <div
+            data-testid="thumbnail-dropzone"
+            role="button"
+            tabindex="0"
+            aria-label="Upload course thumbnail"
+            class="flex-1 flex flex-col items-center justify-center cursor-pointer rounded-md border-2 border-dashed transition-colors px-4 py-6 text-center select-none"
+            :class="[
+              uploadError ? 'border-red-400 dark:border-red-500' : isDragging
+                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30'
+                : 'border-gray-300 dark:border-gray-600 hover:border-primary-400'
+            ]"
+            @click="openFilePicker"
+            @keydown="onZoneKeydown"
+            @dragenter="onDragEnter"
+            @dragover="onDragOver"
+            @dragleave="onDragLeave"
+            @drop="onDrop"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 7.5m0 0L7.5 12m4.5-4.5V21" />
+            </svg>
+            <p class="text-sm text-gray-700 dark:text-gray-200">
+              <span class="font-medium">Drop an image here</span> or click to browse
             </p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Recommended size: 480 × 270 px
+            </p>
+            <input
+              ref="fileInputRef"
+              id="thumbnailUpload"
+              type="file"
+              accept="image/*"
+              class="hidden"
+              @change="handleThumbnailUpload"
+            />
           </div>
         </div>
+        <p v-if="uploadError" data-testid="thumbnail-upload-error" class="mt-2 text-sm text-red-500 dark:text-red-400">
+          {{ uploadError }}
+        </p>
       </div>
 
       <!-- Release Date -->
@@ -198,6 +223,103 @@ const emit = defineEmits(['save', 'cancel']);
 const isSaving = ref(false);
 const thumbnailPreview = ref('');
 const thumbnailFile = ref(null);
+
+// Dropzone state
+const isDragging = ref(false);
+const dragDepth = ref(0); // counter to handle dragleave firing on children
+const uploadError = ref('');
+const fileInputRef = ref(null);
+let errorTimer = null;
+
+const ACCEPTED_PREFIXES = ['image/'];
+const SOFT_SIZE_WARN = 10 * 1024 * 1024; // 10 MB — server enforces hard limit
+
+function showError(msg) {
+  uploadError.value = msg;
+  if (errorTimer) clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => { uploadError.value = ''; }, 3000);
+}
+
+function fileLooksLikeImage(file) {
+  if (!file || !file.type) return false;
+  return ACCEPTED_PREFIXES.some((p) => file.type.startsWith(p));
+}
+
+function applyImageFile(file) {
+  if (!fileLooksLikeImage(file)) {
+    showError('Image files only.');
+    return;
+  }
+  if (file.size > SOFT_SIZE_WARN) {
+    showError('Warning: file is larger than 10 MB and may be rejected by the server.');
+  }
+  thumbnailFile.value = file;
+  thumbnailPreview.value = URL.createObjectURL(file);
+  formData.value.thumbnail = file;
+}
+
+function onDragEnter(event) {
+  event.preventDefault();
+  dragDepth.value += 1;
+  isDragging.value = true;
+}
+
+function onDragOver(event) {
+  // Required so the browser will fire `drop`
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+}
+
+function onDragLeave(event) {
+  event.preventDefault();
+  dragDepth.value = Math.max(0, dragDepth.value - 1);
+  if (dragDepth.value === 0) isDragging.value = false;
+}
+
+function onDrop(event) {
+  event.preventDefault();
+  dragDepth.value = 0;
+  isDragging.value = false;
+
+  const dt = event.dataTransfer;
+  if (!dt) return;
+
+  // Reject folders (FileSystemEntry returns isDirectory=true)
+  const items = dt.items ? Array.from(dt.items) : [];
+  for (const item of items) {
+    if (item.kind === 'file' && typeof item.webkitGetAsEntry === 'function') {
+      const entry = item.webkitGetAsEntry();
+      if (entry && entry.isDirectory) {
+        showError('Folders are not supported. Drop a single image file.');
+        return;
+      }
+    }
+  }
+
+  const files = dt.files ? Array.from(dt.files) : [];
+  if (files.length === 0) return;
+
+  const firstImage = files.find(fileLooksLikeImage);
+  if (!firstImage) {
+    showError('Image files only.');
+    return;
+  }
+  if (files.length > 1) {
+    showError('Only the first image was used.');
+  }
+  applyImageFile(firstImage);
+}
+
+function openFilePicker() {
+  if (fileInputRef.value) fileInputRef.value.click();
+}
+
+function onZoneKeydown(event) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    openFilePicker();
+  }
+}
 
 // Add state for category autocomplete
 const availableCategories = ref([]);
@@ -267,11 +389,7 @@ const resetForm = () => {
 // Handle thumbnail upload
 const handleThumbnailUpload = (event) => {
   const file = event.target.files[0];
-  if (file) {
-    thumbnailFile.value = file;
-    thumbnailPreview.value = URL.createObjectURL(file);
-    formData.value.thumbnail = file;
-  }
+  if (file) applyImageFile(file);
 };
 
 // Handle form submission
