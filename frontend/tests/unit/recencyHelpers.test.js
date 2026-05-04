@@ -53,4 +53,41 @@ describe('isWithinNewWindow', () => {
     const sqliteFormat = '2026-05-03 12:00:00';
     expect(isWithinNewWindow(sqliteFormat, 7, now)).toBe(true);
   });
+
+  it('treats SQLite timestamps as UTC, not local time (regression for TZ regex bug)', () => {
+    // 6 days, 23 hours before `now`. With UTC parsing this is inside a 7-day
+    // window. If the helper accidentally parsed it as local time on a host
+    // with a non-UTC offset, the result could flip — this asserts the
+    // append-Z-when-no-TZ behavior survives.
+    const sqlite = new Date(now - (7 * 24 * 60 * 60 * 1000) + 60_000)
+      .toISOString()
+      .replace('T', ' ')
+      .replace(/\.\d+Z$/, '');
+    expect(isWithinNewWindow(sqlite, 7, now)).toBe(true);
+  });
+
+  it('honors an explicit Z timezone designator (no double-Z appended)', () => {
+    const iso = new Date(now - 24 * 60 * 60 * 1000).toISOString(); // ends with .000Z
+    expect(iso).toMatch(/Z$/);
+    expect(isWithinNewWindow(iso, 7, now)).toBe(true);
+  });
+
+  it('honors an explicit +HH:MM timezone designator', () => {
+    // 1 hour before `now` expressed in +02:00 offset.
+    const oneHourAgoUtc = now - 60 * 60 * 1000;
+    const d = new Date(oneHourAgoUtc);
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    const HH = String((d.getUTCHours() + 2) % 24).padStart(2, '0');
+    const MM = String(d.getUTCMinutes()).padStart(2, '0');
+    const SS = String(d.getUTCSeconds()).padStart(2, '0');
+    const withOffset = `${yyyy}-${mm}-${dd}T${HH}:${MM}:${SS}+02:00`;
+    expect(isWithinNewWindow(withOffset, 7, now)).toBe(true);
+  });
+
+  it('returns false when ageMs is negative (createdAt in the future)', () => {
+    const future = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+    expect(isWithinNewWindow(future, 7, now)).toBe(false);
+  });
 });
