@@ -56,12 +56,21 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName) {
         // mkdirSync with recursive:true is idempotent — no exists-check needed,
         // and dropping the check closes a TOCTOU window between exists and mkdir.
         fs.mkdirSync(courseRoot, { recursive: true });
-        fs.writeFileSync(localThumbnailPath, dbThumbnailData);
+        // 'wx' flag: atomic create-only-if-not-exists. localThumbnailExists
+        // was sampled at function entry (line 33) and there's async DB work
+        // in between, so a concurrent watcher event could have created the
+        // file by now. EEXIST means someone else won the race — leave their
+        // file alone, that's already a thumbnail.
+        fs.writeFileSync(localThumbnailPath, dbThumbnailData, { flag: 'wx' });
         console.log(`[${courseId}] Local thumbnail.png created from DB data at ${localThumbnailPath}`);
       } catch (writeError) {
-        console.error(`[${courseId}] Error writing DB thumbnail to ${localThumbnailPath}:`, writeError);
+        if (writeError.code === 'EEXIST') {
+          console.log(`[${courseId}] Local thumbnail.png appeared concurrently; skipping write.`);
+        } else {
+          console.error(`[${courseId}] Error writing DB thumbnail to ${localThumbnailPath}:`, writeError);
+        }
       }
-    } 
+    }
     // Case 4: DB thumbnail_data is NOT NULL and thumbnail.png exists locally.
     else if (dbThumbnailData && localThumbnailExists) {
       const localFileBuffer = fs.readFileSync(localThumbnailPath); // Read the raw local file
