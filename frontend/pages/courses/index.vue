@@ -168,11 +168,26 @@
               @select-category="selectedCategory = $event" 
             />
             
-            <!-- Search Bar -->
-            <SearchBar 
-              v-model:search-query="searchQuery" 
-              placeholder="Search courses..." 
-            />
+            <!-- Search + sort -->
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3 mt-3">
+              <div class="flex-1">
+                <SearchBar
+                  v-model:search-query="searchQuery"
+                  placeholder="Search courses..."
+                />
+              </div>
+              <label class="flex items-center text-sm text-gray-700 dark:text-gray-300">
+                <span class="mr-2">Sort:</span>
+                <select
+                  data-testid="course-sort"
+                  v-model="sortMode"
+                  class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white text-sm px-2 py-1"
+                >
+                  <option value="title">Title (A–Z)</option>
+                  <option value="newest">Newest first</option>
+                </select>
+              </label>
+            </div>
           </div>
           
           <!-- Tabs -->
@@ -329,6 +344,7 @@ const userObject = computed(() => {
 const courses = ref([]);
 const searchQuery = ref('');
 const selectedCategory = ref('all');
+const sortMode = ref('title'); // 'title' | 'newest'
 const showDeleteConfirm = ref(false);
 const isDeleting = ref(false);
 const tabs = [
@@ -385,7 +401,11 @@ const fetchCourses = async (forceFresh = false) => {
     if (searchQuery.value) {
       queryParams.append('search', searchQuery.value);
     }
-    
+
+    if (sortMode.value && sortMode.value !== 'title') {
+      queryParams.append('sort', sortMode.value);
+    }
+
     // Add cache busting parameter if forceFresh is true
     if (forceFresh) {
       queryParams.append('_t', Date.now().toString());
@@ -946,6 +966,11 @@ watch(selectedCategory, () => {
   fetchCourses();
 });
 
+watch(sortMode, () => {
+  currentPage.value = 1;
+  fetchCourses();
+});
+
 watch(searchQuery, () => {
   // Debounce the search input to avoid too many API calls
   if (searchDebounceTimeout.value) clearTimeout(searchDebounceTimeout.value);
@@ -1040,7 +1065,10 @@ onBeforeMount(async () => {
   if (searchParam) {
     searchQuery.value = searchParam;
   }
-  
+
+  const sortParam = urlParams.get('sort');
+  if (sortParam === 'newest') sortMode.value = 'newest';
+
   // Check scan status first thing
   await checkScanStatus();
 });
