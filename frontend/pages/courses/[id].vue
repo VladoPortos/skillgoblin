@@ -486,10 +486,6 @@ function toggleFavorite() {
   console.log(message);
 }
 
-function navigateTo(path) {
-  router.push(path);
-}
-
 const openFilesModal = () => {
   showFilesModal.value = true;
 };
