@@ -4,11 +4,10 @@
  * mode variant, default ring/border overrides) goes inline as @theme / @plugin
  * / @variant blocks since v4 doesn't auto-load tailwind.config.js.
  *
- * Migration decisions (locked 2026-05-04 in
- * notes/nuxt4-tailwind4-migration-plan.md):
- *   3. Preserve v3 ring defaults globally (3px width, blue-500 color)
- *   4. Preserve v3 default border color (gray-200)
- * Both are global overrides so we don't need to chase per-occurrence rewrites.
+ * Two global overrides preserve v3 visual defaults so we don't have to chase
+ * per-occurrence rewrites across every component:
+ *   - ring: 3px width, blue-500 color (v3 had this; v4 changed to 1px / current)
+ *   - border-color: gray-200 (v4 changed default to currentColor)
  */
 
 @import "tailwindcss";

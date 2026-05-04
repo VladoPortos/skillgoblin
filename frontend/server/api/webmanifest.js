@@ -3,10 +3,9 @@ import { readBranding } from '../utils/branding.js';
 
 // Dynamic PWA manifest. Replaces the static frontend/public/site.webmanifest
 // so operator branding (name, theme color, etc.) flows through to the
-// install prompt and home-screen icon label without a rebuild.
-//
-// Icons stay bundled — see notes/customization-branding-design.md "Out
-// of scope" for why.
+// install prompt and home-screen icon label without a rebuild. Icons stay
+// bundled (out of scope for env-driven customization — they need a build
+// step to generate the right sizes from a single source asset).
 export default defineEventHandler((event) => {
   const b = readBranding();
   setResponseHeader(event, 'Content-Type', 'application/manifest+json');
