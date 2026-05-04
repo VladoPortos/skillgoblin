@@ -2,8 +2,12 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files first for better caching
-COPY frontend/package*.json ./
+# Copy package files + .npmrc first for better caching. The .npmrc sets
+# legacy-peer-deps=true so npm ci tolerates Nuxt 4's optional peer dep
+# chain (e.g. @bomb.sh/tab declares commander@^13 as an optional peer
+# while svgo pulls commander@^11 — without legacy-peer-deps, npm ci
+# rejects this as inconsistent).
+COPY frontend/package*.json frontend/.npmrc ./
 
 # Install dependencies
 RUN npm ci
