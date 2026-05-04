@@ -231,6 +231,35 @@
           </div>
         </template>
       </div>
+
+      <div v-if="activeTab === 'content'" class="space-y-4" data-testid="admin-tab-content-pane">
+        <h3 class="text-white font-semibold">Course metadata</h3>
+        <p class="text-sm text-gray-400">
+          Export the current database metadata for every course into a
+          <code class="bg-gray-700 px-1 rounded">course.json</code> file inside its
+          folder. Existing files are overwritten. The exported JSON does not include
+          the thumbnail — drop a <code class="bg-gray-700 px-1 rounded">thumbnail.png</code>
+          next to it for portability.
+        </p>
+        <button
+          type="button"
+          data-testid="admin-export-all-json"
+          class="px-4 py-2 bg-blue-700 hover:bg-blue-600 text-white text-sm rounded"
+          :disabled="exportingAll"
+          @click="exportAllJson"
+        >
+          {{ exportingAll ? 'Exporting…' : 'Export all to course.json' }}
+        </button>
+        <div v-if="exportResult" class="text-sm" data-testid="admin-export-result">
+          <p class="text-green-400">Wrote {{ exportResult.written.length }} file(s).</p>
+          <p v-if="exportResult.failed.length" class="text-orange-400">
+            {{ exportResult.failed.length }} failed.
+          </p>
+          <ul v-if="exportResult.failed.length" class="list-disc ml-6 text-orange-300">
+            <li v-for="f in exportResult.failed" :key="f.id">{{ f.id }}: {{ f.reason }}</li>
+          </ul>
+        </div>
+      </div>
     </div>
 
     <!-- Sessions drilldown -->
@@ -456,7 +485,8 @@ const emit = defineEmits(['close']);
 
 const tabs = [
   { id: 'users', label: 'Users' },
-  { id: 'settings', label: 'Settings' }
+  { id: 'settings', label: 'Settings' },
+  { id: 'content', label: 'Content' }
 ];
 const activeTab = ref('users');
 
@@ -780,6 +810,22 @@ async function saveSettings() {
 
 function close() {
   emit('close');
+}
+
+const exportingAll = ref(false);
+const exportResult = ref(null);
+
+async function exportAllJson() {
+  exportingAll.value = true;
+  exportResult.value = null;
+  try {
+    const res = await $fetch('/api/courses/export-json-all', { method: 'POST' });
+    exportResult.value = res;
+  } catch (err) {
+    actionError.value = err?.statusMessage || err?.message || 'Export failed';
+  } finally {
+    exportingAll.value = false;
+  }
 }
 
 watch(activeTab, (tab) => {

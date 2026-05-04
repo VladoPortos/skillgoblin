@@ -64,3 +64,5 @@ manual-test/
 # are. Keeping them out of git so the repo stays focused on code + the
 # docs operators actually need.
 notes/
+
+frontend/tests/fixtures/content/**/course.json
