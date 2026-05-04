@@ -180,6 +180,10 @@ const showFilesModal = ref(false);
 // progress and the early-exit-on-currentVideo guard prevents the later
 // progress-loaded trigger from correcting it.
 const progressReady = ref(false);
+// One-shot flag: when set, the next handleVideoLoaded forces seek to 0,
+// bypassing any saved partial progress. Used by "Start from beginning"
+// when the new src differs from the previous one.
+const forceFromZero = ref(false);
 
 // Fetch course data and user progress
 onMounted(async () => {
@@ -368,6 +372,13 @@ function handleVideoLoaded() {
   if (!videoPlayer.value || !currentVideoId.value) return;
   const duration = videoPlayer.value.getDuration();
   if (!Number.isFinite(duration) || duration <= 0) return;
+  // One-shot override from "Start from beginning": the caller wants 0
+  // regardless of saved progress.
+  if (forceFromZero.value) {
+    currentTimeForPlayer.value = 0;
+    forceFromZero.value = false;
+    return;
+  }
   // A completed video should always reopen at 0 even if a stale partial-progress
   // entry exists for it (e.g. user re-watched, then was auto-marked completed).
   if (completedVideos.value[currentVideoId.value]) {
@@ -488,6 +499,11 @@ function startFromBeginning() {
   const firstLesson = course.value.lessons[0];
   if (!firstLesson?.videos?.length) return;
   const firstVideo = firstLesson.videos[0];
+  // Tell handleVideoLoaded to ignore any saved progress for this seek
+  // — applies to BOTH the same-video case (no src change, no loadedmetadata)
+  // and the cross-video case (new src triggers loadedmetadata which would
+  // otherwise reapply saved progress).
+  forceFromZero.value = true;
   Object.keys(expandedLessons.value).forEach((id) => {
     expandedLessons.value[id] = false;
   });
@@ -497,7 +513,8 @@ function startFromBeginning() {
   currentVideoId.value = `${firstLesson.id}-0`;
   currentTimeForPlayer.value = 0;
   // If the first video was already the selected one, the prop didn't change
-  // and the watcher in VideoPlayer won't seek. Force it explicitly.
+  // and the watcher in VideoPlayer won't seek. Force it explicitly. The
+  // forceFromZero flag is consumed in handleVideoLoaded if a new src does load.
   if (videoPlayer.value && typeof videoPlayer.value.setCurrentTime === 'function') {
     videoPlayer.value.setCurrentTime(0);
   }
