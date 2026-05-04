@@ -1,18 +1,17 @@
-# Handover — picking up after the Nuxt 4 + Tailwind 4 migration
+# Handover — picking up after the Nuxt 4 + Tailwind 4 migration + native-deps sweep
 
-You are starting a fresh session. The previous session(s) shipped both halves of the major-framework migration on top of the Dependabot cleanup marathon. Tests still green: 98 vitest + 103 Playwright. Main on commit `876fd03`.
+You are starting a fresh session. The previous session(s) shipped both halves of the major-framework migration plus the safe native-module bumps from the open dependabot group. Tests still green: 98 vitest + 103 Playwright. Main on commit `999e5f0`.
 
-The user's first message after `/clear` will tell you what to work on next. Until then: read this doc, glance at the open PRs, wait for direction.
+The user's first message after `/clear` will tell you what to work on next. Until then: read this doc, wait for direction.
 
 ---
 
 ## TL;DR
 
-- **Repo:** SkillGoblin — self-hosted homelab learning platform. **Nuxt 4.x + Tailwind 4.x** + better-sqlite3 12.x SQLite. SPA mode (`ssr: false`). Designed for trusted local networks.
-- **State of `main`:** auth + admin + branding + UI polish + CI + .gitattributes-locked LF + Node 20 + 22 patch/minor bumps + Nuxt 4 + Tailwind 4 (CSS-first via `@tailwindcss/vite`) shipped. Last merged commit: `876fd03` (Tailwind 4 migration).
-- **What's open:** 2 PRs, both fresh dependabot:
-  - [#58](https://github.com/VladoPortos/skillgoblin/pull/58) playwright + @playwright/test bump
-  - [#59](https://github.com/VladoPortos/skillgoblin/pull/59) npm-minor-patch group (4 updates, regenerated after Phase A merged)
+- **Repo:** SkillGoblin — self-hosted homelab learning platform. **Nuxt 4.x + Tailwind 4.x** + better-sqlite3 12.x SQLite + argon2 0.44 + sharp 0.34 + Playwright 1.48.2 (held). SPA mode (`ssr: false`). Designed for trusted local networks.
+- **State of `main`:** auth + admin + branding + UI polish + CI + .gitattributes-locked LF + Node 20 + 22 patch/minor bumps + Nuxt 4 + Tailwind 4 (CSS-first via `@tailwindcss/vite`) + argon2/beanheads-vue/sharp safe bumps shipped. Last merged commit: `999e5f0`.
+- **What's open: 0 PRs.** First time the queue is fully drained.
+- **Held back:** [`@playwright/test 1.48.2 → 1.59.x`](#held-back-playwright-159--chrome-141-https-upgrade) — see the lesson below. Worth a dedicated debugging session, not blocking other work.
 - **The user's first message after `/clear`** will pick a slice. Don't pre-empt.
 
 ---
@@ -102,6 +101,33 @@ Tailwind 4's PostCSS-replacement compiler can't resolve utility names that come 
 ### 4. `sed -E 's/(\b)shadow(\b)([^-])/.../'` for bare-utility renames catches CSS properties
 Renaming bare Tailwind `shadow` → `shadow-sm` looks like a clean word-boundary problem, but the regex `\bshadow\b[^-]` matches inside `box-shadow: ...` (because `:` isn't a hyphen) and inside `transition-shadow ` (because both `shadow` boundaries are preserved). My first run silently produced `box-shadow-sm: 0 4px ...` and `transition-shadow-sm` across 5 files. **Always run a `grep -rEn 'box-shadow|transition-shadow|drop-shadow' --include="*.vue" .` after a bare-utility rename and confirm no compound utilities or CSS properties got caught.** Recovery is a targeted reverse-sed for each compound (`box-shadow-sm: → box-shadow:`, `transition-shadow-sm → transition-shadow`).
 
+### Held back: Playwright 1.59 + Chrome 141 HTTPS upgrade
+**TL;DR: don't bump `@playwright/test` past 1.48.2 without solving the HTTPS-upgrade issue first.**
+
+When [#58](https://github.com/VladoPortos/skillgoblin/pull/58) (`@playwright/test 1.48 → 1.59`) was attempted as part of [#62](https://github.com/VladoPortos/skillgoblin/pull/62), the coordinated change was straightforward: bump the npm package + bump `mcr.microsoft.com/playwright:v1.48.2-jammy` → `v1.59.1-jammy` in `docker-compose.test.yml`. The build succeeded, but **46 of 103 Playwright tests failed** with `Error: page.goto: net::ERR_SSL_PROTOCOL_ERROR at http://app:3000/...`.
+
+Root cause: Chrome 141 (which Playwright 1.59 ships) auto-upgrades non-localhost HTTP requests to HTTPS. Our docker test runner reaches the app over the docker network at `http://app:3000` — not localhost — so Chrome attempts an HTTPS handshake against a plain-HTTP server. None of the standard mitigations took effect against the Playwright-bundled Chromium build:
+
+```js
+launchOptions: {
+  args: [
+    '--test-type',
+    `--unsafely-treat-insecure-origin-as-secure=${baseURL}`,
+    '--disable-features=HttpsUpgrades,HttpsFirstBalancedMode,HttpsFirstBalancedModeAutoEnable,HttpsFirstModeIncognito,HttpsFirstModeV2'
+  ]
+}
+```
+
+Page.request (raw HTTP, no browser) calls work — only `page.goto()` and other browser-driven navigations fail. So the API-only tests pass and the rendering tests fail.
+
+For #62 we kept the safe bumps (argon2 / beanheads-vue / sharp) and held @playwright/test on 1.48.2. The proper fix probably needs one of:
+- A different flag combination that actually disables the upgrade in Playwright-bundled Chromium
+- TLS termination in front of the test app (heavyweight)
+- A Playwright-team-side fix or workaround
+- Switching the test runner to bind to host network so `localhost:3000` works
+
+This is worth a dedicated debugging session, **not** a quick mid-Dependabot-sweep retry.
+
 ---
 
 ## How to start the next round
@@ -116,8 +142,9 @@ Renaming bare Tailwind `shadow` → `shadow-sm` looks like a clean word-boundary
    ```
    Should print 11 vitest files / 98 tests + 103 Playwright passed. If not — investigate before doing anything else.
 4. **Wait for the user's first message** to pick the slice. Likely picks:
-   - **"Merge [#58](https://github.com/VladoPortos/skillgoblin/pull/58)/[#59](https://github.com/VladoPortos/skillgoblin/pull/59)"** — standard Dependabot rebase-merge loop. ~10 min.
+   - **"Debug Playwright 1.59"** — see the HTTPS-upgrade lesson above. Worth a focused investigation.
    - **A new feature** — course content polish, fresh capability, etc.
+   - **Triage any new dependabot PRs that landed since the sweep.**
 5. **Don't assume** — wait for direction.
 
 ---
