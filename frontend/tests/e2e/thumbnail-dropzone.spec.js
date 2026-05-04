@@ -1,13 +1,22 @@
 import { test, expect } from '@playwright/test';
 import path from 'path';
-import fs from 'fs';
-import os from 'os';
+import { fileURLToPath } from 'url';
 
 // PR-B e2e: validates the new dropzone UI in CourseEditor. The dockerized
 // test stack mounts `frontend/tests/fixtures/content` at `/app/data/content`
 // (see docker-compose.test.yml). A `beforeAll` triggers a rescan so the
 // fixture course is in the DB before the editor is opened. Tests fail
 // loudly if the fixture is missing — no skip fallback.
+
+// Resolve the committed PNG fixture relative to this test file. Avoids
+// writing into the OS temp dir (CodeQL js/insecure-temporary-file) and
+// the existsSync-then-writeFileSync race (CodeQL js/file-system-race).
+const TINY_PNG_PATH = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '..',
+  'fixtures',
+  'tiny-thumbnail.png',
+);
 
 const ADMIN_NAME = process.env.PW_ADMIN_NAME || 'root';
 const ADMIN_PASSWORD = process.env.PW_ADMIN_PASSWORD || 'TestAdminPass!';
@@ -30,22 +39,6 @@ async function loginAdmin(request) {
 async function attachAuthCookie(page, request) {
   const cookies = await request.storageState();
   await page.context().addCookies(cookies.cookies);
-}
-
-// Build a tiny valid PNG once and reuse it across tests.
-function tinyPngPath() {
-  const tmp = path.join(os.tmpdir(), 'sg-tiny.png');
-  if (!fs.existsSync(tmp)) {
-    // 1x1 red PNG, smallest possible valid file.
-    const b = Buffer.from(
-      '89504e470d0a1a0a0000000d49484452000000010000000108020000009077' +
-      '53de00000010494441545801636060f8cf80018000000007000180fe5be3a4' +
-      '0000000049454e44ae426082',
-      'hex',
-    );
-    fs.writeFileSync(tmp, b);
-  }
-  return tmp;
 }
 
 async function openCourseEditor(page) {
@@ -77,7 +70,7 @@ test.describe('thumbnail dropzone', () => {
     await openCourseEditor(page);
 
     const fileInput = page.locator('#thumbnailUpload');
-    await fileInput.setInputFiles(tinyPngPath());
+    await fileInput.setInputFiles(TINY_PNG_PATH);
 
     // Preview img receives the blob URL.
     const preview = page.locator('img[alt="Course thumbnail"]');
