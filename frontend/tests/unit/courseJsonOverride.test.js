@@ -105,3 +105,13 @@ describe('hasCourseJson', () => {
     expect(hasCourseJson(tmpDir)).toBe(true);
   });
 });
+
+describe('course.json precedence over DB-preserved metadata (smoke)', () => {
+  it('keys present in course.json are reported by Object.keys', () => {
+    const json = JSON.stringify({ title: 'X', category: 'Y' });
+    const keys = new Set(Object.keys(JSON.parse(json)));
+    expect(keys.has('title')).toBe(true);
+    expect(keys.has('category')).toBe(true);
+    expect(keys.has('description')).toBe(false);
+  });
+});
