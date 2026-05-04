@@ -1,17 +1,27 @@
 # Test orchestration. Two services:
-#   - `app`: production build of SkillGoblin, fresh DB on every run.
+#   - `web`: production build of SkillGoblin, fresh DB on every run.
 #   - `tests`: official Playwright image, runs the unit + e2e suites
-#             against the `app` service over the compose network.
+#             against the `web` service over the compose network.
 #
 # Run with:  docker compose -f docker-compose.test.yml run --rm tests
 #
 # Adds `--build` if you've changed the app image:
-#   docker compose -f docker-compose.test.yml up --build -d app
+#   docker compose -f docker-compose.test.yml up --build -d web
 #   docker compose -f docker-compose.test.yml run --rm tests
 #   docker compose -f docker-compose.test.yml down -v
+#
+# Service hostname history: this used to be named `app`. Chromium's
+# HSTS preload list hardcodes the `.app` gTLD as HTTPS-only — every
+# `*.app` host (including the bare label `app`) gets HTTP traffic
+# auto-upgraded to HTTPS. From Chrome 132+ this kicked in for
+# Playwright-driven navigations and broke `page.goto('http://app:3000')`
+# with `net::ERR_SSL_PROTOCOL_ERROR`. There is no Chromium flag that
+# disables hardcoded HSTS preloads (it's a security guarantee, not a
+# feature flag). Renaming to a label outside any preloaded TLD (`web`
+# is not preloaded) is the supported workaround.
 
 services:
-  app:
+  web:
     build:
       context: .
       dockerfile: Dockerfile.prod
@@ -41,16 +51,16 @@ services:
       start_period: 5s
 
   tests:
-    image: mcr.microsoft.com/playwright:v1.48.2-jammy
+    image: mcr.microsoft.com/playwright:v1.59.1-jammy
     depends_on:
-      app:
+      web:
         condition: service_healthy
     working_dir: /work
     volumes:
       - ./frontend:/work
       - tester_node_modules:/work/node_modules
     environment:
-      - PW_BASE_URL=http://app:3000
+      - PW_BASE_URL=http://web:3000
       - PW_ADMIN_NAME=root
       - PW_ADMIN_PASSWORD=TestAdminPass!
       - CI=1

@@ -8,10 +8,9 @@ The user's first message after `/clear` will tell you what to work on next. Unti
 
 ## TL;DR
 
-- **Repo:** SkillGoblin — self-hosted homelab learning platform. **Nuxt 4.x + Tailwind 4.x** + better-sqlite3 12.x SQLite + argon2 0.44 + sharp 0.34 + Playwright 1.48.2 (held). SPA mode (`ssr: false`). Designed for trusted local networks.
-- **State of `main`:** auth + admin + branding + UI polish + CI + .gitattributes-locked LF + Node 20 + 22 patch/minor bumps + Nuxt 4 + Tailwind 4 (CSS-first via `@tailwindcss/vite`) + argon2/beanheads-vue/sharp safe bumps shipped. Last merged commit: `999e5f0`.
-- **What's open: 0 PRs.** First time the queue is fully drained.
-- **Held back:** [`@playwright/test 1.48.2 → 1.59.x`](#held-back-playwright-159--chrome-141-https-upgrade) — see the lesson below. Worth a dedicated debugging session, not blocking other work.
+- **Repo:** SkillGoblin — self-hosted homelab learning platform. **Nuxt 4.x + Tailwind 4.x** + better-sqlite3 12.x SQLite + argon2 0.44 + sharp 0.34 + Playwright 1.59.1. SPA mode (`ssr: false`). Designed for trusted local networks.
+- **State of `main`:** auth + admin + branding + UI polish + CI + .gitattributes-locked LF + Node 20 + 22 patch/minor bumps + Nuxt 4 + Tailwind 4 (CSS-first via `@tailwindcss/vite`) + argon2/beanheads-vue/sharp + Playwright 1.59 (with the docker test service renamed `app` → `web` to dodge the `.app` HSTS preload) shipped.
+- **What's open: 0 PRs** at the time this doc was written. First time the queue is fully drained.
 - **The user's first message after `/clear`** will pick a slice. Don't pre-empt.
 
 ---
@@ -101,12 +100,10 @@ Tailwind 4's PostCSS-replacement compiler can't resolve utility names that come 
 ### 4. `sed -E 's/(\b)shadow(\b)([^-])/.../'` for bare-utility renames catches CSS properties
 Renaming bare Tailwind `shadow` → `shadow-sm` looks like a clean word-boundary problem, but the regex `\bshadow\b[^-]` matches inside `box-shadow: ...` (because `:` isn't a hyphen) and inside `transition-shadow ` (because both `shadow` boundaries are preserved). My first run silently produced `box-shadow-sm: 0 4px ...` and `transition-shadow-sm` across 5 files. **Always run a `grep -rEn 'box-shadow|transition-shadow|drop-shadow' --include="*.vue" .` after a bare-utility rename and confirm no compound utilities or CSS properties got caught.** Recovery is a targeted reverse-sed for each compound (`box-shadow-sm: → box-shadow:`, `transition-shadow-sm → transition-shadow`).
 
-### Held back: Playwright 1.59 + Chrome 141 HTTPS upgrade
-**TL;DR: don't bump `@playwright/test` past 1.48.2 without solving the HTTPS-upgrade issue first.**
+### 5. Don't name a docker service after a hostname Chromium has HSTS-preloaded (`.app`, `.dev`, `.foo`, `.page`, …)
+**This bit hard.** When [#58](https://github.com/VladoPortos/skillgoblin/pull/58) bumped `@playwright/test` from 1.48 to 1.59 (and the docker image to match), 46 of 103 Playwright tests started failing with `Error: page.goto: net::ERR_SSL_PROTOCOL_ERROR at http://app:3000/...`. Chromium was forcing HTTPS on every browser-driven navigation, even though `page.request.*` (raw HTTP, no browser) worked fine.
 
-When [#58](https://github.com/VladoPortos/skillgoblin/pull/58) (`@playwright/test 1.48 → 1.59`) was attempted as part of [#62](https://github.com/VladoPortos/skillgoblin/pull/62), the coordinated change was straightforward: bump the npm package + bump `mcr.microsoft.com/playwright:v1.48.2-jammy` → `v1.59.1-jammy` in `docker-compose.test.yml`. The build succeeded, but **46 of 103 Playwright tests failed** with `Error: page.goto: net::ERR_SSL_PROTOCOL_ERROR at http://app:3000/...`.
-
-Root cause: Chrome 141 (which Playwright 1.59 ships) auto-upgrades non-localhost HTTP requests to HTTPS. Our docker test runner reaches the app over the docker network at `http://app:3000` — not localhost — so Chrome attempts an HTTPS handshake against a plain-HTTP server. None of the standard mitigations took effect against the Playwright-bundled Chromium build:
+We initially blamed Chrome 141's auto-HTTPS-upgrade feature and tried every disable-flag we could find:
 
 ```js
 launchOptions: {
@@ -118,15 +115,13 @@ launchOptions: {
 }
 ```
 
-Page.request (raw HTTP, no browser) calls work — only `page.goto()` and other browser-driven navigations fail. So the API-only tests pass and the rendering tests fail.
+None of them worked. That was the clue.
 
-For #62 we kept the safe bumps (argon2 / beanheads-vue / sharp) and held @playwright/test on 1.48.2. The proper fix probably needs one of:
-- A different flag combination that actually disables the upgrade in Playwright-bundled Chromium
-- TLS termination in front of the test app (heavyweight)
-- A Playwright-team-side fix or workaround
-- Switching the test runner to bind to host network so `localhost:3000` works
+**Real cause:** the docker test service was named `app`. Chromium's HSTS preload list hardcodes the `.app` gTLD as HTTPS-only (Google bought `.app` and registered it that way in 2018; same applies to `.dev`, `.foo`, `.page`, `.new`, `.search`, `.zip`, `.mov`). Every host on those TLDs — including the bare label `app` resolving via docker DNS — gets HTTPS forced. **Hardcoded HSTS preloads are a security guarantee, not a feature flag** — there is no Chromium command-line argument that disables them. Workarounds like `--unsafely-treat-insecure-origin-as-secure` don't bypass the preload because the preload kicks in earlier in the request lifecycle.
 
-This is worth a dedicated debugging session, **not** a quick mid-Dependabot-sweep retry.
+**Fix:** rename the docker service to a label outside any preloaded TLD. We picked `web`. Two-line change in `docker-compose.test.yml` (service name + `PW_BASE_URL`) plus updating the hardcoded fallback in `frontend/playwright.config.js` and the eight `tests/e2e/*.spec.js` files that copy-paste the same fallback. Once renamed, Playwright 1.59 + Chrome 141 work without any flags. Shipped in the same commit as the bump.
+
+For future you: if a Playwright/Chrome bump suddenly starts failing browser navigations with SSL errors on a hostname that previously worked, **check the HSTS preload list before fighting flags**. The list lives at https://chromium.googlesource.com/chromium/src/+/main/net/http/transport_security_state_static.json. Single-label hosts are matched against it just like full domains are.
 
 ---
 
@@ -142,7 +137,6 @@ This is worth a dedicated debugging session, **not** a quick mid-Dependabot-swee
    ```
    Should print 11 vitest files / 98 tests + 103 Playwright passed. If not — investigate before doing anything else.
 4. **Wait for the user's first message** to pick the slice. Likely picks:
-   - **"Debug Playwright 1.59"** — see the HTTPS-upgrade lesson above. Worth a focused investigation.
    - **A new feature** — course content polish, fresh capability, etc.
    - **Triage any new dependabot PRs that landed since the sweep.**
 5. **Don't assume** — wait for direction.

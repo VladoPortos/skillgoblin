@@ -11,7 +11,7 @@ async function getAdmin(request) {
 
 // Each test uses a fresh request context so session cookies don't leak across tests.
 async function freshContext() {
-  return pwRequest.newContext({ baseURL: process.env.PW_BASE_URL || 'http://app:3000' });
+  return pwRequest.newContext({ baseURL: process.env.PW_BASE_URL || 'http://web:3000' });
 }
 
 test.describe('session lifecycle', () => {
