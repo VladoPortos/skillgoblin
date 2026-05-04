@@ -30,37 +30,46 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName) {
   const db = getDb();
   const courseRoot = getCourseRootPath(courseFolderName);
   const localThumbnailPath = path.join(courseRoot, 'thumbnail.png');
-  const localThumbnailExists = fs.existsSync(localThumbnailPath);
 
   try {
     const courseResult = db.prepare('SELECT thumbnail_data FROM courses WHERE id = ?').get(courseId);
     const dbThumbnailData = courseResult ? courseResult.thumbnail_data : null;
 
+    // Read the local thumbnail by attempt rather than by existsSync-then-act.
+    // ENOENT means it doesn't exist (a normal state, not an error); any other
+    // failure propagates to the outer catch. This buffer-or-null pattern
+    // eliminates the TOCTOU window between an upfront fs.existsSync sample
+    // and the later read/write that CodeQL flagged twice (#30, #134).
+    let localFileBuffer = null;
+    try {
+      localFileBuffer = fs.readFileSync(localThumbnailPath);
+    } catch (readError) {
+      if (readError.code !== 'ENOENT') throw readError;
+    }
+
     // Case 1: DB thumbnail_data is NULL and thumbnail.png exists locally.
-    if (!dbThumbnailData && localThumbnailExists) {
+    if (!dbThumbnailData && localFileBuffer) {
       console.log(`[${courseId}] DB thumb is NULL, local exists. Updating DB from local file.`);
       const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath);
       if (processedLocalBuffer) {
         db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(processedLocalBuffer, courseId);
         console.log(`[${courseId}] DB thumbnail_data updated from local ${localThumbnailPath}`);
       }
-    } 
+    }
     // Case 2: DB thumbnail_data is NULL and thumbnail.png does NOT exist locally.
-    else if (!dbThumbnailData && !localThumbnailExists) {
+    else if (!dbThumbnailData && !localFileBuffer) {
       // console.log(`[${courseId}] DB thumb is NULL, local does not exist. Doing nothing.`);
-    } 
+    }
     // Case 3: DB thumbnail_data is NOT NULL and thumbnail.png does NOT exist locally.
-    else if (dbThumbnailData && !localThumbnailExists) {
+    else if (dbThumbnailData && !localFileBuffer) {
       console.log(`[${courseId}] DB thumb exists, local does not. Writing DB thumb to local file.`);
       try {
-        // mkdirSync with recursive:true is idempotent — no exists-check needed,
-        // and dropping the check closes a TOCTOU window between exists and mkdir.
+        // mkdirSync with recursive:true is idempotent — no exists-check needed.
         fs.mkdirSync(courseRoot, { recursive: true });
-        // 'wx' flag: atomic create-only-if-not-exists. localThumbnailExists
-        // was sampled at function entry (line 33) and there's async DB work
-        // in between, so a concurrent watcher event could have created the
-        // file by now. EEXIST means someone else won the race — leave their
-        // file alone, that's already a thumbnail.
+        // 'wx' flag: atomic create-only-if-not-exists. EEXIST means a
+        // concurrent process created the file between our read attempt
+        // above and this write — their file is already a thumbnail, so
+        // leave it.
         fs.writeFileSync(localThumbnailPath, dbThumbnailData, { flag: 'wx' });
         console.log(`[${courseId}] Local thumbnail.png created from DB data at ${localThumbnailPath}`);
       } catch (writeError) {
@@ -72,9 +81,8 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName) {
       }
     }
     // Case 4: DB thumbnail_data is NOT NULL and thumbnail.png exists locally.
-    else if (dbThumbnailData && localThumbnailExists) {
-      const localFileBuffer = fs.readFileSync(localThumbnailPath); // Read the raw local file
-      // We compare raw buffers here. Processing is for new uploads or when local is source.
+    else if (dbThumbnailData && localFileBuffer) {
+      // localFileBuffer was already read above — no second readFileSync needed.
       if (!localFileBuffer.equals(dbThumbnailData)) {
         // Log the difference but do not automatically overwrite.
         // The edit process handles ensuring consistency after an intentional change.
