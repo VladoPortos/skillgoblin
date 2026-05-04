@@ -1,20 +1,22 @@
 import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
-import { getContentDir } from './courseHelpers';
+import { resolveCourseDir } from './courseHelpers';
 
 /**
  * Get the absolute path to a course's root directory.
+ * Returns null if the folder name is invalid (empty, contains separators,
+ * or attempts traversal). Callers should check for null and skip filesystem
+ * writes gracefully rather than crash.
  * @param {string} courseFolderName - The name of the course folder.
- * @returns {string} Absolute path to the course's root directory.
+ * @returns {string|null} Absolute path to the course's root directory, or null on invalid input.
  */
 export const getCourseRootPath = (courseFolderName) => {
-  if (!courseFolderName) {
-    console.error('getCourseRootPath: courseFolderName is required');
-    // Potentially throw an error or return a clearly invalid path
-    return path.join(getContentDir(), 'INVALID_COURSE_FOLDER'); 
+  try {
+    return resolveCourseDir(courseFolderName);
+  } catch {
+    return null;
   }
-  return path.join(getContentDir(), courseFolderName);
 };
 
 /**
