@@ -496,6 +496,11 @@ function startFromBeginning() {
   currentVideo.value = firstVideo;
   currentVideoId.value = `${firstLesson.id}-0`;
   currentTimeForPlayer.value = 0;
+  // If the first video was already the selected one, the prop didn't change
+  // and the watcher in VideoPlayer won't seek. Force it explicitly.
+  if (videoPlayer.value && typeof videoPlayer.value.setCurrentTime === 'function') {
+    videoPlayer.value.setCurrentTime(0);
+  }
 }
 
 // Play next video in the current lesson or move to the next lesson
