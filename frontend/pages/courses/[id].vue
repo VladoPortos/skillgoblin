@@ -368,6 +368,12 @@ function handleVideoLoaded() {
   if (!videoPlayer.value || !currentVideoId.value) return;
   const duration = videoPlayer.value.getDuration();
   if (!Number.isFinite(duration) || duration <= 0) return;
+  // A completed video should always reopen at 0 even if a stale partial-progress
+  // entry exists for it (e.g. user re-watched, then was auto-marked completed).
+  if (completedVideos.value[currentVideoId.value]) {
+    currentTimeForPlayer.value = 0;
+    return;
+  }
   const savedProgress = videoProgress.value[currentVideoId.value] || 0;
   if (savedProgress > 0 && savedProgress < 100) {
     currentTimeForPlayer.value = (savedProgress / 100) * duration;
