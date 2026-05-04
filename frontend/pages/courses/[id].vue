@@ -20,11 +20,23 @@
         class="mb-4"
         :src="currentVideoUrl"
         :autoplay="false"
+        :current-time="currentTimeForPlayer"
+        :subtitle-src="subtitleSrc"
         @timeupdate="updateProgress"
         @ended="markAsCompleted"
         @loadedmetadata="handleVideoLoaded"
       />
-      
+      <div class="text-xs text-gray-500 dark:text-gray-400 mb-3 text-right">
+        <button
+          type="button"
+          data-testid="start-from-beginning"
+          class="underline hover:text-gray-700 dark:hover:text-gray-200"
+          @click="startFromBeginning"
+        >
+          Start from beginning
+        </button>
+      </div>
+
       <!-- Video Info -->
       <VideoInfo 
         v-if="currentVideo" 
@@ -124,6 +136,7 @@ import CourseFilesModal from '~/components/CourseFilesModal.vue';
 import CourseHeader from '../../components/course/CourseHeader.vue';
 import VideoPlayer from '../../components/video/VideoPlayer.vue';
 import VideoInfo from '../../components/video/VideoInfo.vue';
+import { pickNextNotCompleted } from '~/utils/smartOpen.js';
 import VideoControlButtons from '../../components/video/VideoControlButtons.vue';
 
 // Apply auth middleware
@@ -159,6 +172,7 @@ const currentVideoId = ref(null);
 const completedVideos = ref({});
 const videoProgress = ref({});
 const videoPlayer = ref(null);
+const currentTimeForPlayer = ref(0);
 const courseProgress = ref({});
 const isLoading = ref(true);
 const showFilesModal = ref(false);
@@ -212,28 +226,35 @@ onMounted(async () => {
 });
 
 // Watch for course data to load and select the first video
-watch(course, (newCourseData) => {
-  if (newCourseData && newCourseData.lessons && newCourseData.lessons.length > 0) {
-    const firstLesson = newCourseData.lessons[0];
-    
-    // Clear any previous lesson expansions to ensure only the first is expanded
-    Object.keys(expandedLessons.value).forEach(id => {
-      expandedLessons.value[id] = false;
-    });
-    
-    // Expand only the first lesson
-    expandedLessons.value[firstLesson.id] = true;
-    
-    if (firstLesson.videos && firstLesson.videos.length > 0) {
-      // Only auto-select if no video is currently selected
-      if (!currentVideo.value) { 
-        console.log('Auto-selecting first video (paused):', firstLesson.videos[0].title);
-        // Load the first video into the player but don't auto-play it
-        playVideo(firstLesson, firstLesson.videos[0], false); 
-      }
-    }
-  }
-}, { immediate: true }); // immediate: true ensures it runs once on load if data is already available
+watch([course, () => Object.keys(courseProgress.value).length], () => {
+  const newCourseData = course.value;
+  if (!newCourseData?.lessons?.length) return;
+  // Collapse all lessons (matches the previous "expand only one" UX)
+  Object.keys(expandedLessons.value).forEach((id) => {
+    expandedLessons.value[id] = false;
+  });
+
+  // If a video is already selected (e.g. the user clicked one), don't override.
+  if (currentVideo.value) return;
+
+  const pick = pickNextNotCompleted(newCourseData.lessons, {
+    completed: completedVideos.value,
+    progress: videoProgress.value,
+  });
+  if (!pick) return;
+
+  const lesson = newCourseData.lessons.find((l) => l.id === pick.lessonId);
+  if (!lesson) return;
+  const video = lesson.videos[pick.videoIndex];
+  if (!video) return;
+
+  expandedLessons.value[lesson.id] = true;
+  currentLesson.value = lesson;
+  currentVideo.value = video;
+  currentVideoId.value = `${lesson.id}-${pick.videoIndex}`;
+  // Initial seek time is computed once duration is known, in handleVideoLoaded.
+  currentTimeForPlayer.value = 0;
+}, { immediate: true });
 
 // Computed values
 const currentVideoUrl = computed(() => {
@@ -247,6 +268,19 @@ const currentVideoUrl = computed(() => {
   
   const lessonPath = lessonFolder ? `/${lessonFolder}` : '';
   return `/api/content/${courseId}${lessonPath}/${videoFile}`;
+});
+
+const subtitleSrc = computed(() => {
+  if (!currentVideo.value || !currentLesson.value) return '';
+  if (!currentVideo.value.subtitle) return '';
+  const courseId = encodeURIComponent(route.params.id);
+  const lessonFolder = currentLesson.value.folder
+    ? encodeURIComponent(currentLesson.value.folder)
+    : '';
+  // The .vtt URL is the same path as the video, with the extension swapped.
+  const subtitleFilename = String(currentVideo.value.subtitle).replace(/\.srt$/i, '.vtt');
+  const lessonPath = lessonFolder ? `/${lessonFolder}` : '';
+  return `/api/content/${courseId}${lessonPath}/${encodeURIComponent(subtitleFilename)}`;
 });
 
 const totalVideos = computed(() => {
@@ -334,16 +368,15 @@ function updateProgress(event) {
 
 // Video progress handling is done via loadedmetadata event in the template
 
-// Handle video loaded event
-function handleVideoLoaded(event) {
+function handleVideoLoaded() {
   if (!videoPlayer.value || !currentVideoId.value) return;
-  
-  // Set the current time based on saved progress
-  const savedProgress = videoProgress.value[currentVideoId.value];
-  if (savedProgress && savedProgress > 0) {
-    const duration = videoPlayer.value.getDuration();
-    const timeToSeek = (savedProgress / 100) * duration;
-    videoPlayer.value.setCurrentTime(timeToSeek);
+  const duration = videoPlayer.value.getDuration();
+  if (!Number.isFinite(duration) || duration <= 0) return;
+  const savedProgress = videoProgress.value[currentVideoId.value] || 0;
+  if (savedProgress > 0 && savedProgress < 100) {
+    currentTimeForPlayer.value = (savedProgress / 100) * duration;
+  } else {
+    currentTimeForPlayer.value = 0;
   }
 }
 
@@ -446,6 +479,21 @@ async function saveProgress() {
   } catch (error) {
     console.error('Error saving progress:', error);
   }
+}
+
+function startFromBeginning() {
+  if (!course.value?.lessons?.length) return;
+  const firstLesson = course.value.lessons[0];
+  if (!firstLesson?.videos?.length) return;
+  const firstVideo = firstLesson.videos[0];
+  Object.keys(expandedLessons.value).forEach((id) => {
+    expandedLessons.value[id] = false;
+  });
+  expandedLessons.value[firstLesson.id] = true;
+  currentLesson.value = firstLesson;
+  currentVideo.value = firstVideo;
+  currentVideoId.value = `${firstLesson.id}-0`;
+  currentTimeForPlayer.value = 0;
 }
 
 // Play next video in the current lesson or move to the next lesson
