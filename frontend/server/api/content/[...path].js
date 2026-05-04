@@ -319,9 +319,28 @@ export default defineEventHandler(async (event) => {
     const filePath = path.join(contentDir, ...decodedSegments);
     
     console.log(`Attempting to serve file: ${filePath}`);
-    
+
+    // .vtt requests: if the file doesn't exist on disk but a sibling .srt does,
+    // convert and serve. This lets operators drop an .srt next to the video and
+    // have the player consume a real WebVTT track.
+    if (path.extname(filePath).toLowerCase() === '.vtt' && !fs.existsSync(filePath)) {
+      const srtCandidate = filePath.slice(0, -4) + '.srt';
+      if (fs.existsSync(srtCandidate)) {
+        try {
+          const { convertSrtFileToVtt } = await import('../../utils/srtToVtt.js');
+          const vttBuffer = await convertSrtFileToVtt(srtCandidate, fs);
+          setResponseHeader(event, 'Content-Type', 'text/vtt; charset=utf-8');
+          setResponseHeader(event, 'Content-Length', vttBuffer.length);
+          setResponseHeader(event, 'Cache-Control', 'public, max-age=600');
+          return vttBuffer;
+        } catch (err) {
+          console.error(`SRT→VTT conversion failed for ${srtCandidate}:`, err);
+          throw createError({ statusCode: 500, statusMessage: 'Subtitle conversion failed' });
+        }
+      }
+    }
     // Check if the file exists
-    if (!fs.existsSync(filePath)) { 
+    if (!fs.existsSync(filePath)) {
       console.error(`File not found (non-thumbnail): ${filePath}`);
       throw createError({
         statusCode: 404,
