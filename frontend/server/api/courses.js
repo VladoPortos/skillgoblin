@@ -1,6 +1,7 @@
 import { defineEventHandler, getMethod, readBody } from 'h3';
 import { getDb } from '../utils/db';
-import { getAllCoursesFromDb, getCourseFromDb } from '../utils/courseDatabase';
+import { getAllCoursesFromDb, getAllCoursesWithMeta, getCourseFromDb } from '../utils/courseDatabase';
+import { parseNewBadgeDays, isWithinNewWindow } from '../utils/recencyHelpers.js';
 import { setupFileWatcher } from '../utils/courseWatcher';
 import { requireAdmin } from '../utils/authz';
 
@@ -33,21 +34,30 @@ export default defineEventHandler(async (event) => {
     } else {
       // Get all courses
       try {
-        // Get courses from database
-        const courses = getAllCoursesFromDb();
-        
+        // Get filter and pagination parameters from query
+        const url = new URL(event.node.req.url, 'http://localhost');
+        const sortParam = url.searchParams.get('sort');
+        const sort = sortParam === 'newest' ? 'newest' : 'title';
+        if (sortParam && sort !== sortParam) {
+          console.warn(`[courses] unknown sort "${sortParam}", falling back to title`);
+        }
+        const courses = getAllCoursesWithMeta(null, { sort });
+        const newDays = parseNewBadgeDays(process.env.NEW_BADGE_DAYS);
+        const nowMs = Date.now();
+        for (const c of courses) {
+          c.isNew = isWithinNewWindow(c.created_at, newDays, nowMs);
+        }
+
         // Calculate category counts from all courses before filtering
         const categoryCounts = {};
         categoryCounts['all'] = courses.length;
-        
+
         // Count courses per category
         courses.forEach(course => {
           const category = course.category || 'Uncategorized';
           categoryCounts[category] = (categoryCounts[category] || 0) + 1;
         });
-        
-        // Get filter and pagination parameters from query
-        const url = new URL(event.node.req.url, 'http://localhost');
+
         const category = url.searchParams.get('category');
         const searchQuery = url.searchParams.get('search')?.toLowerCase();
         const page = parseInt(url.searchParams.get('page')) || 1;
