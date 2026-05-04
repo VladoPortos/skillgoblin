@@ -28,7 +28,7 @@
     "busboy": "^1.6.0"
   },
   "devDependencies": {
-    "@playwright/test": "1.48.2",
+    "@playwright/test": "1.59.1",
     "uuid": "^14.0.0",
     "glob": "^10.3.10",
     "vitest": "^4.1.5"
