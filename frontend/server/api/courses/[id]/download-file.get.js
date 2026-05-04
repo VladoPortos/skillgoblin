@@ -2,11 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import { getDb } from '../../../utils/db';
 import { resolveCourseDir, resolvePathInCourse } from '../../../utils/courseHelpers';
-import { requireAdmin } from '../../../utils/authz';
+import { requireAuth } from '../../../utils/authz';
 import { sendStream } from 'h3';
 
 export default defineEventHandler(async (event) => {
-  requireAdmin(event);
+  requireAuth(event);
   const courseId = event.context.params.id;
   const query = getQuery(event);
   const filePathRelative = query.filePath;
