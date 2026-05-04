@@ -3,7 +3,7 @@ import path from 'path';
 import { defineEventHandler, getRequestURL, createError, setResponseHeader, getRequestHeaders } from 'h3';
 import zlib from 'zlib';
 import { getDb } from '../../utils/db'; // Added for database access
-import { resolvePathInCourse } from '../../utils/courseHelpers';
+import { resolveCourseDir, resolvePathInCourse } from '../../utils/courseHelpers';
 
 // Cache to store open file handles and their last access time
 const fileHandleCache = new Map();
@@ -317,7 +317,12 @@ export default defineEventHandler(async (event) => {
     decodedSegments[0] = actualCourseFolder;
 
     // Construct the path to the content file
-    const courseDir = path.resolve(contentDir, actualCourseFolder);
+    let courseDir;
+    try {
+      courseDir = resolveCourseDir(actualCourseFolder);
+    } catch (err) {
+      throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
+    }
     let filePath;
     try {
       filePath = resolvePathInCourse(courseDir, ...decodedSegments.slice(1));

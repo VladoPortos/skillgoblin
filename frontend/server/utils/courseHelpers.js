@@ -12,12 +12,23 @@ export function resolveCourseDir(folderName) {
   if (!folderName || typeof folderName !== 'string' || folderName.length === 0) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
   }
+  // A course folder name is a single directory name. Reject anything that
+  // looks like a path (separators) or starts with a dot (hidden dirs and
+  // traversal anchors). Windows uses both '/' and '\\'.
+  if (
+    folderName === '.' ||
+    folderName === '..' ||
+    folderName.startsWith('.') ||
+    folderName.includes('/') ||
+    folderName.includes('\\') ||
+    folderName.includes('\0')
+  ) {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
+  }
   const root = path.resolve(getContentDir());
   const candidate = path.resolve(root, folderName);
-  // Add a trailing separator to root so /content/foo doesn't accidentally
-  // pass when folderName resolves to /content/foobar — both startsWith.
   const rootWithSep = root.endsWith(path.sep) ? root : root + path.sep;
-  if (candidate !== root && !candidate.startsWith(rootWithSep)) {
+  if (!candidate.startsWith(rootWithSep) || candidate === root) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
   }
   return candidate;
