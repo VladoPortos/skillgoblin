@@ -17,9 +17,8 @@
   "dependencies": {
     "nuxt": "^4.0.0",
     "better-sqlite3": "^12.9.0",
-    "tailwindcss": "^3.4.0",
-    "postcss": "^8.5.13",
-    "autoprefixer": "^10.4.16",
+    "tailwindcss": "^4.2.4",
+    "@tailwindcss/vite": "^4.2.4",
     "@tailwindcss/forms": "^0.5.7",
     "argon2": "^0.41.1",
     "lru-cache": "^11.3.5",
@@ -29,7 +28,6 @@
     "busboy": "^1.6.0"
   },
   "devDependencies": {
-    "@nuxtjs/tailwindcss": "^6.8.0",
     "@playwright/test": "1.48.2",
     "uuid": "^14.0.0",
     "glob": "^10.3.10",

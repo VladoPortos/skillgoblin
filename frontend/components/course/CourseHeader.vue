@@ -1,8 +1,8 @@
 <template>
-  <header class="bg-white dark:bg-gray-800 shadow">
+  <header class="bg-white dark:bg-gray-800 shadow-sm">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
       <div class="flex items-center">
-        <button @click="navigateBack" class="mr-4 flex-shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+        <button @click="navigateBack" class="mr-4 shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
           </svg>
@@ -14,7 +14,7 @@
         <h1 class="text-xl font-bold text-gray-900 dark:text-white truncate max-w-[140px] sm:max-w-xs md:max-w-md">{{ course?.title || 'Loading...' }}</h1>
         <!-- Course Progress Indicator -->
         <div v-if="course && totalVideos > 0" class="ml-4 flex items-center">
-          <div class="relative h-10 w-10 flex-shrink-0">
+          <div class="relative h-10 w-10 shrink-0">
             <!-- Background circle -->
             <svg class="h-10 w-10" viewBox="0 0 36 36">
               <circle 

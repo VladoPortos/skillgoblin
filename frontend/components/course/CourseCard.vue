@@ -1,6 +1,6 @@
 <template>
   <div 
-    class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden transition-shadow hover:shadow-md relative"
+    class="bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-shadow hover:shadow-md relative"
   >
     <div class="relative h-40 overflow-hidden" @click="navigateToCourse">
       <img 
@@ -65,7 +65,7 @@
     <!-- Read More button in bottom right corner -->
     <button 
       @click.stop="showDetails = true"
-      class="absolute bottom-3 right-3 p-3 rounded-full bg-primary-100 dark:bg-primary-900 hover:bg-primary-200 dark:hover:bg-primary-800 transition-colors shadow-sm"
+      class="absolute bottom-3 right-3 p-3 rounded-full bg-primary-100 dark:bg-primary-900 hover:bg-primary-200 dark:hover:bg-primary-800 transition-colors shadow-xs"
       title="Read more"
     >
       <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600 dark:text-primary-300" viewBox="0 0 20 20" fill="currentColor">
@@ -76,7 +76,7 @@
     <!-- Course Details Modal -->
     <div 
       v-if="showDetails" 
-      class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
       @click.self="showDetails = false"
     >
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full overflow-hidden">

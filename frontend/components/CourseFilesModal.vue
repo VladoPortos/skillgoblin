@@ -118,6 +118,11 @@ watch(() => props.visible, (newVal) => {
 </script>
 
 <style scoped>
+/* Tailwind 4 requires @reference in scoped CSS that uses @apply or theme()
+   so the compiler can resolve utility names. The path is relative to this
+   file's location, not the project root. */
+@reference "../assets/css/tailwind.css";
+
 .modal-overlay {
   position: fixed;
   top: 0;

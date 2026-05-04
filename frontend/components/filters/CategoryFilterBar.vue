@@ -14,7 +14,7 @@
         @click="$emit('select-category', category)"
         class="px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
         :class="[
-          selectedCategory === category ? 'ring-2 ring-offset-1' : 'hover:bg-opacity-90',
+          selectedCategory === category ? 'ring-2 ring-offset-1' : 'hover:opacity-90',
           categoryColors[category] ? categoryColors[category] : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200'
         ]"
       >

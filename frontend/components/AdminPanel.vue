@@ -1,7 +1,7 @@
 <template>
   <div
     v-if="show"
-    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
+    class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 overflow-y-auto custom-scrollbar"
     data-testid="admin-panel"
     @click.self="close"
   >
@@ -236,7 +236,7 @@
     <!-- Sessions drilldown -->
     <div
       v-if="sessionsTarget"
-      class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4"
       data-testid="sessions-drilldown"
       @click.self="sessionsTarget = null"
     >
@@ -297,7 +297,7 @@
     <!-- Kick confirmation -->
     <div
       v-if="kickTarget"
-      class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4"
       @click.self="kickTarget = null"
     >
       <div class="bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
@@ -322,7 +322,7 @@
     <!-- Delete confirmation -->
     <div
       v-if="deleteTarget"
-      class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4"
       @click.self="deleteTarget = null"
     >
       <div class="bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
@@ -347,7 +347,7 @@
     <!-- Admin Create User -->
     <div
       v-if="showCreateUser"
-      class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-[60] p-4"
+      class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4"
       data-testid="admin-create-user-modal"
       @click.self="onCreateUserBackdrop"
     >

@@ -12,11 +12,17 @@
 // reading from runtimeConfig.public.branding so the head reflects
 // runtime values after hydration.
 
+import tailwindcss from '@tailwindcss/vite';
+
 export default defineNuxtConfig({
   devtools: { enabled: true },
-  modules: [
-    '@nuxtjs/tailwindcss'
-  ],
+  // Tailwind 4 uses the official @tailwindcss/vite plugin instead of the
+  // (still-beta) @nuxtjs/tailwindcss v7. Custom config lives in
+  // frontend/assets/css/tailwind.css as @theme / @plugin / @variant blocks.
+  css: ['~/assets/css/tailwind.css'],
+  vite: {
+    plugins: [tailwindcss()]
+  },
   // Disable SSR to prevent hydration mismatches with complex components
   ssr: false,
   nitro: {
