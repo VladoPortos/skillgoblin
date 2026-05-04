@@ -15,13 +15,22 @@ export function parseNewBadgeDays(raw) {
 // Returns true iff `createdAt` (an ISO-ish or SQLite-format string) is
 // within `days` days of `now` (a millisecond timestamp). `now` is injectable
 // so unit tests are deterministic.
+//
+// Timezone handling: SQLite's CURRENT_TIMESTAMP is UTC but emitted as
+// "YYYY-MM-DD HH:MM:SS" with no zone designator. We append 'Z' whenever the
+// string lacks an explicit timezone (Z, +HH:MM, -HH:MM, +HHMM, -HHMM); strings
+// already carrying one are passed through unchanged.
+const HAS_TZ_DESIGNATOR = /(?:Z|[+-]\d{2}:?\d{2})$/i;
+
 export function isWithinNewWindow(createdAt, days, now = Date.now()) {
   if (!createdAt) return false;
   if (!days || days <= 0) return false;
   const normalized = typeof createdAt === 'string'
-    ? createdAt.replace(' ', 'T') + (/\dZ?$/.test(createdAt) ? '' : 'Z')
+    ? createdAt.replace(' ', 'T') + (HAS_TZ_DESIGNATOR.test(createdAt) ? '' : 'Z')
     : createdAt;
   const ts = new Date(normalized).getTime();
   if (Number.isNaN(ts)) return false;
-  return now - ts < days * 24 * 60 * 60 * 1000;
+  const ageMs = now - ts;
+  if (ageMs < 0) return false;
+  return ageMs < days * 24 * 60 * 60 * 1000;
 }
