@@ -99,38 +99,72 @@
         <h3 class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
           Thumbnail
         </h3>
-        <div class="mt-1 flex items-center space-x-4">
-          <div class="w-32 h-24 bg-gray-100 dark:bg-gray-700 overflow-hidden rounded-md">
-            <img 
-              v-if="thumbnailPreview" 
-              :src="thumbnailPreview" 
+        <div class="mt-1 flex items-stretch space-x-4">
+          <div class="w-32 h-24 shrink-0 bg-gray-100 dark:bg-gray-700 overflow-hidden rounded-md">
+            <img
+              v-if="thumbnailPreview"
+              :src="thumbnailPreview"
               alt="Course thumbnail"
               class="w-full h-full object-cover"
             />
             <div v-else class="w-full h-full flex items-center justify-center">
-              <img 
-                :src="`/images/placeholder.png?t=${Date.now()}`" 
-                alt="Default thumbnail" 
+              <img
+                :src="`/images/placeholder.png?t=${Date.now()}`"
+                alt="Default thumbnail"
                 class="w-full h-full object-cover"
               />
             </div>
           </div>
-          <div class="flex flex-col items-start space-y-2">
-            <label for="thumbnailUpload" class="cursor-pointer inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-xs text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500">
-              <span>Upload image</span>
-              <input 
-                id="thumbnailUpload" 
-                type="file" 
-                @change="handleThumbnailUpload" 
-                accept="image/*" 
-                class="hidden"
-              />
-            </label>
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              Recommended size: 480x270px
+
+          <div
+            data-testid="thumbnail-dropzone"
+            role="button"
+            tabindex="0"
+            aria-label="Upload course thumbnail"
+            :aria-invalid="!!uploadError"
+            aria-describedby="thumbnail-help thumbnail-error-text"
+            class="flex-1 flex flex-col items-center justify-center cursor-pointer rounded-md border-2 border-dashed transition-colors px-4 py-6 text-center select-none"
+            :class="[
+              uploadError ? 'border-red-400 dark:border-red-500' : isDragging
+                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30'
+                : 'border-gray-300 dark:border-gray-600 hover:border-primary-400'
+            ]"
+            @click="openFilePicker"
+            @keydown="onZoneKeydown"
+            @dragenter="onDragEnter"
+            @dragover="onDragOver"
+            @dragleave="onDragLeave"
+            @drop="onDrop"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mb-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 7.5m0 0L7.5 12m4.5-4.5V21" />
+            </svg>
+            <p class="text-sm text-gray-700 dark:text-gray-200">
+              <span class="font-medium">Drop an image here</span> or click to browse
             </p>
+            <p id="thumbnail-help" class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              Recommended size: 480 × 270 px
+            </p>
+            <input
+              ref="fileInputRef"
+              id="thumbnailUpload"
+              type="file"
+              accept="image/*"
+              class="hidden"
+              @click.stop
+              @change="handleThumbnailUpload"
+            />
           </div>
         </div>
+        <p
+          id="thumbnail-error-text"
+          v-if="uploadError"
+          data-testid="thumbnail-upload-error"
+          role="alert"
+          class="mt-2 text-sm text-red-500 dark:text-red-400"
+        >
+          {{ uploadError }}
+        </p>
       </div>
 
       <!-- Release Date -->
@@ -159,29 +193,55 @@
         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Leave empty to hide release date on course card</p>
       </div>
 
+      <!-- course.json banner -->
+      <div
+        v-if="hasJson"
+        data-testid="course-json-banner"
+        class="rounded border border-yellow-600 bg-yellow-900/20 text-yellow-200 text-sm px-3 py-2"
+      >
+        <strong>course.json detected.</strong>
+        This course has a JSON override on disk. Saving here updates only the
+        database; click <em>Export to course.json</em> to also write the JSON,
+        otherwise the next rescan will revert your edits.
+      </div>
+
       <!-- Submit buttons -->
-      <div class="flex justify-end space-x-4">
-        <button 
-          type="button"
-          @click="$emit('cancel')"
-          class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-xs text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
-        >
-          Cancel
-        </button>
-        <button 
-          type="submit"
-          class="px-4 py-2 border border-transparent rounded-md shadow-xs text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-          :disabled="isSaving"
-        >
-          {{ isSaving ? 'Saving...' : 'Save Course' }}
-        </button>
+      <div class="flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <button
+            v-if="isEditing"
+            type="button"
+            data-testid="course-export-json"
+            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+            :disabled="exportingThisCourse"
+            @click="exportThisCourseJson"
+          >
+            {{ exportingThisCourse ? 'Exporting…' : 'Export to course.json' }}
+          </button>
+        </div>
+        <div class="flex space-x-4">
+          <button
+            type="button"
+            @click="$emit('cancel')"
+            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-xs text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            class="px-4 py-2 border border-transparent rounded-md shadow-xs text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+            :disabled="isSaving"
+          >
+            {{ isSaving ? 'Saving...' : 'Save Course' }}
+          </button>
+        </div>
       </div>
     </form>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { findMatchingCategories } from '~/utils/categoryMatching.js';
 
 const props = defineProps({
@@ -196,8 +256,172 @@ const props = defineProps({
 const emit = defineEmits(['save', 'cancel']);
 
 const isSaving = ref(false);
+const hasJson = ref(false);
+const exportingThisCourse = ref(false);
+
+async function probeHasJson(courseId) {
+  if (!courseId) {
+    hasJson.value = false;
+    return;
+  }
+  try {
+    const res = await $fetch(`/api/courses/${encodeURIComponent(courseId)}/has-json`);
+    hasJson.value = !!res?.hasJson;
+  } catch {
+    hasJson.value = false;
+  }
+}
+
+async function exportThisCourseJson() {
+  if (!formData.value.id) return;
+  exportingThisCourse.value = true;
+  try {
+    // Build the same FormData the parent's saveCourse handler expects.
+    const courseData = {
+      id: formData.value.id,
+      title: formData.value.title,
+      description: formData.value.description,
+      category: formData.value.category,
+      releaseDate: formData.value.releaseDate,
+    };
+    const data = new FormData();
+    data.append('course', JSON.stringify(courseData));
+    if (formData.value.thumbnail) {
+      data.append('thumbnail', formData.value.thumbnail);
+    }
+    const saveRes = await $fetch('/api/courses/edit', { method: 'POST', body: data });
+    if (!saveRes?.success) {
+      console.error('Save before export failed:', saveRes);
+      return;
+    }
+    await $fetch(`/api/courses/${encodeURIComponent(formData.value.id)}/export-json`, {
+      method: 'POST',
+    });
+    hasJson.value = true;
+  } catch (err) {
+    console.error('Export failed:', err);
+  } finally {
+    exportingThisCourse.value = false;
+  }
+}
 const thumbnailPreview = ref('');
 const thumbnailFile = ref(null);
+
+// Dropzone state
+const isDragging = ref(false);
+const dragDepth = ref(0); // counter to handle dragleave firing on children
+const uploadError = ref('');
+const fileInputRef = ref(null);
+let errorTimer = null;
+let lastObjectUrl = null;
+function revokeLastObjectUrl() {
+  if (lastObjectUrl) {
+    try { URL.revokeObjectURL(lastObjectUrl); } catch {}
+    lastObjectUrl = null;
+  }
+}
+
+const ACCEPTED_PREFIXES = ['image/'];
+const SOFT_SIZE_WARN = 10 * 1024 * 1024; // 10 MB — server enforces hard limit
+
+function showError(msg) {
+  uploadError.value = msg;
+  if (errorTimer) clearTimeout(errorTimer);
+  errorTimer = setTimeout(() => { uploadError.value = ''; }, 3000);
+}
+
+function fileLooksLikeImage(file) {
+  if (!file || !file.type) return false;
+  return ACCEPTED_PREFIXES.some((p) => file.type.startsWith(p));
+}
+
+function applyImageFile(file) {
+  if (!fileLooksLikeImage(file)) {
+    showError('Image files only.');
+    return;
+  }
+  // Clear any prior error now that we have a valid image. The size warning
+  // below (if any) replaces it via showError.
+  uploadError.value = '';
+  if (errorTimer) {
+    clearTimeout(errorTimer);
+    errorTimer = null;
+  }
+  if (file.size > SOFT_SIZE_WARN) {
+    showError('Warning: file is larger than 10 MB and may be rejected by the server.');
+  }
+  thumbnailFile.value = file;
+  revokeLastObjectUrl();
+  const url = URL.createObjectURL(file);
+  lastObjectUrl = url;
+  thumbnailPreview.value = url;
+  formData.value.thumbnail = file;
+}
+
+function onDragEnter(event) {
+  event.preventDefault();
+  dragDepth.value += 1;
+  isDragging.value = true;
+}
+
+function onDragOver(event) {
+  // Required so the browser will fire `drop`
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+}
+
+function onDragLeave(event) {
+  event.preventDefault();
+  dragDepth.value = Math.max(0, dragDepth.value - 1);
+  if (dragDepth.value === 0) isDragging.value = false;
+}
+
+function onDrop(event) {
+  event.preventDefault();
+  dragDepth.value = 0;
+  isDragging.value = false;
+
+  const dt = event.dataTransfer;
+  if (!dt) return;
+
+  // Reject folders (FileSystemEntry returns isDirectory=true)
+  const items = dt.items ? Array.from(dt.items) : [];
+  for (const item of items) {
+    if (item.kind === 'file' && typeof item.webkitGetAsEntry === 'function') {
+      const entry = item.webkitGetAsEntry();
+      if (entry && entry.isDirectory) {
+        showError('Folders are not supported. Drop a single image file.');
+        return;
+      }
+    }
+  }
+  const itemsCanDetectFolders = items.length > 0 && items.some(
+    (it) => it.kind === 'file' && typeof it.webkitGetAsEntry === 'function',
+  );
+  if (items.length > 0 && !itemsCanDetectFolders) {
+    showError('Drop unsupported in this browser; click to choose an image.');
+    return;
+  }
+
+  const files = dt.files ? Array.from(dt.files) : [];
+  if (files.length === 0) return;
+  if (files.length > 1) {
+    showError('Drop a single image file.');
+    return;
+  }
+  applyImageFile(files[0]);
+}
+
+function openFilePicker() {
+  if (fileInputRef.value) fileInputRef.value.click();
+}
+
+function onZoneKeydown(event) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    openFilePicker();
+  }
+}
 
 // Add state for category autocomplete
 const availableCategories = ref([]);
@@ -254,6 +478,7 @@ const initializeForm = (course) => {
 
 // Reset form to empty values
 const resetForm = () => {
+  revokeLastObjectUrl();
   formData.value = {
     id: '',
     title: '',
@@ -267,11 +492,7 @@ const resetForm = () => {
 // Handle thumbnail upload
 const handleThumbnailUpload = (event) => {
   const file = event.target.files[0];
-  if (file) {
-    thumbnailFile.value = file;
-    thumbnailPreview.value = URL.createObjectURL(file);
-    formData.value.thumbnail = file;
-  }
+  if (file) applyImageFile(file);
 };
 
 // Handle form submission
@@ -329,6 +550,7 @@ onMounted(async () => {
 watch(() => props.course, (newCourse) => {
   if (newCourse && newCourse.id) {
     formData.value.id = newCourse.id;
+    probeHasJson(newCourse.id);
     formData.value.title = newCourse.title;
     formData.value.description = newCourse.description;
     formData.value.category = newCourse.category || ''; // Handle potential null/undefined
@@ -351,6 +573,7 @@ watch(() => props.course, (newCourse) => {
   } else {
     // Reset form if course prop is empty or invalid
     resetForm();
+    hasJson.value = false;
   }
 }, { immediate: true, deep: true });
 
@@ -376,4 +599,9 @@ const handleCategoryBlur = () => {
     showCategoryDropdown.value = false;
   }, 200);
 };
+
+onUnmounted(() => {
+  revokeLastObjectUrl();
+  if (errorTimer) clearTimeout(errorTimer);
+});
 </script>

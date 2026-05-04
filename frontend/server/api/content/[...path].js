@@ -3,6 +3,7 @@ import path from 'path';
 import { defineEventHandler, getRequestURL, createError, setResponseHeader, getRequestHeaders } from 'h3';
 import zlib from 'zlib';
 import { getDb } from '../../utils/db'; // Added for database access
+import { resolveCourseDir, resolvePathInCourse } from '../../utils/courseHelpers';
 
 // Cache to store open file handles and their last access time
 const fileHandleCache = new Map();
@@ -314,14 +315,49 @@ export default defineEventHandler(async (event) => {
     
     // Replace the first segment (course ID) with the actual folder name
     decodedSegments[0] = actualCourseFolder;
-    
+
     // Construct the path to the content file
-    const filePath = path.join(contentDir, ...decodedSegments);
+    let courseDir;
+    try {
+      courseDir = resolveCourseDir(actualCourseFolder);
+    } catch (err) {
+      throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
+    }
+    let filePath;
+    try {
+      filePath = resolvePathInCourse(courseDir, ...decodedSegments.slice(1));
+    } catch (err) {
+      throw createError({ statusCode: 400, statusMessage: 'Invalid content path' });
+    }
     
     console.log(`Attempting to serve file: ${filePath}`);
-    
+
+    // .vtt requests: if the file doesn't exist on disk but a sibling .srt does,
+    // convert and serve. This lets operators drop an .srt next to the video and
+    // have the player consume a real WebVTT track.
+    if (path.extname(filePath).toLowerCase() === '.vtt' && !fs.existsSync(filePath)) {
+      const srtCandidate = filePath.slice(0, -4) + '.srt';
+      if (fs.existsSync(srtCandidate)) {
+        try {
+          const { convertSrtFileToVtt } = await import('../../utils/srtToVtt.js');
+          const vttBuffer = await convertSrtFileToVtt(srtCandidate, fs);
+          setResponseHeader(event, 'Content-Type', 'text/vtt; charset=utf-8');
+          setResponseHeader(event, 'Content-Length', vttBuffer.length);
+          setResponseHeader(event, 'Cache-Control', 'public, max-age=600');
+          return vttBuffer;
+        } catch (err) {
+          if (err && err.code === 'ENOENT') {
+            // The .srt disappeared between existsSync and read — fall through to the
+            // normal not-found handling below.
+          } else {
+            console.error(`SRT to VTT conversion failed for ${srtCandidate}:`, err);
+            throw createError({ statusCode: 500, statusMessage: 'Subtitle conversion failed' });
+          }
+        }
+      }
+    }
     // Check if the file exists
-    if (!fs.existsSync(filePath)) { 
+    if (!fs.existsSync(filePath)) {
       console.error(`File not found (non-thumbnail): ${filePath}`);
       throw createError({
         statusCode: 404,

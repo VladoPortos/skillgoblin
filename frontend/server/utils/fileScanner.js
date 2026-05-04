@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getDb } from './db';
-import { getContentDir } from './courseHelpers';
+import { resolveCourseDir } from './courseHelpers';
 
 const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv', '.srt'];
 const EXCLUDED_FILES = ['thumbnail.png', 'course.json'];
@@ -27,8 +27,12 @@ export async function scanCourseFiles(courseId) {
     throw new Error('Course folder not found for the given ID.');
   }
 
-  const contentDir = getContentDir();
-  const courseBasePath = path.join(contentDir, courseData.folder_name);
+  let courseBasePath;
+  try {
+    courseBasePath = resolveCourseDir(courseData.folder_name);
+  } catch {
+    throw new Error('Invalid course folder.');
+  }
 
   if (!fs.existsSync(courseBasePath)) {
     return { courseTitle: courseData.title, filesByFolder: [] };

@@ -71,6 +71,25 @@ export const getAllCoursesFromDb = () => {
   }
 };
 
+// Like getAllCoursesFromDb but includes created_at and supports a sort param.
+// Accepts an explicit `db` for unit testing; defaults to the singleton.
+export const getAllCoursesWithMeta = (dbInstance = null, opts = {}) => {
+  const db = dbInstance || getDb();
+  const sort = opts.sort === 'newest' ? 'created_at DESC, id ASC' : 'title ASC';
+  try {
+    const rows = db
+      .prepare(`SELECT data, created_at FROM courses ORDER BY ${sort}`)
+      .all();
+    return rows.map((r) => {
+      const parsed = JSON.parse(r.data);
+      return { ...parsed, created_at: r.created_at };
+    });
+  } catch (err) {
+    console.error('Error retrieving courses with meta:', err);
+    return [];
+  }
+};
+
 // Function to get a single course from database by ID
 export const getCourseFromDb = (courseId) => {
   try {
