@@ -2,10 +2,10 @@ import { defineConfig, devices } from '@playwright/test';
 
 // Tests are intended to run inside the dockerized test runner
 // (see docker-compose.test.yml at the repo root). The runner reaches the app
-// over the docker network at http://app:3000 by default. The PW_BASE_URL env
+// over the docker network at http://web:3000 by default. The PW_BASE_URL env
 // var lets you override for local debugging if you ever spin up an app
 // outside of compose.
-const baseURL = process.env.PW_BASE_URL || 'http://app:3000';
+const baseURL = process.env.PW_BASE_URL || 'http://web:3000';
 
 export default defineConfig({
   testDir: './tests/e2e',

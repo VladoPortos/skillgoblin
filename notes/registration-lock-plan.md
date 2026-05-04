@@ -333,7 +333,7 @@ const ADMIN_NAME = process.env.PW_ADMIN_NAME || 'root';
 const ADMIN_PASSWORD = process.env.PW_ADMIN_PASSWORD || 'TestAdminPass!';
 
 async function freshContext() {
-  return pwRequest.newContext({ baseURL: process.env.PW_BASE_URL || 'http://app:3000' });
+  return pwRequest.newContext({ baseURL: process.env.PW_BASE_URL || 'http://web:3000' });
 }
 
 async function getAdmin(request) {

@@ -270,7 +270,7 @@ Create `frontend/tests/e2e/branding.spec.js`:
 import { test, expect, request as pwRequest } from '@playwright/test';
 
 async function freshContext() {
-  return pwRequest.newContext({ baseURL: process.env.PW_BASE_URL || 'http://app:3000' });
+  return pwRequest.newContext({ baseURL: process.env.PW_BASE_URL || 'http://web:3000' });
 }
 
 test.describe('GET /api/webmanifest', () => {
