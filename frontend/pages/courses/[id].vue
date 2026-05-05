@@ -21,6 +21,7 @@
         :src="currentVideoUrl"
         :autoplay="false"
         :current-time="currentTimeForPlayer"
+        :subtitle-src="subtitleSrc"
         @timeupdate="updateProgress"
         @ended="markAsCompleted"
         @loadedmetadata="handleVideoLoaded"
@@ -272,15 +273,30 @@ watch([course, progressReady], () => {
 // Computed values
 const currentVideoUrl = computed(() => {
   if (!currentLesson.value || !currentVideo.value) return '';
-  
+
   // Use the API endpoint for video content
   // Make sure to properly encode the path components
   const courseId = encodeURIComponent(route.params.id);
   const lessonFolder = currentLesson.value.folder ? encodeURIComponent(currentLesson.value.folder) : '';
   const videoFile = encodeURIComponent(currentVideo.value.file);
-  
+
   const lessonPath = lessonFolder ? `/${lessonFolder}` : '';
   return `/api/content/${courseId}${lessonPath}/${videoFile}`;
+});
+
+const subtitleSrc = computed(() => {
+  if (!currentVideo.value || !currentLesson.value) return '';
+  if (!currentVideo.value.subtitle) return '';
+  // PR-A's server emits the .vtt filename in `subtitle` (it converts the
+  // sibling .srt on demand). We just URL-encode it and return the full
+  // /api/content/... path.
+  const courseId = encodeURIComponent(route.params.id);
+  const lessonFolder = currentLesson.value.folder
+    ? encodeURIComponent(currentLesson.value.folder)
+    : '';
+  const subtitleFilename = String(currentVideo.value.subtitle);
+  const lessonPath = lessonFolder ? `/${lessonFolder}` : '';
+  return `/api/content/${courseId}${lessonPath}/${encodeURIComponent(subtitleFilename)}`;
 });
 
 const totalVideos = computed(() => {
