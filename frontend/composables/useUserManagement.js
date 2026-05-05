@@ -17,7 +17,7 @@ export function useUserManagement() {
   const showAuthModal = ref(false);
   const authError = ref('');
   const isAuthenticating = ref(false);
-  const pinDigits = ref(['', '', '', '']);
+  const pinDigits = ref('');
   const authData = ref({ password: '', pin: '' });
 
   // Phase 3: surfaces the SetCredentialsModal for legacy no-creds users
@@ -55,7 +55,7 @@ export function useUserManagement() {
   const createError = ref('');
   const useAuth = ref(false);
   const authType = ref('password');
-  const createPinDigits = ref(['', '', '', '']);
+  const createPinDigits = ref('');
   const isAdminCheckbox = ref(false);
 
   const fetchUsers = async () => {
@@ -84,7 +84,7 @@ export function useUserManagement() {
   const selectUser = async (user) => {
     try {
       selectedUser.value = user;
-      pinDigits.value = ['', '', '', ''];
+      pinDigits.value = '';
 
       // Refresh allow_pin before computing the picker matrix — if an admin
       // toggled the setting while the picker page was open, a cached
@@ -164,7 +164,7 @@ export function useUserManagement() {
       const credentials = {};
 
       if (resolvedMode === 'pin') {
-        const enteredPin = pinDigits.value.join('');
+        const enteredPin = pinDigits.value;
         if (enteredPin.length !== 4) {
           authError.value = 'Please enter all 4 digits of your PIN';
           return;
