@@ -11,7 +11,71 @@
       @mark-completed="markCourseCompleted"
       @reset-progress="resetCourseProgress"
       @logout="logout"
+      @delete="showDeleteConfirm = true"
+      @manage="showUserManagement = true"
+      @admin="showAdminPanel = true"
+      @rescan="showRescanConfirm = true"
     />
+
+    <!-- Delete-account confirmation -->
+    <ConfirmationModal
+      v-if="showDeleteConfirm"
+      title="Delete Account"
+      message="Are you sure you want to delete your account? This action cannot be undone and all your progress will be lost."
+      confirm-button-text="Delete Account"
+      cancel-button-text="Cancel"
+      confirm-button-color="red"
+      :show="showDeleteConfirm"
+      :is-loading="isDeleting"
+      loading-text="Deleting..."
+      @confirm="deleteAccount"
+      @cancel="showDeleteConfirm = false"
+    />
+
+    <!-- My Profile modal (personal: name, avatar, password, PIN) -->
+    <UserManagement
+      v-if="showUserManagement"
+      :show="showUserManagement"
+      :user="userObject"
+      @close="showUserManagement = false"
+      @updated="showUserManagement = false"
+    />
+
+    <!-- Admin Panel modal (admin-only entry; server enforces authz) -->
+    <AdminPanel
+      v-if="showAdminPanel"
+      :show="showAdminPanel"
+      @close="showAdminPanel = false"
+    />
+
+    <!-- Rescan confirmation -->
+    <ConfirmationModal
+      v-if="showRescanConfirm"
+      title="Database Rescan"
+      message="Are you sure you want to rescan the courses database?"
+      confirm-button-text="Rescan Database"
+      cancel-button-text="Cancel"
+      :show="showRescanConfirm"
+      @confirm="confirmRescan"
+      @cancel="showRescanConfirm = false"
+    >
+      <div class="mb-6">
+        <div class="flex items-center mb-2">
+          <input
+            id="preserve-metadata"
+            v-model="preserveMetadata"
+            type="checkbox"
+            class="rounded text-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600"
+          />
+          <label for="preserve-metadata" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
+            Preserve course metadata (thumbnails, descriptions, etc.)
+          </label>
+        </div>
+        <p class="text-sm text-gray-500 dark:text-gray-400 italic">
+          If unchecked, all custom metadata will be reset to defaults.
+        </p>
+      </div>
+    </ConfirmationModal>
     
     <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <!-- Video Player -->
@@ -128,6 +192,9 @@ import VideoPlayer from '../../components/video/VideoPlayer.vue';
 import VideoInfo from '../../components/video/VideoInfo.vue';
 import { pickNextNotCompleted } from '~/utils/smartOpen.js';
 import VideoControlButtons from '../../components/video/VideoControlButtons.vue';
+import UserManagement from '../../components/UserManagement.vue';
+import AdminPanel from '../../components/AdminPanel.vue';
+import ConfirmationModal from '../../components/ui/ConfirmationModal.vue';
 
 // Apply auth middleware
 definePageMeta({
@@ -138,16 +205,67 @@ const route = useRoute();
 const router = useRouter();
 
 // Get user from session composable
-const { userName, userAvatar, logout, userId, isAdmin } = useSession();
+const { userName, userAvatar, logout, deleteAccount: userDelete, userId, isAdmin, isActive } = useSession();
 
-// Create a computed user object with the correct structure
+// Create a computed user object with the correct structure. Must include
+// id so the My Profile (UserManagement) modal knows which user to load and
+// patch — without it the modal opens against an undefined user and silently
+// no-ops.
 const userObject = computed(() => {
   return {
+    id: userId.value,
     name: userName.value,
     avatar: userAvatar.value,
-    isAdmin: isAdmin.value ? 1 : 0
+    isAdmin: isAdmin.value ? 1 : 0,
+    is_active: isActive.value ? 1 : 0,
   };
 });
+
+// User-menu modal state. The user-menu in the header (UserProfile) emits
+// `manage` / `admin` / `rescan` / `delete`; before this fix CourseHeader
+// dropped manage/admin/rescan silently and routed delete to a back-button
+// navigation (no confirmation, no actual deletion).
+const showUserManagement = ref(false);
+const showAdminPanel = ref(false);
+const showRescanConfirm = ref(false);
+const showDeleteConfirm = ref(false);
+const isDeleting = ref(false);
+const preserveMetadata = ref(true);
+
+async function confirmRescan() {
+  showRescanConfirm.value = false;
+  try {
+    const response = await $fetch('/api/courses/rescan', {
+      method: 'POST',
+      body: { preserveMetadata: preserveMetadata.value },
+    });
+    if (!response?.success) {
+      console.error('Failed to start rescan:', response?.error || 'Unknown error');
+      alert(`Failed to start database rescan: ${response?.error || 'Unknown error'}`);
+    }
+  } catch (err) {
+    console.error('Error initiating rescan:', err);
+    alert(`Error initiating database rescan: ${err.message || 'Unknown error'}`);
+  }
+}
+
+async function deleteAccount() {
+  showDeleteConfirm.value = false;
+  isDeleting.value = true;
+  try {
+    const result = await userDelete();
+    if (!result?.success) {
+      console.error('Failed to delete account:', result?.message);
+      alert(`Failed to delete account: ${result?.message || 'Unknown error'}`);
+    }
+    // On success the useSession composable already logs out and redirects.
+  } catch (err) {
+    console.error('Error deleting account:', err);
+    alert('An error occurred while trying to delete your account.');
+  } finally {
+    isDeleting.value = false;
+  }
+}
 
 // State
 const course = ref({
