@@ -25,17 +25,8 @@
         @timeupdate="updateProgress"
         @ended="markAsCompleted"
         @loadedmetadata="handleVideoLoaded"
+        @start-from-beginning="startFromBeginning"
       />
-      <div class="text-xs text-gray-500 dark:text-gray-400 mb-3 text-right">
-        <button
-          type="button"
-          data-testid="start-from-beginning"
-          class="underline hover:text-gray-700 dark:hover:text-gray-200"
-          @click="startFromBeginning"
-        >
-          Start from beginning
-        </button>
-      </div>
 
       <!-- Video Info -->
       <VideoInfo 
@@ -68,39 +59,38 @@
           
           <!-- Video List -->
           <div v-if="expandedLessons[lesson.id]" class="bg-gray-50 dark:bg-gray-700 p-4">
-            <div 
-              v-for="(video, index) in lesson.videos" 
+            <div
+              v-for="(video, index) in lesson.videos"
               :key="`${lesson.id}-${index}`"
-              class="py-2 px-4 hover:bg-gray-100 dark:hover:bg-gray-600 rounded mb-2"
+              :data-testid="`lesson-video-${lesson.id}-${index}`"
+              class="py-2 px-4 hover:bg-gray-100 dark:hover:bg-gray-600 rounded mb-2 cursor-pointer"
+              @click="playVideo(lesson, video)"
             >
               <div class="flex items-center">
-                <div 
-                  class="mr-3 shrink-0 cursor-pointer" 
-                  @click="playVideo(lesson, video)"
-                >
+                <div class="mr-3 shrink-0">
                   <div v-if="completedVideos[`${lesson.id}-${index}`]" class="w-5 h-5 bg-green-500 dark:bg-green-400 rounded-full flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
                   <div v-else-if="videoProgress[`${lesson.id}-${index}`]" class="w-5 h-5 rounded-full border-2 border-blue-500 dark:border-blue-400 relative">
-                    <div class="absolute inset-0.5 bg-blue-500 dark:bg-blue-400 rounded-full" :style="{ 
-                      clipPath: `polygon(0 0, 100% 0, 100% ${videoProgress[`${lesson.id}-${index}`]}%, 0 ${videoProgress[`${lesson.id}-${index}`]}%)` 
+                    <div class="absolute inset-0.5 bg-blue-500 dark:bg-blue-400 rounded-full" :style="{
+                      clipPath: `polygon(0 0, 100% 0, 100% ${videoProgress[`${lesson.id}-${index}`]}%, 0 ${videoProgress[`${lesson.id}-${index}`]}%)`
                     }"></div>
                   </div>
                   <div v-else class="w-5 h-5 rounded-full border-2 border-gray-400 dark:border-gray-500"></div>
                 </div>
-                <div 
-                  class="flex-grow cursor-pointer"
-                  @click="playVideo(lesson, video)"
-                >
+                <div class="flex-grow">
                   {{ video.title }}
                 </div>
-                <VideoControlButtons 
-                  :is-completed="completedVideos[`${lesson.id}-${index}`]" 
-                  @toggle-completion="toggleVideoCompletionById(`${lesson.id}-${index}`)" 
-                  @reset-progress="resetVideoProgressById(`${lesson.id}-${index}`)"
-                />
+                <!-- Action buttons must not bubble into the row's playVideo handler. -->
+                <div @click.stop>
+                  <VideoControlButtons
+                    :is-completed="completedVideos[`${lesson.id}-${index}`]"
+                    @toggle-completion="toggleVideoCompletionById(`${lesson.id}-${index}`)"
+                    @reset-progress="resetVideoProgressById(`${lesson.id}-${index}`)"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -181,10 +171,30 @@ const showFilesModal = ref(false);
 // progress and the early-exit-on-currentVideo guard prevents the later
 // progress-loaded trigger from correcting it.
 const progressReady = ref(false);
-// One-shot flag: when set, the next handleVideoLoaded forces seek to 0,
-// bypassing any saved partial progress. Used by "Start from beginning"
-// when the new src differs from the previous one.
-const forceFromZero = ref(false);
+// Scoped one-shot flag: when set to a videoId, the next handleVideoLoaded
+// for THAT video id forces seek to 0, bypassing any saved partial progress.
+// Holding the flag against a specific videoId (instead of a global boolean)
+// matters for the same-src "Start from beginning" rewind case: no
+// loadedmetadata fires there, so a global flag would persist and force the
+// user's NEXT video selection to start at 0 too — wiping its saved resume.
+const forceFromZeroFor = ref(null);
+// Gate that suppresses updateProgress writes between a click on a new
+// video (in playVideo) and the matching loadedmetadata for that video
+// (handleVideoLoaded). Without this gate, a stray timeupdate event during
+// the transition window — when currentVideoId already points at the new
+// video but the <video> element still has the previous src loaded (or is
+// being reset by .load()) — calls updateProgress with currentTime=0/duration
+// of the wrong asset, writes 0 to videoProgress[currentVideoId], and
+// saveProgress persists that 0 to the backend. Subsequent handleVideoLoaded
+// then reads 0 and seeks to 0, so the user sees the video restart from
+// scratch and their saved position is gone.
+const transitioning = ref(false);
+// The src URL the most recent playVideo asked the player to load. Used by
+// handleVideoLoaded to reject a stale loadedmetadata event from a previous
+// load() that the user has since superseded by clicking another video — if
+// we acted on it we'd clear the gate and apply seek math against the wrong
+// element duration.
+const expectedSrc = ref(null);
 
 // Fetch course data and user progress
 onMounted(async () => {
@@ -344,19 +354,64 @@ function toggleLesson(lessonId) {
 function playVideo(lesson, video, autoPlay = true) {
   // Store previous video info to check if we're changing videos
   const previousVideoId = currentVideoId.value;
-  
+  // Snapshot the URL BEFORE we mutate the refs that drive the computed.
+  const previousVideoUrl = currentVideoUrl.value;
+
   // Update current video information
   currentLesson.value = lesson;
   currentVideo.value = video;
   currentVideoId.value = `${lesson.id}-${lesson.videos.indexOf(video)}`;
-  
+
   // Only reset and play if we're changing videos
   if (previousVideoId !== currentVideoId.value) {
+    // Switching videos invalidates any pending "rewind to 0 if loadedmetadata
+    // fires" override that startFromBeginning may have stamped — otherwise a
+    // later click-back to that video would honor a stale token and clobber
+    // the newer saved resume.
+    forceFromZeroFor.value = null;
+    const newVideoUrl = currentVideoUrl.value;
+    // Reset the seek prop to 0 BEFORE the new src loads. handleVideoLoaded
+    // will recompute the actual seek (from saved progress) once duration is
+    // known and reassign currentTimeForPlayer. Without this reset, two videos
+    // whose computed seek targets happen to coincide (or the previous video's
+    // seek value being reused) would leave currentTimeForPlayer unchanged —
+    // VideoPlayer's currentTime watcher only fires on value change, so the
+    // freshly-loaded element would never seek and the user would see the
+    // video start from 0 instead of resuming.
+    currentTimeForPlayer.value = 0;
+    if (newVideoUrl !== previousVideoUrl) {
+      // Real src change incoming — VideoPlayer's src watcher will pause()
+      // and load(). Suppress updateProgress and markAsCompleted until
+      // handleVideoLoaded confirms the new src is loaded; stamp expectedSrc
+      // so handleVideoLoaded ignores stale loadedmetadata events from a
+      // load() the user has since superseded.
+      transitioning.value = true;
+      expectedSrc.value = newVideoUrl;
+    } else {
+      // Same media URL: VideoPlayer's src watcher bails (newSrc === oldSrc),
+      // no load() fires, and no loadedmetadata follows. Arming the gate here
+      // would leave it stuck forever and permanently disable progress
+      // tracking. Apply the seek synchronously instead — the element is
+      // already loaded so duration is valid and handleVideoLoaded will run
+      // its normal saved-progress flow against the new currentVideoId.
+      handleVideoLoaded();
+      // currentTimeForPlayer was set to 0 above and handleVideoLoaded may
+      // have set it back to the same value the prop already had (common
+      // when the new video has no saved progress, or its computed target
+      // coincides with the previous prop value). Vue coalesces same-tick
+      // writes and only fires the watcher on a value change vs. the
+      // previously-flushed value, so the parent's seek pipeline can no-op
+      // — leaving the reused element at the previous video's playback
+      // position. Force the seek out-of-band to make this branch robust.
+      if (typeof videoPlayer.value.setCurrentTime === 'function') {
+        videoPlayer.value.setCurrentTime(currentTimeForPlayer.value);
+      }
+    }
     nextTick(() => {
       if (videoPlayer.value) {
         // Our component handles the video source change via props
         // and will auto-set time via loadedmetadata event
-        
+
         // Auto-play if requested
         if (autoPlay) {
           setTimeout(() => {
@@ -370,15 +425,16 @@ function playVideo(lesson, video, autoPlay = true) {
 
 function updateProgress(event) {
   if (!videoPlayer.value || !currentVideoId.value) return;
-  
-  // Get time from the video element via the exposed method
+  // Don't write progress while the player is mid-transition between videos
+  // — currentVideoId already points at the new video but the <video>
+  // element may still be on the previous src or in a load() reset.
+  if (transitioning.value) return;
   const currentTime = videoPlayer.value.getCurrentTime();
   const duration = videoPlayer.value.getDuration();
+  // Guard against NaN/0 duration leaking into a NaN progress write.
+  if (!Number.isFinite(duration) || duration <= 0) return;
   const progress = (currentTime / duration) * 100;
-  
   videoProgress.value[currentVideoId.value] = progress;
-  
-  // Save progress to database
   saveProgress();
 }
 
@@ -386,13 +442,26 @@ function updateProgress(event) {
 
 function handleVideoLoaded() {
   if (!videoPlayer.value || !currentVideoId.value) return;
+  // Reject stale loadedmetadata events: if expectedSrc was set by a more
+  // recent playVideo and the element's currentSrc is something else, this
+  // event is from a load() the user has since superseded. Acting on it
+  // would clear the gate and apply seek math against the wrong duration.
+  if (expectedSrc.value && typeof videoPlayer.value.getCurrentSrc === 'function') {
+    const loadedSrc = videoPlayer.value.getCurrentSrc() || '';
+    if (loadedSrc && !loadedSrc.endsWith(expectedSrc.value)) return;
+  }
   const duration = videoPlayer.value.getDuration();
   if (!Number.isFinite(duration) || duration <= 0) return;
+  // Duration is now valid for the loaded src — reopen the updateProgress
+  // gate so playback writes start landing on the new video, and clear the
+  // src expectation now that this load is settled.
+  transitioning.value = false;
+  expectedSrc.value = null;
   // One-shot override from "Start from beginning": the caller wants 0
-  // regardless of saved progress.
-  if (forceFromZero.value) {
+  // regardless of saved progress, but ONLY for the video they targeted.
+  if (forceFromZeroFor.value === currentVideoId.value) {
     currentTimeForPlayer.value = 0;
-    forceFromZero.value = false;
+    forceFromZeroFor.value = null;
     return;
   }
   // A completed video should always reopen at 0 even if a stale partial-progress
@@ -411,13 +480,13 @@ function handleVideoLoaded() {
 
 function markAsCompleted() {
   if (!currentVideoId.value) return;
-  
+  // A stale `ended` event fired during a video transition (the user
+  // clicked another row before the previous video's ended event drained
+  // from the queue) would otherwise mark the newly-selected video as
+  // completed and auto-advance past it. Same gate as updateProgress.
+  if (transitioning.value) return;
   completedVideos.value[currentVideoId.value] = true;
-  
-  // Save progress to database
   saveProgress();
-  
-  // Auto-play next video if available
   playNextVideo();
 }
 
@@ -511,27 +580,16 @@ async function saveProgress() {
 }
 
 function startFromBeginning() {
-  if (!course.value?.lessons?.length) return;
-  const firstLesson = course.value.lessons[0];
-  if (!firstLesson?.videos?.length) return;
-  const firstVideo = firstLesson.videos[0];
-  // Tell handleVideoLoaded to ignore any saved progress for this seek
-  // — applies to BOTH the same-video case (no src change, no loadedmetadata)
-  // and the cross-video case (new src triggers loadedmetadata which would
-  // otherwise reapply saved progress).
-  forceFromZero.value = true;
-  Object.keys(expandedLessons.value).forEach((id) => {
-    expandedLessons.value[id] = false;
-  });
-  expandedLessons.value[firstLesson.id] = true;
-  currentLesson.value = firstLesson;
-  currentVideo.value = firstVideo;
-  currentVideoId.value = `${firstLesson.id}-0`;
+  // Rewind the CURRENT video to 0. Same src → no reload, no loadedmetadata,
+  // so handleVideoLoaded won't re-apply saved progress on its own. Scope
+  // the forceFromZero token to THIS videoId — that way, if a loadedmetadata
+  // happens to fire for this video, it will honor the rewind, but if the
+  // user clicks a different video before that, the new video's saved resume
+  // is not affected.
+  if (!videoPlayer.value || !currentVideoId.value) return;
+  forceFromZeroFor.value = currentVideoId.value;
   currentTimeForPlayer.value = 0;
-  // If the first video was already the selected one, the prop didn't change
-  // and the watcher in VideoPlayer won't seek. Force it explicitly. The
-  // forceFromZero flag is consumed in handleVideoLoaded if a new src does load.
-  if (videoPlayer.value && typeof videoPlayer.value.setCurrentTime === 'function') {
+  if (typeof videoPlayer.value.setCurrentTime === 'function') {
     videoPlayer.value.setCurrentTime(0);
   }
 }

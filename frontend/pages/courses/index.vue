@@ -2,10 +2,10 @@
   <div class="min-h-screen bg-gray-50 dark:bg-gray-900">
     <header class="bg-white dark:bg-gray-800 shadow-sm">
       <div class="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
-        <div class="flex items-center">
+        <NuxtLink to="/courses" class="flex items-center hover:opacity-80 transition-opacity" :aria-label="`${branding.name} home`">
           <img :src="'/api/logo'" :alt="`${branding.name} Logo`" class="w-10 h-10 mr-3" />
           <h1 class="text-3xl font-bold text-gray-900 dark:text-white">{{ branding.name }}</h1>
-        </div>
+        </NuxtLink>
         <div class="flex items-center space-x-4">
           <UserProfile
             :user="userObject"
@@ -169,7 +169,7 @@
             />
             
             <!-- Search + sort -->
-            <div class="flex flex-col sm:flex-row sm:items-center gap-3 mt-3">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3 mt-3 mb-6">
               <div class="flex-1">
                 <SearchBar
                   v-model:search-query="searchQuery"
@@ -181,7 +181,7 @@
                 <select
                   data-testid="course-sort"
                   v-model="sortMode"
-                  class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white text-sm px-2 py-1"
+                  class="block px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                 >
                   <option value="title">Title (A–Z)</option>
                   <option value="newest">Newest first</option>

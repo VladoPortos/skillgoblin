@@ -53,6 +53,18 @@
           <option v-for="r in ALLOWED_RATES" :key="r" :value="r">{{ r }}×</option>
         </select>
       </label>
+      <button
+        type="button"
+        data-testid="start-from-beginning"
+        class="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-600 hover:border-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 text-xs"
+        title="Restart this video from the beginning"
+        @click="$emit('start-from-beginning')"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+        </svg>
+        Start from beginning
+      </button>
     </div>
   </div>
 </template>
@@ -74,7 +86,7 @@ const props = defineProps({
   placeholderText: { type: String, default: 'Select a video to start' },
 });
 
-const emit = defineEmits(['timeupdate', 'ended', 'loadedmetadata']);
+const emit = defineEmits(['timeupdate', 'ended', 'loadedmetadata', 'start-from-beginning']);
 
 const player = ref(null);
 const ALLOWED_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -205,5 +217,10 @@ defineExpose({
   getCurrentTime() { return player.value ? player.value.currentTime : 0; },
   getDuration() { return player.value ? player.value.duration : 0; },
   setCurrentTime(time) { if (player.value) player.value.currentTime = time; },
+  // Used by the parent to reject stale loadedmetadata events: if a second
+  // playVideo lands before the first src finished loading, the now-superseded
+  // metadata event would otherwise clear the transition gate against the
+  // wrong duration. The parent compares this against the src it asked for.
+  getCurrentSrc() { return player.value ? player.value.currentSrc : ''; },
 });
 </script>
