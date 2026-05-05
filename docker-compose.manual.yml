@@ -1,8 +1,12 @@
-# Manual-test stack — fresh first-install of the auth-hardening branch.
+# Local prod-like harness for hand-testing against real content without
+# touching ./data (the production volume). Mirrors the production layout
+# (Dockerfile.prod, ADMIN_NAME / ADMIN_PASSWORD bootstrap) but mounts
+# ./manual-test/data so you can reset to "fresh install" without losing
+# any real progress.
 #
-# Mirrors the recommended production layout (Dockerfile.prod, ADMIN_NAME /
-# ADMIN_PASSWORD bootstrap) but on port 3001 with a sandbox data dir under
-# ./manual-test so it doesn't touch the real ./data folder.
+# Run with:
+#   docker compose -f docker-compose.manual.yml up -d --build
+#   open http://localhost:3000
 #
 # Reset to "fresh install" state with:
 #   docker compose -f docker-compose.manual.yml down
@@ -27,8 +31,8 @@ services:
       - NODE_ENV=production
       - DATABASE_PATH=/app/data/database/database.sqlite
       - ADMIN_NAME=admin
-      - ADMIN_PASSWORD=ChangeMe2026!
+      - ADMIN_PASSWORD=skill-goblin-test
       - CHOKIDAR_POLLING_INTERVAL=60000
     ports:
-      - "3001:3000"
+      - "3000:3000"
     restart: unless-stopped
