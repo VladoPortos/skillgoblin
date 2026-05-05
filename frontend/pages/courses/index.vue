@@ -169,7 +169,7 @@
             />
             
             <!-- Search + sort -->
-            <div class="flex flex-col sm:flex-row sm:items-center gap-3 mt-3">
+            <div class="flex flex-col sm:flex-row sm:items-center gap-3 mt-3 mb-6">
               <div class="flex-1">
                 <SearchBar
                   v-model:search-query="searchQuery"
@@ -181,7 +181,7 @@
                 <select
                   data-testid="course-sort"
                   v-model="sortMode"
-                  class="rounded-md border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white text-sm px-2 py-1"
+                  class="block px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md leading-5 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500 focus:border-primary-500 sm:text-sm"
                 >
                   <option value="title">Title (A–Z)</option>
                   <option value="newest">Newest first</option>
