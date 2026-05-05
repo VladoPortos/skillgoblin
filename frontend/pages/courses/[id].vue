@@ -63,36 +63,34 @@
               v-for="(video, index) in lesson.videos"
               :key="`${lesson.id}-${index}`"
               :data-testid="`lesson-video-${lesson.id}-${index}`"
-              class="py-2 px-4 hover:bg-gray-100 dark:hover:bg-gray-600 rounded mb-2"
+              class="py-2 px-4 hover:bg-gray-100 dark:hover:bg-gray-600 rounded mb-2 cursor-pointer"
+              @click="playVideo(lesson, video)"
             >
               <div class="flex items-center">
-                <div 
-                  class="mr-3 shrink-0 cursor-pointer" 
-                  @click="playVideo(lesson, video)"
-                >
+                <div class="mr-3 shrink-0">
                   <div v-if="completedVideos[`${lesson.id}-${index}`]" class="w-5 h-5 bg-green-500 dark:bg-green-400 rounded-full flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
                   <div v-else-if="videoProgress[`${lesson.id}-${index}`]" class="w-5 h-5 rounded-full border-2 border-blue-500 dark:border-blue-400 relative">
-                    <div class="absolute inset-0.5 bg-blue-500 dark:bg-blue-400 rounded-full" :style="{ 
-                      clipPath: `polygon(0 0, 100% 0, 100% ${videoProgress[`${lesson.id}-${index}`]}%, 0 ${videoProgress[`${lesson.id}-${index}`]}%)` 
+                    <div class="absolute inset-0.5 bg-blue-500 dark:bg-blue-400 rounded-full" :style="{
+                      clipPath: `polygon(0 0, 100% 0, 100% ${videoProgress[`${lesson.id}-${index}`]}%, 0 ${videoProgress[`${lesson.id}-${index}`]}%)`
                     }"></div>
                   </div>
                   <div v-else class="w-5 h-5 rounded-full border-2 border-gray-400 dark:border-gray-500"></div>
                 </div>
-                <div 
-                  class="flex-grow cursor-pointer"
-                  @click="playVideo(lesson, video)"
-                >
+                <div class="flex-grow">
                   {{ video.title }}
                 </div>
-                <VideoControlButtons 
-                  :is-completed="completedVideos[`${lesson.id}-${index}`]" 
-                  @toggle-completion="toggleVideoCompletionById(`${lesson.id}-${index}`)" 
-                  @reset-progress="resetVideoProgressById(`${lesson.id}-${index}`)"
-                />
+                <!-- Action buttons must not bubble into the row's playVideo handler. -->
+                <div @click.stop>
+                  <VideoControlButtons
+                    :is-completed="completedVideos[`${lesson.id}-${index}`]"
+                    @toggle-completion="toggleVideoCompletionById(`${lesson.id}-${index}`)"
+                    @reset-progress="resetVideoProgressById(`${lesson.id}-${index}`)"
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -177,6 +175,17 @@ const progressReady = ref(false);
 // bypassing any saved partial progress. Used by "Start from beginning"
 // when the new src differs from the previous one.
 const forceFromZero = ref(false);
+// Gate that suppresses updateProgress writes between a click on a new
+// video (in playVideo) and the matching loadedmetadata for that video
+// (handleVideoLoaded). Without this gate, a stray timeupdate event during
+// the transition window — when currentVideoId already points at the new
+// video but the <video> element still has the previous src loaded (or is
+// being reset by .load()) — calls updateProgress with currentTime=0/duration
+// of the wrong asset, writes 0 to videoProgress[currentVideoId], and
+// saveProgress persists that 0 to the backend. Subsequent handleVideoLoaded
+// then reads 0 and seeks to 0, so the user sees the video restart from
+// scratch and their saved position is gone.
+const transitioning = ref(false);
 
 // Fetch course data and user progress
 onMounted(async () => {
@@ -344,6 +353,10 @@ function playVideo(lesson, video, autoPlay = true) {
 
   // Only reset and play if we're changing videos
   if (previousVideoId !== currentVideoId.value) {
+    // Suppress updateProgress writes until handleVideoLoaded confirms the
+    // new src is loaded — see the `transitioning` ref declaration for the
+    // full rationale.
+    transitioning.value = true;
     // Reset the seek prop to 0 BEFORE the new src loads. handleVideoLoaded
     // will recompute the actual seek (from saved progress) once duration is
     // known and reassign currentTimeForPlayer. Without this reset, two videos
@@ -371,15 +384,16 @@ function playVideo(lesson, video, autoPlay = true) {
 
 function updateProgress(event) {
   if (!videoPlayer.value || !currentVideoId.value) return;
-  
-  // Get time from the video element via the exposed method
+  // Don't write progress while the player is mid-transition between videos
+  // — currentVideoId already points at the new video but the <video>
+  // element may still be on the previous src or in a load() reset.
+  if (transitioning.value) return;
   const currentTime = videoPlayer.value.getCurrentTime();
   const duration = videoPlayer.value.getDuration();
+  // Guard against NaN/0 duration leaking into a NaN progress write.
+  if (!Number.isFinite(duration) || duration <= 0) return;
   const progress = (currentTime / duration) * 100;
-  
   videoProgress.value[currentVideoId.value] = progress;
-  
-  // Save progress to database
   saveProgress();
 }
 
@@ -389,6 +403,9 @@ function handleVideoLoaded() {
   if (!videoPlayer.value || !currentVideoId.value) return;
   const duration = videoPlayer.value.getDuration();
   if (!Number.isFinite(duration) || duration <= 0) return;
+  // Duration is now valid for the loaded src — reopen the updateProgress
+  // gate so playback writes start landing on the new video.
+  transitioning.value = false;
   // One-shot override from "Start from beginning": the caller wants 0
   // regardless of saved progress.
   if (forceFromZero.value) {
@@ -512,27 +529,14 @@ async function saveProgress() {
 }
 
 function startFromBeginning() {
-  if (!course.value?.lessons?.length) return;
-  const firstLesson = course.value.lessons[0];
-  if (!firstLesson?.videos?.length) return;
-  const firstVideo = firstLesson.videos[0];
-  // Tell handleVideoLoaded to ignore any saved progress for this seek
-  // — applies to BOTH the same-video case (no src change, no loadedmetadata)
-  // and the cross-video case (new src triggers loadedmetadata which would
-  // otherwise reapply saved progress).
+  // Rewind the CURRENT video to 0. Same src → no reload, no loadedmetadata,
+  // so handleVideoLoaded won't re-apply saved progress on its own. Set
+  // forceFromZero as a guard in case the seek pipeline does refire, then
+  // seek directly via the player's exposed method.
+  if (!videoPlayer.value || !currentVideoId.value) return;
   forceFromZero.value = true;
-  Object.keys(expandedLessons.value).forEach((id) => {
-    expandedLessons.value[id] = false;
-  });
-  expandedLessons.value[firstLesson.id] = true;
-  currentLesson.value = firstLesson;
-  currentVideo.value = firstVideo;
-  currentVideoId.value = `${firstLesson.id}-0`;
   currentTimeForPlayer.value = 0;
-  // If the first video was already the selected one, the prop didn't change
-  // and the watcher in VideoPlayer won't seek. Force it explicitly. The
-  // forceFromZero flag is consumed in handleVideoLoaded if a new src does load.
-  if (videoPlayer.value && typeof videoPlayer.value.setCurrentTime === 'function') {
+  if (typeof videoPlayer.value.setCurrentTime === 'function') {
     videoPlayer.value.setCurrentTime(0);
   }
 }

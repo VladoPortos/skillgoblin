@@ -57,7 +57,7 @@
         type="button"
         data-testid="start-from-beginning"
         class="ml-auto inline-flex items-center gap-1 px-2 py-1 rounded border border-gray-600 hover:border-gray-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400 text-xs"
-        title="Start from the first lesson"
+        title="Restart this video from the beginning"
         @click="$emit('start-from-beginning')"
       >
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">

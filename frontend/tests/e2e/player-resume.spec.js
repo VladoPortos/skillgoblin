@@ -72,32 +72,32 @@ test.describe('player resume + smart open', () => {
     await expect(page.locator('[data-testid=player-speed]')).toBeVisible({ timeout: 5_000 });
   });
 
-  test('clicking a partially-watched video resumes from saved position', async ({ page, request }) => {
-    // Regression for the click-to-resume bug. VideoPlayer's currentTime
-    // watcher only fires on value-change (Vue ref semantics), so when
-    // handleVideoLoaded reassigns currentTimeForPlayer to the SAME numeric
-    // value as before — easy to hit with two videos at the same saved-progress
-    // percentage and same duration — no seek lands on the freshly-loaded
-    // element. The fix resets currentTimeForPlayer to 0 inside playVideo on
-    // video change so the parent watcher's next write is always a value
-    // transition.
+  test('clicking another video and back preserves saved progress (regression)', async ({ page, request }) => {
+    // Reproduces the click-away / click-back bug the user actually saw:
+    // after clicking a different video and clicking back, the original
+    // video's saved progress was wiped to 0 in the database and the next
+    // open seeked to 0.
     //
-    // Discriminating diagnostic: VideoPlayer's onLoadedMetadata calls
-    // applySeek BEFORE emitting to the parent, and that pre-emit applySeek
-    // converges on the right final value either way — so an end-state
-    // assertion would pass without the fix. Instead we install a setter spy
-    // on `video.currentTime` AFTER the smart-open seek but BEFORE the click,
-    // and check the spy log immediately after the click + reactive flush
-    // (still BEFORE we dispatch loadedmetadata). With the fix, the parent
-    // watcher fires on the 100→0 reset and child applySeek writes 0. Without
-    // the fix, no write happens at this stage.
+    // Root cause: in the brief window between playVideo updating
+    // currentVideoId and handleVideoLoaded firing for the new src, any
+    // timeupdate event dispatched on the <video> element runs the parent's
+    // updateProgress, which writes (currentTime / duration) * 100 into
+    // videoProgress[currentVideoId] and POSTs the whole bag via
+    // saveProgress — using the WRONG src's timing, attributed to the
+    // newly-selected video. Click-back attributes the wrong src's 0 to the
+    // original video, the backend persists 0, and the next loadedmetadata
+    // → handleVideoLoaded reads 0 and seeks to 0.
+    //
+    // The fix gates updateProgress on a `transitioning` flag set in
+    // playVideo and cleared in handleVideoLoaded once duration is valid.
+    // The test exercises the race by manually dispatching timeupdate
+    // between the click and the loadedmetadata for the new video, then
+    // asserts the backend still has the original video's saved progress.
 
     const admin = await loginAdmin(request);
     await attachAuthCookie(page, request);
     const userId = admin.id;
 
-    // Find a course with at least 2 videos in the first lesson — required to
-    // exercise the click-away/click-back path.
     const coursesRes = await request.get('/api/courses?limit=20');
     const coursesBody = await coursesRes.json();
     let sample = null;
@@ -115,16 +115,14 @@ test.describe('player resume + smart open', () => {
     expect(sample, 'fixture course with 2+ videos in first lesson should exist').toBeTruthy();
 
     const v0Id = `${lesson.id}-0`;
-    const v1Id = `${lesson.id}-1`;
 
-    // Both videos at 50% — seek targets coincide at (50/100)*200 = 100, which
-    // is the value-equal-write surface the fix is for.
+    // Seed v0 = 50% so smart-open will pick v0 and seek to (50/100)*200 = 100.
     await request.post(`/api/user-progress/${userId}`, {
       data: {
         courseId: sample.id,
         data: {
           completed: {},
-          progress: { [v0Id]: 50, [v1Id]: 50 },
+          progress: { [v0Id]: 50 },
           favorite: false,
           lastViewed: { lessonId: lesson.id, videoIndex: 0 },
         },
@@ -134,56 +132,55 @@ test.describe('player resume + smart open', () => {
     await page.goto(`/courses/${sample.id}`);
     await page.waitForSelector('video', { timeout: 5_000 });
 
-    // Initial smart-open seek: stub duration to 200 and dispatch
-    // loadedmetadata so handleVideoLoaded computes the seek target.
+    // Stub duration so handleVideoLoaded has a sane number to multiply
+    // against the saved percentage. The element is reused across src
+    // changes, so the stub holds for the whole test.
     await page.evaluate(() => {
       const v = document.querySelector('video');
       Object.defineProperty(v, 'duration', { configurable: true, get: () => 200 });
       Object.defineProperty(v, 'readyState', { configurable: true, get: () => 1 });
       v.dispatchEvent(new Event('loadedmetadata'));
     });
+
+    // Sanity: smart-open + handleVideoLoaded landed on v0 at ~100.
     const initialCt = await page.evaluate(() => document.querySelector('video').currentTime);
     expect(initialCt, 'smart-open should seek v0 to ~100').toBeGreaterThanOrEqual(50);
 
-    // Install the spy. The getter mirrors the last set so applySeek's diff
-    // check still works; the setter records every write. window.__seekLog
-    // captures the discriminating signal.
-    await page.evaluate(() => {
-      const v = document.querySelector('video');
-      window.__seekLog = [];
-      let _ct = v.currentTime || 0;
-      Object.defineProperty(v, 'currentTime', {
-        configurable: true,
-        get: () => _ct,
-        set: (val) => { window.__seekLog.push(val); _ct = val; },
-      });
-    });
-
-    // Click v1. With the fix, playVideo writes currentTimeForPlayer = 0 →
-    // parent's currentTime watcher → child's applySeek → spy records 0.
-    // Without the fix, nothing writes to currentTime in this window.
+    // Click v1, then immediately fire a timeupdate. This is the racy
+    // event the bug depends on: currentVideoId is now v1's, but no
+    // loadedmetadata has fired for v1 yet. Without the gate, updateProgress
+    // would write 0 to videoProgress[v1] and POST it; with the gate, it's
+    // a no-op.
     await page.locator(`[data-testid="lesson-video-${lesson.id}-1"]`).click();
-    // > 100ms so playVideo's autoplay setTimeout(100) also settles harmlessly.
-    await page.waitForTimeout(150);
-
-    const seeksAfterClick = await page.evaluate(() => window.__seekLog.slice());
-    expect(
-      seeksAfterClick.includes(0),
-      `expected playVideo's parent-side currentTimeForPlayer reset to drive a write of 0 (got ${JSON.stringify(seeksAfterClick)})`
-    ).toBe(true);
-
-    // Now finish the seek pipeline: a real browser would have called .load()
-    // (resetting currentTime to 0) and fired loadedmetadata. Mirror that and
-    // verify handleVideoLoaded reseeked to the saved-progress target.
+    await page.waitForTimeout(50);
     await page.evaluate(() => {
       const v = document.querySelector('video');
       v.currentTime = 0;
-      v.dispatchEvent(new Event('loadedmetadata'));
+      v.dispatchEvent(new Event('timeupdate'));
     });
-    await page.waitForTimeout(50);
+    // Let saveProgress (debounce-free, fire-and-forget) settle.
+    await page.waitForTimeout(150);
 
-    const v1Ct = await page.evaluate(() => document.querySelector('video').currentTime);
-    expect(v1Ct, 'v1 should resume to ~100s (50% of 200)').toBeGreaterThanOrEqual(50);
+    // Now the dangerous click — click back to v0. The race attributes
+    // the post-load 0 timing to v0 and would persist v0 = 0.
+    await page.locator(`[data-testid="lesson-video-${lesson.id}-0"]`).click();
+    await page.waitForTimeout(50);
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      v.currentTime = 0;
+      v.dispatchEvent(new Event('timeupdate'));
+    });
+    await page.waitForTimeout(150);
+
+    // Read the persisted progress. With the fix, v0 is still 50.
+    // Without the fix, v0 is 0.
+    const progressRes = await request.get(`/api/user-progress/${userId}`);
+    const progressBody = await progressRes.json();
+    const persisted = progressBody?.progress?.[sample.id]?.progress?.[v0Id];
+    expect(
+      Number(persisted),
+      `expected videoProgress[${v0Id}] to remain ~50 across click-away/click-back; got ${persisted}`
+    ).toBeGreaterThanOrEqual(40);
   });
 
   test('parent owns the seek (regression for the loadedmetadata race bug)', async ({ page, request }) => {
