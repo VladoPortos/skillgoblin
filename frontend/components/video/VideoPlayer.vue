@@ -58,7 +58,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import {
   getCcDefault,
   setCcDefault,
@@ -98,12 +98,12 @@ watch(() => props.src, (newSrc, oldSrc) => {
 
 watch(() => props.currentTime, () => applySeek());
 
-// When subtitleSrc changes (different video, different track), the new
-// <track> element appears; re-apply the CC mode after a tick so the
-// browser has time to register it.
+// When subtitleSrc changes (different video, different track), re-apply CC
+// mode. Also wire the textTracks `addtrack` event so we don't race the
+// track-element registration: when the new <track> registers asynchronously,
+// onTrackAdded re-applies the user's stored preference.
 watch(() => props.subtitleSrc, () => {
-  if (!props.subtitleSrc) return;
-  setTimeout(applyCcMode, 0);
+  applyCcMode();
 });
 
 function onLoadedMetadata(event) {
@@ -116,6 +116,10 @@ function onLoadedMetadata(event) {
     try { player.value.play(); } catch {}
   }
   emit('loadedmetadata', event);
+}
+
+function onTrackAdded() {
+  applyCcMode();
 }
 
 function applyCcMode() {
@@ -146,6 +150,17 @@ onMounted(() => {
   playbackRate.value = getPlaybackRate();
   if (player.value) {
     player.value.playbackRate = playbackRate.value;
+    // Catch tracks that register asynchronously (the addtrack event fires
+    // after the <track> element is parsed and connected to the video).
+    if (player.value.textTracks && typeof player.value.textTracks.addEventListener === 'function') {
+      player.value.textTracks.addEventListener('addtrack', onTrackAdded);
+    }
+  }
+});
+
+onBeforeUnmount(() => {
+  if (player.value && player.value.textTracks && typeof player.value.textTracks.removeEventListener === 'function') {
+    player.value.textTracks.removeEventListener('addtrack', onTrackAdded);
   }
 });
 

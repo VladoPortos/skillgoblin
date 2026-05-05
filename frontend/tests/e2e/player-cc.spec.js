@@ -35,12 +35,29 @@ async function rescanAndWait(request) {
   throw new Error('Rescan did not complete in time');
 }
 
-async function openFirstCourse(page) {
-  await page.goto('/courses');
+// Pull the course list and find a course whose first video has NO `subtitle`
+// field. Returns the course id. Throws if every fixture course has subtitles
+// (in which case this test would be vacuous and a fixture without an .srt
+// sibling needs to be added).
+async function findCourseWithoutSubtitle(request) {
+  const r = await request.get('/api/courses?limit=20');
+  expect(r.ok()).toBeTruthy();
+  const body = await r.json();
+  expect(Array.isArray(body.items) && body.items.length > 0).toBe(true);
+  for (const item of body.items) {
+    const detail = await request.get(`/api/courses/${item.id}`);
+    const course = await detail.json();
+    const firstVideo = course?.lessons?.[0]?.videos?.[0];
+    if (firstVideo && !firstVideo.subtitle) {
+      return course.id;
+    }
+  }
+  throw new Error('No fixture course has a video without a subtitle sidecar.');
+}
+
+async function openCourseDetail(page, courseId) {
+  await page.goto(`/courses/${encodeURIComponent(courseId)}`);
   await page.waitForLoadState('networkidle');
-  const firstCard = page.locator('main h3').first();
-  await firstCard.click();
-  await page.waitForURL(/\/courses\/[^/]+/);
   await page.waitForSelector('[data-testid=player-speed]', { timeout: 5_000 });
 }
 
@@ -50,10 +67,11 @@ test.describe('player CC toggle', () => {
     await rescanAndWait(request);
   });
 
-  test('CC button is hidden when no subtitle sidecar exists', async ({ page, request }) => {
+  test('CC button is hidden when the selected video has no subtitle sidecar', async ({ page, request }) => {
     await loginAdmin(request);
     await attachAuthCookie(page, request);
-    await openFirstCourse(page);
+    const courseId = await findCourseWithoutSubtitle(request);
+    await openCourseDetail(page, courseId);
     await expect(page.locator('[data-testid=player-cc-toggle]')).toHaveCount(0);
   });
 });
