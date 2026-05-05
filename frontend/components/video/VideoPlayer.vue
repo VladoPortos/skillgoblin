@@ -80,6 +80,30 @@ const player = ref(null);
 const ALLOWED_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const playbackRate = ref(1);
 const ccOn = ref(false);
+// Track which textTracks list we've registered the addtrack listener on,
+// so we attach exactly once and detach the same instance on unmount even
+// if the underlying <video> remounts.
+let attachedTextTracks = null;
+
+function attachTrackListener(videoEl) {
+  if (!videoEl || !videoEl.textTracks) return;
+  if (attachedTextTracks === videoEl.textTracks) return;
+  // Detach any previous binding before re-attaching to a new <video>.
+  if (attachedTextTracks && typeof attachedTextTracks.removeEventListener === 'function') {
+    try { attachedTextTracks.removeEventListener('addtrack', onTrackAdded); } catch {}
+  }
+  if (typeof videoEl.textTracks.addEventListener === 'function') {
+    videoEl.textTracks.addEventListener('addtrack', onTrackAdded);
+    attachedTextTracks = videoEl.textTracks;
+  }
+}
+
+function detachTrackListener() {
+  if (attachedTextTracks && typeof attachedTextTracks.removeEventListener === 'function') {
+    try { attachedTextTracks.removeEventListener('addtrack', onTrackAdded); } catch {}
+  }
+  attachedTextTracks = null;
+}
 
 function applySeek() {
   if (!player.value) return;
@@ -95,6 +119,21 @@ watch(() => props.src, (newSrc, oldSrc) => {
   player.value.pause();
   player.value.load();
 }, { immediate: true });
+
+// Attach the addtrack listener once the <video> element actually mounts.
+// The element is gated by `v-if="src"`, so it appears only after the parent
+// supplies a real src — onMounted of this component fires earlier than that
+// on the course-detail page, so onMounted alone misses the binding.
+watch(player, (newPlayer) => {
+  if (newPlayer) {
+    attachTrackListener(newPlayer);
+    // Re-apply current CC mode in case tracks were already attached
+    // synchronously (e.g. when src + subtitleSrc both render in the same tick).
+    applyCcMode();
+  } else {
+    detachTrackListener();
+  }
+});
 
 watch(() => props.currentTime, () => applySeek());
 
@@ -148,20 +187,16 @@ function onRateChange(event) {
 onMounted(() => {
   ccOn.value = getCcDefault();
   playbackRate.value = getPlaybackRate();
+  // The addtrack listener is wired in the player ref watcher above so it
+  // attaches reliably when the <video> element mounts (which can be after
+  // this hook on the course-detail page where src starts empty).
   if (player.value) {
     player.value.playbackRate = playbackRate.value;
-    // Catch tracks that register asynchronously (the addtrack event fires
-    // after the <track> element is parsed and connected to the video).
-    if (player.value.textTracks && typeof player.value.textTracks.addEventListener === 'function') {
-      player.value.textTracks.addEventListener('addtrack', onTrackAdded);
-    }
   }
 });
 
 onBeforeUnmount(() => {
-  if (player.value && player.value.textTracks && typeof player.value.textTracks.removeEventListener === 'function') {
-    player.value.textTracks.removeEventListener('addtrack', onTrackAdded);
-  }
+  detachTrackListener();
 });
 
 defineExpose({
