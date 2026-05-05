@@ -7,9 +7,9 @@
             <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
           </svg>
         </button>
-        <NuxtLink to="/courses" class="flex items-center mr-4 hover:opacity-80 transition-opacity" :aria-label="`${branding.name} home`">
-          <img :src="'/api/logo'" :alt="`${branding.name} Logo`" class="w-6 h-6 mr-2 hidden sm:block" />
-          <span class="text-sm font-medium text-gray-900 dark:text-white hidden sm:block">{{ branding.name }}</span>
+        <NuxtLink to="/courses" class="hidden sm:flex items-center mr-4 hover:opacity-80 transition-opacity" :aria-label="`${branding.name} home`">
+          <img :src="'/api/logo'" :alt="`${branding.name} Logo`" class="w-6 h-6 mr-2" />
+          <span class="text-sm font-medium text-gray-900 dark:text-white">{{ branding.name }}</span>
         </NuxtLink>
         <h1 class="text-xl font-bold text-gray-900 dark:text-white truncate max-w-[140px] sm:max-w-xs md:max-w-md">{{ course?.title || 'Loading...' }}</h1>
         <!-- Course Progress Indicator -->
