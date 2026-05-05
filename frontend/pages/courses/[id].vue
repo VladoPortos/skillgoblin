@@ -68,9 +68,10 @@
           
           <!-- Video List -->
           <div v-if="expandedLessons[lesson.id]" class="bg-gray-50 dark:bg-gray-700 p-4">
-            <div 
-              v-for="(video, index) in lesson.videos" 
+            <div
+              v-for="(video, index) in lesson.videos"
               :key="`${lesson.id}-${index}`"
+              :data-testid="`lesson-video-${lesson.id}-${index}`"
               class="py-2 px-4 hover:bg-gray-100 dark:hover:bg-gray-600 rounded mb-2"
             >
               <div class="flex items-center">
@@ -344,19 +345,28 @@ function toggleLesson(lessonId) {
 function playVideo(lesson, video, autoPlay = true) {
   // Store previous video info to check if we're changing videos
   const previousVideoId = currentVideoId.value;
-  
+
   // Update current video information
   currentLesson.value = lesson;
   currentVideo.value = video;
   currentVideoId.value = `${lesson.id}-${lesson.videos.indexOf(video)}`;
-  
+
   // Only reset and play if we're changing videos
   if (previousVideoId !== currentVideoId.value) {
+    // Reset the seek prop to 0 BEFORE the new src loads. handleVideoLoaded
+    // will recompute the actual seek (from saved progress) once duration is
+    // known and reassign currentTimeForPlayer. Without this reset, two videos
+    // whose computed seek targets happen to coincide (or the previous video's
+    // seek value being reused) would leave currentTimeForPlayer unchanged —
+    // VideoPlayer's currentTime watcher only fires on value change, so the
+    // freshly-loaded element would never seek and the user would see the
+    // video start from 0 instead of resuming.
+    currentTimeForPlayer.value = 0;
     nextTick(() => {
       if (videoPlayer.value) {
         // Our component handles the video source change via props
         // and will auto-set time via loadedmetadata event
-        
+
         // Auto-play if requested
         if (autoPlay) {
           setTimeout(() => {
