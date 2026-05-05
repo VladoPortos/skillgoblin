@@ -1,0 +1,54 @@
+# Builds the production Docker image on every push to main (which is what
+# happens when a PR is merged) and pushes it to Docker Hub as
+# vladoportos/skillgoblin:beta. Always overwrites :beta — no SHA tags, no
+# other tags, and :latest is intentionally NOT touched. The companion
+# workflow (docker-promote.yml) is the only path that moves :latest, and
+# it re-tags this exact :beta manifest rather than rebuilding.
+#
+# Trigger workflow_dispatch lets the maintainer manually re-publish the
+# current main without an empty commit (e.g. if a transient registry
+# outage failed an earlier run).
+
+name: Publish beta to Docker Hub
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A second push to main cancels an in-flight build so the registry never
+# settles on an older commit's image.
+concurrency:
+  group: docker-publish-beta
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push :beta
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.prod
+          platforms: linux/amd64
+          push: true
+          tags: vladoportos/skillgoblin:beta
+          # Reuse layers across runs to keep build time low.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
