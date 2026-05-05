@@ -64,5 +64,6 @@ manual-test/
 # are. Keeping them out of git so the repo stays focused on code + the
 # docs operators actually need.
 notes/
+docs/superpowers/
 # Course.json files written by the e2e fixture during test runs.
 frontend/tests/fixtures/content/**/course.json
