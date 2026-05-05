@@ -395,6 +395,17 @@ function playVideo(lesson, video, autoPlay = true) {
       // already loaded so duration is valid and handleVideoLoaded will run
       // its normal saved-progress flow against the new currentVideoId.
       handleVideoLoaded();
+      // currentTimeForPlayer was set to 0 above and handleVideoLoaded may
+      // have set it back to the same value the prop already had (common
+      // when the new video has no saved progress, or its computed target
+      // coincides with the previous prop value). Vue coalesces same-tick
+      // writes and only fires the watcher on a value change vs. the
+      // previously-flushed value, so the parent's seek pipeline can no-op
+      // — leaving the reused element at the previous video's playback
+      // position. Force the seek out-of-band to make this branch robust.
+      if (typeof videoPlayer.value.setCurrentTime === 'function') {
+        videoPlayer.value.setCurrentTime(currentTimeForPlayer.value);
+      }
     }
     nextTick(() => {
       if (videoPlayer.value) {
