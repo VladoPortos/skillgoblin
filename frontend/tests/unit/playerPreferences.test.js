@@ -1,13 +1,32 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
+  CC_KEY,
   RATE_KEY,
+  getCcDefault,
+  setCcDefault,
   getPlaybackRate,
   setPlaybackRate,
 } from '../../utils/playerPreferences.js';
 
 beforeEach(() => {
   window.localStorage.clear();
+});
+
+describe('CC default', () => {
+  it('returns false when key is missing', () => {
+    expect(getCcDefault()).toBe(false);
+  });
+  it('round-trips a true value', () => {
+    setCcDefault(true);
+    expect(window.localStorage.getItem(CC_KEY)).toBe('1');
+    expect(getCcDefault()).toBe(true);
+  });
+  it('round-trips a false value', () => {
+    setCcDefault(false);
+    expect(window.localStorage.getItem(CC_KEY)).toBe('0');
+    expect(getCcDefault()).toBe(false);
+  });
 });
 
 describe('playback rate', () => {
