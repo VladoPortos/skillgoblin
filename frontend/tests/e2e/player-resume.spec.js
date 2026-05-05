@@ -172,15 +172,19 @@ test.describe('player resume + smart open', () => {
     });
     await page.waitForTimeout(150);
 
-    // Read the persisted progress. With the fix, v0 is still 50.
-    // Without the fix, v0 is 0.
+    // Read the persisted progress. With the fix, v0 is still exactly 50
+    // (the seeded value, no save calls happened — gates prevented all
+    // updateProgress writes during the transition). Without the fix, the
+    // stale-timeupdate writes 0 and the backend persists it. We assert the
+    // exact seeded value so a wrong-src overwrite to any other value
+    // (including a bogus high number) also fails.
     const progressRes = await request.get(`/api/user-progress/${userId}`);
     const progressBody = await progressRes.json();
     const persisted = progressBody?.progress?.[sample.id]?.progress?.[v0Id];
     expect(
       Number(persisted),
-      `expected videoProgress[${v0Id}] to remain ~50 across click-away/click-back; got ${persisted}`
-    ).toBeGreaterThanOrEqual(40);
+      `expected videoProgress[${v0Id}] to remain exactly 50 across click-away/click-back; got ${persisted}`
+    ).toBe(50);
 
     // Now dispatch a real loadedmetadata for v0 so handleVideoLoaded clears
     // the transition gate, then drive a fresh timeupdate at a NEW position

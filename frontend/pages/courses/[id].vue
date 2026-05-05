@@ -362,6 +362,11 @@ function playVideo(lesson, video, autoPlay = true) {
 
   // Only reset and play if we're changing videos
   if (previousVideoId !== currentVideoId.value) {
+    // Switching videos invalidates any pending "rewind to 0 if loadedmetadata
+    // fires" override that startFromBeginning may have stamped — otherwise a
+    // later click-back to that video would honor a stale token and clobber
+    // the newer saved resume.
+    forceFromZeroFor.value = null;
     // Suppress updateProgress writes until handleVideoLoaded confirms the
     // new src is loaded — see the `transitioning` ref declaration for the
     // full rationale.
@@ -452,13 +457,13 @@ function handleVideoLoaded() {
 
 function markAsCompleted() {
   if (!currentVideoId.value) return;
-  
+  // A stale `ended` event fired during a video transition (the user
+  // clicked another row before the previous video's ended event drained
+  // from the queue) would otherwise mark the newly-selected video as
+  // completed and auto-advance past it. Same gate as updateProgress.
+  if (transitioning.value) return;
   completedVideos.value[currentVideoId.value] = true;
-  
-  // Save progress to database
   saveProgress();
-  
-  // Auto-play next video if available
   playNextVideo();
 }
 
