@@ -61,22 +61,15 @@
         </div>
 
         <div v-if="mode === 'bootstrap' && allowPin">
-          <label class="block text-sm font-medium text-gray-300 mb-1" for="set-creds-pin">
+          <label class="block text-sm font-medium text-gray-300 mb-2">
             PIN <span class="text-gray-500">(4 digits, optional)</span>
           </label>
-          <input
-            id="set-creds-pin"
+          <PinInput
             v-model="pin"
-            type="password"
-            inputmode="numeric"
-            maxlength="4"
-            pattern="[0-9]{4}"
-            autocomplete="off"
-            data-testid="set-creds-pin"
-            class="w-full px-3 py-2 border border-gray-600 rounded-md bg-gray-700 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Optional"
+            id-prefix="set-creds-pin"
+            test-id-prefix="set-creds-pin"
           />
-          <p class="mt-1 text-xs text-gray-400">{{ encourageBothHint }}</p>
+          <p class="mt-2 text-xs text-gray-400 text-center">{{ encourageBothHint }}</p>
         </div>
 
         <p v-if="errorMessage" class="text-sm text-red-400" data-testid="set-creds-error">{{ errorMessage }}</p>
@@ -103,6 +96,7 @@
 
 <script setup>
 import { ref, computed, watch } from 'vue';
+import PinInput from './ui/PinInput.vue';
 
 // Two upgrade scenarios:
 //   mode="bootstrap"   — legacy account with neither password nor PIN.

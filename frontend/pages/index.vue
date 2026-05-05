@@ -201,24 +201,11 @@
             <!-- PIN Input — only when PINs are globally enabled -->
             <div v-if="(authType === 'pin' || authType === 'both') && systemSettings.allow_pin">
               <h3 class="block text-sm font-medium text-gray-300 mb-2">PIN (4 digits)</h3>
-              <div class="flex justify-center space-x-2 pin-input-container">
-                <input
-                  v-for="(digit, index) in 4"
-                  :key="index"
-                  :id="`create-pin-${index}`"
-                  :data-testid="`signup-pin-${index}`"
-                  :ref="el => { if (el && createPinInputs.value) createPinInputs.value[index] = el }"
-                  v-model="createPinDigits[index]"
-                  type="password"
-                  inputmode="numeric"
-                  maxlength="1"
-                  pattern="[0-9]*"
-                  class="w-12 h-12 text-center text-2xl bg-gray-700 border border-gray-600 rounded-md focus:border-blue-500 focus:ring-2 focus:ring-blue-500 text-white"
-                  @input="handleCreatePinInput($event, index)"
-                  @keydown="handleCreatePinKeydown($event, index)"
-                  aria-label="PIN digit input"
-                />
-              </div>
+              <PinInput
+                v-model="createPinDigits"
+                id-prefix="create-pin"
+                test-id-prefix="signup-pin"
+              />
             </div>
           </div>
           
@@ -302,22 +289,11 @@
               <!-- PIN input -->
               <div v-if="loginMode === 'pin'" class="mt-4">
                 <h3 class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">PIN</h3>
-                <div class="flex justify-center space-x-2 pin-input-container">
-                  <input
-                    v-for="(digit, index) in 4"
-                    :key="index"
-                    :id="`pin-${index}`"
-                    :ref="el => { if (el && pinInputs.value) pinInputs.value[index] = el }"
-                    v-model="pinDigits[index]"
-                    type="password"
-                    inputmode="numeric"
-                    maxlength="1"
-                    class="w-12 h-12 text-center text-2xl bg-gray-700 border border-gray-600 rounded focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
-                    @input="handlePinInput($event, index)"
-                    @keydown="handlePinKeydown($event, index)"
-                    aria-label="PIN digit input"
-                  />
-                </div>
+                <PinInput
+                  ref="pinInputRef"
+                  v-model="pinDigits"
+                  id-prefix="pin"
+                />
               </div>
 
               <p v-if="authError" class="text-sm text-red-600 dark:text-red-400">
@@ -367,6 +343,7 @@ import { useSession } from '~/composables/useSession';
 import { useUserManagement } from '~/composables/useUserManagement';
 import AvatarSelector from '../components/AvatarSelector.vue';
 import SetCredentialsModal from '../components/SetCredentialsModal.vue';
+import PinInput from '../components/ui/PinInput.vue';
 import { Beanhead } from 'beanheads-vue';
 
 const branding = useRuntimeConfig().public.branding;
@@ -400,9 +377,9 @@ const {
   finishCredentialUpdate
 } = useUserManagement();
 
-// Local template refs - initialize arrays for PIN inputs
-const pinInputs = ref(Array(4).fill(null));
-const createPinInputs = ref(Array(4).fill(null));
+// Template ref to the login PIN component so we can programmatically focus
+// the first digit when the auth modal opens for a PIN-capable user.
+const pinInputRef = ref(null);
 const passwordInput = ref(null);
 
 // Dismiss handler for SetCredentialsModal. Bootstrap dismissals just close
@@ -418,12 +395,12 @@ function dismissSetCredentials() {
   }
 }
 
-// Make sure refs are initialized when switching auth type
+// Reset the create-user PIN field whenever the auth-type tab switches to PIN
+// (so a stale value from a previous tab visit doesn't survive into the new
+// session). Login PIN gets its own reset in the showAuthModal watcher below.
 watch(() => authType.value, (newAuthType) => {
   if (newAuthType === 'pin') {
-    // Reset PIN arrays when switching to PIN mode
-    createPinInputs.value = Array(4).fill(null);
-    createPinDigits.value = ['', '', '', ''];
+    createPinDigits.value = '';
   }
 });
 const isAdminCheckbox = ref(false);
@@ -437,7 +414,7 @@ watch(() => showAuthModal.value, (isOpen) => {
   // Reset on each open. PIN-default if the user has one; otherwise password.
   loginMode.value = selectedUser.value?.pin ? 'pin' : 'password';
   authData.value = { password: '', pin: '' };
-  pinDigits.value = ['', '', '', ''];
+  pinDigits.value = '';
   authError.value = '';
 });
 // Clear the inactive input when the user toggles modes so a stale value
@@ -446,7 +423,7 @@ watch(loginMode, (mode) => {
   if (mode === 'pin') {
     authData.value.password = '';
   } else {
-    pinDigits.value = ['', '', '', ''];
+    pinDigits.value = '';
   }
   authError.value = '';
 });
@@ -497,7 +474,7 @@ const parseAvatar = (avatarString) => {
 
 // Show the create user modal
 const openCreateUserModal = () => {
-  createPinDigits.value = ['', '', '', ''];
+  createPinDigits.value = '';
   isAdminCheckbox.value = false;
   useAuth.value = true; // auth is mandatory now (the legacy "no-auth" path is gone)
   // Default to password; force it when PINs are disabled globally so the
@@ -588,58 +565,13 @@ onMounted(async () => {
     });
 });
 
-// PIN input handlers
-const handlePinInput = (event, index) => {
-  const value = event.target.value;
-  if (/^\d*$/.test(value)) {
-    pinDigits.value[index] = value;
-    // Immediate focus for next field
-    if (value && index < 3) {
-      const nextInput = event.target.nextElementSibling;
-      if (nextInput && nextInput.tagName === 'INPUT') {
-        nextInput.focus();
-      }
-    }
-  } else {
-    pinDigits.value[index] = '';
-  }
-};
-
-const handlePinKeydown = (event, index) => {
-  if (event.key === 'Backspace' && !pinDigits.value[index] && index > 0 && pinInputs.value?.[index - 1]) {
-    pinInputs.value[index - 1].focus();
-  }
-};
-
-const handleCreatePinInput = (event, index) => {
-  const value = event.target.value;
-  if (/^\d*$/.test(value)) {
-    createPinDigits.value[index] = value;
-    // Immediate focus for next field - use same approach as login PIN input
-    if (value && index < 3) {
-      const nextInput = event.target.nextElementSibling;
-      if (nextInput && nextInput.tagName === 'INPUT') {
-        nextInput.focus();
-      }
-    }
-  } else {
-    createPinDigits.value[index] = '';
-  }
-};
-
-const handleCreatePinKeydown = (event, index) => {
-  if (event.key === 'Backspace' && !createPinDigits.value[index] && index > 0 && createPinInputs.value?.[index - 1]) {
-    createPinInputs.value[index - 1].focus();
-  }
-};
-
-// Auto-focus on input fields when auth modal appears
+// Auto-focus the right input when the auth modal opens. PIN-capable users
+// land on the first digit; password-only users land on the password field.
 watch(showAuthModal, (newValue) => {
   if (newValue) {
     nextTick(() => {
       if (selectedUser.value?.pin) {
-        const firstPinInput = document.querySelector('#pin-0');
-        if (firstPinInput) firstPinInput.focus();
+        pinInputRef.value?.focus();
       } else if (passwordInput.value) {
         passwordInput.value.focus();
       }
@@ -655,7 +587,7 @@ const handleCreateUser = async () => {
     const wantsPassword = authType.value === 'password' || authType.value === 'both';
     const wantsPin = (authType.value === 'pin' || authType.value === 'both') && systemSettings.value.allow_pin;
     const passwordValue = newUser.value.password || '';
-    const pinValue = createPinDigits.value.join('');
+    const pinValue = createPinDigits.value;
 
     // Mode-specific client-side validation. Without this, "Both" + only one
     // input filled would silently fall back to that single credential at the
@@ -682,7 +614,7 @@ const handleCreateUser = async () => {
     // Reset form
     showCreateUser.value = false;
     newUser.value = { name: '', avatar: '', password: '', pin: '' };
-    createPinDigits.value = ['', '', '', ''];
+    createPinDigits.value = '';
     isAdminCheckbox.value = false;
     
   } catch (error) {

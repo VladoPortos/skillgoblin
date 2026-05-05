@@ -120,23 +120,13 @@
             <span v-if="hasPin" class="text-xs text-green-400">✓ set</span>
             <span v-else class="text-xs text-gray-500">not set</span>
           </h3>
-          <div class="flex justify-center space-x-2 pin-input-container mb-3">
-            <input
-              v-for="(_, index) in 4"
-              :key="index"
-              :id="`profile-pin-${index}`"
-              :data-testid="`profile-pin-digit-${index}`"
-              :ref="el => { if (el) newPinInputs[index] = el }"
-              v-model="newPinDigits[index]"
-              type="password"
-              inputmode="numeric"
-              maxlength="1"
-              pattern="[0-9]*"
-              class="w-12 h-12 text-center text-xl border border-gray-600 rounded-md bg-gray-700 text-white"
-              @input="handleNewPinInput($event, index)"
-              @keydown="handleNewPinKeydown($event, index)"
-              @keyup.enter="savePin"
-              aria-label="PIN digit input"
+          <div class="mb-3">
+            <PinInput
+              v-model="newPinDigits"
+              id-prefix="profile-pin"
+              test-id-prefix="profile-pin-digit"
+              digit-class="w-12 h-12 text-center text-xl border border-gray-600 rounded-md bg-gray-700 text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+              @submit="savePin"
             />
           </div>
           <div class="flex justify-center">
@@ -174,6 +164,7 @@
 import { ref, computed, watch } from 'vue';
 import { Beanhead } from 'beanheads-vue';
 import { useSession } from '~/composables/useSession';
+import PinInput from './ui/PinInput.vue';
 
 const props = defineProps({
   show: {
@@ -202,8 +193,7 @@ const userData = ref({
 // feedback. Profile (name/avatar) save still flows through the form's
 // submit handler below.
 const newPasswordValue = ref('');
-const newPinDigits = ref(['', '', '', '']);
-const newPinInputs = ref([]);
+const newPinDigits = ref('');
 const savingPassword = ref(false);
 const savingPin = ref(false);
 const passwordFeedback = ref('');
@@ -298,31 +288,12 @@ watch(() => props.user, (newUser) => {
 
 function resetCredPanels() {
   newPasswordValue.value = '';
-  newPinDigits.value = ['', '', '', ''];
+  newPinDigits.value = '';
   passwordFeedback.value = '';
   passwordFeedbackError.value = false;
   pinFeedback.value = '';
   pinFeedbackError.value = false;
 }
-
-// PIN grid input handling — digit-only with auto-advance and backspace
-// move-back. Same UX as the signup / login PIN grid.
-const handleNewPinInput = (event, index) => {
-  const value = event.target.value;
-  if (/^\d*$/.test(value)) {
-    newPinDigits.value[index] = value;
-    if (value && index < 3 && newPinInputs.value[index + 1]) {
-      newPinInputs.value[index + 1].focus();
-    }
-  } else {
-    newPinDigits.value[index] = '';
-  }
-};
-const handleNewPinKeydown = (event, index) => {
-  if (event.key === 'Backspace' && !newPinDigits.value[index] && index > 0 && newPinInputs.value[index - 1]) {
-    newPinInputs.value[index - 1].focus();
-  }
-};
 
 // Profile (name + avatar) save — credentials are NOT touched here. The
 // PUT body deliberately omits password/pin so the server's partial-update
@@ -371,7 +342,7 @@ async function savePassword() {
 async function savePin() {
   pinFeedback.value = '';
   pinFeedbackError.value = false;
-  const pin = newPinDigits.value.join('');
+  const pin = newPinDigits.value;
   if (!/^\d{4}$/.test(pin)) {
     pinFeedback.value = 'PIN must be exactly 4 digits.';
     pinFeedbackError.value = true;
@@ -387,7 +358,7 @@ async function savePin() {
     });
     if (result.success) {
       pinFeedback.value = hasPin.value ? 'PIN updated.' : 'PIN saved.';
-      newPinDigits.value = ['', '', '', ''];
+      newPinDigits.value = '';
       authState.value.hasPin = true;
     } else {
       pinFeedback.value = result.message || 'Could not save PIN.';
