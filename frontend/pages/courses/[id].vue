@@ -25,17 +25,8 @@
         @timeupdate="updateProgress"
         @ended="markAsCompleted"
         @loadedmetadata="handleVideoLoaded"
+        @start-from-beginning="startFromBeginning"
       />
-      <div class="text-xs text-gray-500 dark:text-gray-400 mb-3 text-right">
-        <button
-          type="button"
-          data-testid="start-from-beginning"
-          class="underline hover:text-gray-700 dark:hover:text-gray-200"
-          @click="startFromBeginning"
-        >
-          Start from beginning
-        </button>
-      </div>
 
       <!-- Video Info -->
       <VideoInfo 
