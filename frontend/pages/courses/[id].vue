@@ -354,6 +354,8 @@ function toggleLesson(lessonId) {
 function playVideo(lesson, video, autoPlay = true) {
   // Store previous video info to check if we're changing videos
   const previousVideoId = currentVideoId.value;
+  // Snapshot the URL BEFORE we mutate the refs that drive the computed.
+  const previousVideoUrl = currentVideoUrl.value;
 
   // Update current video information
   currentLesson.value = lesson;
@@ -367,14 +369,7 @@ function playVideo(lesson, video, autoPlay = true) {
     // later click-back to that video would honor a stale token and clobber
     // the newer saved resume.
     forceFromZeroFor.value = null;
-    // Suppress updateProgress writes until handleVideoLoaded confirms the
-    // new src is loaded — see the `transitioning` ref declaration for the
-    // full rationale.
-    transitioning.value = true;
-    // Stamp the src we're asking the player to load. handleVideoLoaded
-    // checks this against the element's currentSrc and ignores stale
-    // loadedmetadata events from a load() the user has since superseded.
-    expectedSrc.value = currentVideoUrl.value;
+    const newVideoUrl = currentVideoUrl.value;
     // Reset the seek prop to 0 BEFORE the new src loads. handleVideoLoaded
     // will recompute the actual seek (from saved progress) once duration is
     // known and reassign currentTimeForPlayer. Without this reset, two videos
@@ -384,6 +379,23 @@ function playVideo(lesson, video, autoPlay = true) {
     // freshly-loaded element would never seek and the user would see the
     // video start from 0 instead of resuming.
     currentTimeForPlayer.value = 0;
+    if (newVideoUrl !== previousVideoUrl) {
+      // Real src change incoming — VideoPlayer's src watcher will pause()
+      // and load(). Suppress updateProgress and markAsCompleted until
+      // handleVideoLoaded confirms the new src is loaded; stamp expectedSrc
+      // so handleVideoLoaded ignores stale loadedmetadata events from a
+      // load() the user has since superseded.
+      transitioning.value = true;
+      expectedSrc.value = newVideoUrl;
+    } else {
+      // Same media URL: VideoPlayer's src watcher bails (newSrc === oldSrc),
+      // no load() fires, and no loadedmetadata follows. Arming the gate here
+      // would leave it stuck forever and permanently disable progress
+      // tracking. Apply the seek synchronously instead — the element is
+      // already loaded so duration is valid and handleVideoLoaded will run
+      // its normal saved-progress flow against the new currentVideoId.
+      handleVideoLoaded();
+    }
     nextTick(() => {
       if (videoPlayer.value) {
         // Our component handles the video source change via props
