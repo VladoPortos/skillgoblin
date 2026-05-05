@@ -171,10 +171,13 @@ const showFilesModal = ref(false);
 // progress and the early-exit-on-currentVideo guard prevents the later
 // progress-loaded trigger from correcting it.
 const progressReady = ref(false);
-// One-shot flag: when set, the next handleVideoLoaded forces seek to 0,
-// bypassing any saved partial progress. Used by "Start from beginning"
-// when the new src differs from the previous one.
-const forceFromZero = ref(false);
+// Scoped one-shot flag: when set to a videoId, the next handleVideoLoaded
+// for THAT video id forces seek to 0, bypassing any saved partial progress.
+// Holding the flag against a specific videoId (instead of a global boolean)
+// matters for the same-src "Start from beginning" rewind case: no
+// loadedmetadata fires there, so a global flag would persist and force the
+// user's NEXT video selection to start at 0 too — wiping its saved resume.
+const forceFromZeroFor = ref(null);
 // Gate that suppresses updateProgress writes between a click on a new
 // video (in playVideo) and the matching loadedmetadata for that video
 // (handleVideoLoaded). Without this gate, a stray timeupdate event during
@@ -186,6 +189,12 @@ const forceFromZero = ref(false);
 // then reads 0 and seeks to 0, so the user sees the video restart from
 // scratch and their saved position is gone.
 const transitioning = ref(false);
+// The src URL the most recent playVideo asked the player to load. Used by
+// handleVideoLoaded to reject a stale loadedmetadata event from a previous
+// load() that the user has since superseded by clicking another video — if
+// we acted on it we'd clear the gate and apply seek math against the wrong
+// element duration.
+const expectedSrc = ref(null);
 
 // Fetch course data and user progress
 onMounted(async () => {
@@ -357,6 +366,10 @@ function playVideo(lesson, video, autoPlay = true) {
     // new src is loaded — see the `transitioning` ref declaration for the
     // full rationale.
     transitioning.value = true;
+    // Stamp the src we're asking the player to load. handleVideoLoaded
+    // checks this against the element's currentSrc and ignores stale
+    // loadedmetadata events from a load() the user has since superseded.
+    expectedSrc.value = currentVideoUrl.value;
     // Reset the seek prop to 0 BEFORE the new src loads. handleVideoLoaded
     // will recompute the actual seek (from saved progress) once duration is
     // known and reassign currentTimeForPlayer. Without this reset, two videos
@@ -401,16 +414,26 @@ function updateProgress(event) {
 
 function handleVideoLoaded() {
   if (!videoPlayer.value || !currentVideoId.value) return;
+  // Reject stale loadedmetadata events: if expectedSrc was set by a more
+  // recent playVideo and the element's currentSrc is something else, this
+  // event is from a load() the user has since superseded. Acting on it
+  // would clear the gate and apply seek math against the wrong duration.
+  if (expectedSrc.value && typeof videoPlayer.value.getCurrentSrc === 'function') {
+    const loadedSrc = videoPlayer.value.getCurrentSrc() || '';
+    if (loadedSrc && !loadedSrc.endsWith(expectedSrc.value)) return;
+  }
   const duration = videoPlayer.value.getDuration();
   if (!Number.isFinite(duration) || duration <= 0) return;
   // Duration is now valid for the loaded src — reopen the updateProgress
-  // gate so playback writes start landing on the new video.
+  // gate so playback writes start landing on the new video, and clear the
+  // src expectation now that this load is settled.
   transitioning.value = false;
+  expectedSrc.value = null;
   // One-shot override from "Start from beginning": the caller wants 0
-  // regardless of saved progress.
-  if (forceFromZero.value) {
+  // regardless of saved progress, but ONLY for the video they targeted.
+  if (forceFromZeroFor.value === currentVideoId.value) {
     currentTimeForPlayer.value = 0;
-    forceFromZero.value = false;
+    forceFromZeroFor.value = null;
     return;
   }
   // A completed video should always reopen at 0 even if a stale partial-progress
@@ -530,11 +553,13 @@ async function saveProgress() {
 
 function startFromBeginning() {
   // Rewind the CURRENT video to 0. Same src → no reload, no loadedmetadata,
-  // so handleVideoLoaded won't re-apply saved progress on its own. Set
-  // forceFromZero as a guard in case the seek pipeline does refire, then
-  // seek directly via the player's exposed method.
+  // so handleVideoLoaded won't re-apply saved progress on its own. Scope
+  // the forceFromZero token to THIS videoId — that way, if a loadedmetadata
+  // happens to fire for this video, it will honor the rewind, but if the
+  // user clicks a different video before that, the new video's saved resume
+  // is not affected.
   if (!videoPlayer.value || !currentVideoId.value) return;
-  forceFromZero.value = true;
+  forceFromZeroFor.value = currentVideoId.value;
   currentTimeForPlayer.value = 0;
   if (typeof videoPlayer.value.setCurrentTime === 'function') {
     videoPlayer.value.setCurrentTime(0);

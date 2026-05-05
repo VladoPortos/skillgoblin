@@ -217,5 +217,10 @@ defineExpose({
   getCurrentTime() { return player.value ? player.value.currentTime : 0; },
   getDuration() { return player.value ? player.value.duration : 0; },
   setCurrentTime(time) { if (player.value) player.value.currentTime = time; },
+  // Used by the parent to reject stale loadedmetadata events: if a second
+  // playVideo lands before the first src finished loading, the now-superseded
+  // metadata event would otherwise clear the transition gate against the
+  // wrong duration. The parent compares this against the src it asked for.
+  getCurrentSrc() { return player.value ? player.value.currentSrc : ''; },
 });
 </script>

@@ -181,6 +181,32 @@ test.describe('player resume + smart open', () => {
       Number(persisted),
       `expected videoProgress[${v0Id}] to remain ~50 across click-away/click-back; got ${persisted}`
     ).toBeGreaterThanOrEqual(40);
+
+    // Now dispatch a real loadedmetadata for v0 so handleVideoLoaded clears
+    // the transition gate, then drive a fresh timeupdate at a NEW position
+    // and verify the backend reflects it. This catches a pathological
+    // version of the fix where transitioning is set true and never cleared
+    // — saves would be permanently disabled and the earlier assertion
+    // alone would still pass.
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      v.dispatchEvent(new Event('loadedmetadata'));
+    });
+    await page.waitForTimeout(50);
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      v.currentTime = 120; // 60% of 200
+      v.dispatchEvent(new Event('timeupdate'));
+    });
+    await page.waitForTimeout(200);
+
+    const resumedRes = await request.get(`/api/user-progress/${userId}`);
+    const resumedBody = await resumedRes.json();
+    const resumed = Number(resumedBody?.progress?.[sample.id]?.progress?.[v0Id]);
+    expect(
+      resumed,
+      `after handleVideoLoaded for v0, a fresh timeupdate at 60% must persist (got ${resumed})`
+    ).toBeGreaterThanOrEqual(55);
   });
 
   test('parent owns the seek (regression for the loadedmetadata race bug)', async ({ page, request }) => {
