@@ -3,6 +3,7 @@
 [![CodeQL](https://github.com/VladoPortos/skillgoblin/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/VladoPortos/skillgoblin/actions/workflows/codeql.yml)
 [![Trivy](https://github.com/VladoPortos/skillgoblin/actions/workflows/trivy.yml/badge.svg?branch=main)](https://github.com/VladoPortos/skillgoblin/actions/workflows/trivy.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/VladoPortos/skillgoblin/badge)](https://scorecard.dev/viewer/?uri=github.com/VladoPortos/skillgoblin)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/12762/badge)](https://www.bestpractices.dev/projects/12762)
 
 A streamlined, self-hosted learning platform focused on simplicity and ease of maintenance.
 
