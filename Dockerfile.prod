@@ -1,4 +1,4 @@
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS builder
 
 WORKDIR /app
 
@@ -18,7 +18,7 @@ COPY frontend ./
 # Build the application
 RUN npm run build
 
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f
 
 WORKDIR /app
 
@@ -33,7 +33,7 @@ WORKDIR /app
 RUN apk add --no-cache ffmpeg su-exec
 
 # Copy the build output from the builder stage. Chown to the unprivileged
-# `node` user (uid 1000) shipped by the official node:20-alpine image so the
+# `node` user (uid 1000) shipped by the official node:24-alpine image so the
 # runtime stage can drop privileges via USER below.
 COPY --from=builder --chown=node:node /app/.output ./.output
 
