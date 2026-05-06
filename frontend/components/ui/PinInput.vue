@@ -1,4 +1,10 @@
 <template>
+  <!-- No `pattern` attribute on the inputs: the displayed value flips to a
+       bullet (●) once the reveal timer expires, and HTML5 validation on
+       `pattern="[0-9]*"` would then refuse to submit the parent <form>
+       with "Please match the requested format" before our JS handler can
+       read the actual digits from v-model. Digit-only enforcement happens
+       in onInput via the regex strip, so dropping pattern here is safe. -->
   <div class="flex justify-center space-x-2 pin-input-container">
     <input
       v-for="i in 4"
@@ -9,7 +15,6 @@
       :value="displayValue(i - 1)"
       type="text"
       inputmode="numeric"
-      pattern="[0-9]*"
       autocomplete="off"
       :disabled="disabled"
       :class="digitClass"
