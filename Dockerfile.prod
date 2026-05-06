@@ -22,6 +22,12 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# ffmpeg / ffprobe are used to auto-derive a course thumbnail from the first
+# video when the operator hasn't dropped a cover image in the course folder.
+# Alpine's package is the static build (~50 MB); pinned to no-cache so layer
+# rebuilds stay reproducible.
+RUN apk add --no-cache ffmpeg
+
 # Copy the build output from the builder stage. Chown to the unprivileged
 # `node` user (uid 1000) shipped by the official node:20-alpine image so the
 # runtime stage can drop privileges via USER below.
