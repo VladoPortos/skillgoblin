@@ -55,9 +55,15 @@ updates:
       - github-actions
 
   # Dockerfile.prod sits at the repo root; both FROM lines point at the
-  # same digest-pinned node:20-alpine. Dependabot opens a single PR when
-  # upstream re-tags `node:20-alpine` to a new digest (typically a fresh
+  # same digest-pinned node:24-alpine. Dependabot opens a single PR when
+  # upstream re-tags `node:24-alpine` to a new digest (typically a fresh
   # alpine base or a node patch release).
+  #
+  # Major-version bumps for node are ignored here: we want to ride the
+  # active LTS line (24 → 26 in Oct 2026, etc.) and decide when to move
+  # by hand, not have Dependabot drag us onto an odd-numbered Current
+  # release the moment one ships. Drop the ignore block when you're
+  # ready to move to the next LTS.
   - package-ecosystem: docker
     directory: /
     schedule:
@@ -66,6 +72,9 @@ updates:
       time: "06:00"
       timezone: Europe/Bratislava
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
     labels:
       - dependencies
       - docker
