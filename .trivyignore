@@ -1,0 +1,15 @@
+# Trivy misconfig findings that are deliberate trade-offs. One ID per line.
+# Trivy auto-loads this file from the working directory at scan time.
+
+# DS-0002 — "Image user should not be 'root'"
+# Dockerfile.prod intentionally omits the `USER node` directive so the
+# entrypoint script can run as root just long enough to chown the bind-
+# mounted /app/data on start (smooth-upgrade auto-perm-repair feature,
+# PR #88). Privileges are then dropped to the unprivileged `node` user
+# (uid 1000) via su-exec BEFORE any TCP listener is created — the Node
+# process that handles network traffic never runs as root.
+#
+# This pattern is shared by the official postgres / redis / nextcloud
+# images for the same reason. The trade-off is documented in
+# Dockerfile.prod, README.md, and the wiki.
+DS-0002
