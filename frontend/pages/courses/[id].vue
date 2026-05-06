@@ -101,28 +101,57 @@
         :progress-percentage="videoProgress[currentVideoId] || 0"
       />
       
+      <!-- Lesson search — filters lesson titles AND video titles inside each
+           lesson. While a query is active, every lesson with at least one
+           match is force-expanded (overriding the one-lesson-open accordion
+           behavior) so the user can scan results without extra clicks. -->
+      <div v-if="course.lessons?.length" class="mb-3">
+        <div class="relative">
+          <svg xmlns="http://www.w3.org/2000/svg" class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35m0 0A7.5 7.5 0 1 0 6.45 6.45a7.5 7.5 0 0 0 10.2 10.2z" />
+          </svg>
+          <input
+            v-model="lessonSearchQuery"
+            type="search"
+            placeholder="Search lessons..."
+            data-testid="lesson-search-input"
+            aria-label="Search lessons in this course"
+            class="w-full pl-9 pr-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+          />
+        </div>
+      </div>
+
       <!-- Lessons List -->
       <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm">
-        <div v-for="lesson in course.lessons" :key="lesson.id" class="border-b last:border-b-0">
-          <div 
-            class="p-4 flex justify-between items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700"
+        <div
+          v-if="isLessonSearchActive && filteredLessons.length === 0"
+          data-testid="lesson-search-empty"
+          class="p-6 text-center text-sm text-gray-500 dark:text-gray-400"
+        >
+          No lessons match &ldquo;{{ lessonSearchQuery }}&rdquo;.
+        </div>
+        <div v-for="lesson in filteredLessons" :key="lesson.id" class="border-b last:border-b-0">
+          <div
+            class="p-4 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700"
+            :class="isLessonSearchActive ? 'cursor-default' : 'cursor-pointer'"
             @click="toggleLesson(lesson.id)"
           >
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white">{{ lesson.title }}</h3>
-            <svg 
-              xmlns="http://www.w3.org/2000/svg" 
-              class="h-5 w-5 transform transition-transform" 
+            <h3 class="text-lg font-medium text-gray-900 dark:text-white" v-html="highlightMatch(lesson.title)"></h3>
+            <svg
+              v-if="!isLessonSearchActive"
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-5 w-5 transform transition-transform"
               :class="expandedLessons[lesson.id] ? 'rotate-180' : ''"
-              fill="none" 
-              viewBox="0 0 24 24" 
+              fill="none"
+              viewBox="0 0 24 24"
               stroke="currentColor"
             >
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
             </svg>
           </div>
-          
+
           <!-- Video List -->
-          <div v-if="expandedLessons[lesson.id]" class="bg-gray-50 dark:bg-gray-700 p-4">
+          <div v-if="expandedLessons[lesson.id] || isLessonSearchActive" class="bg-gray-50 dark:bg-gray-700 p-4">
             <div
               v-for="(video, index) in lesson.videos"
               :key="`${lesson.id}-${index}`"
@@ -144,9 +173,7 @@
                   </div>
                   <div v-else class="w-5 h-5 rounded-full border-2 border-gray-400 dark:border-gray-500"></div>
                 </div>
-                <div class="flex-grow">
-                  {{ video.title }}
-                </div>
+                <div class="flex-grow" v-html="highlightMatch(video.title)"></div>
                 <!-- Action buttons must not bubble into the row's playVideo handler. -->
                 <div @click.stop>
                   <VideoControlButtons
@@ -274,6 +301,7 @@ const course = ref({
 });
 const isFavorite = ref(false);
 const expandedLessons = ref({});
+const lessonSearchQuery = ref('');
 const currentLesson = ref(null);
 const currentVideo = ref(null);
 const currentVideoId = ref(null);
@@ -451,11 +479,53 @@ const courseCompletionPercentage = computed(() => {
   return (completedVideosCount.value / totalVideos.value) * 100;
 });
 
+// Lesson search filter — matches lesson titles AND video titles inside each
+// lesson, case-insensitive. When a query is active, every lesson with at
+// least one match is shown with all of its videos visible (the per-video
+// `q in title` filter would split lessons into "matched titles" and "matched
+// videos" buckets and confuse the eye); the search is a "where in this
+// course is X" tool, not a precise sieve.
+const isLessonSearchActive = computed(() => !!lessonSearchQuery.value.trim());
+const filteredLessons = computed(() => {
+  const lessons = course.value.lessons || [];
+  if (!isLessonSearchActive.value) return lessons;
+  const q = lessonSearchQuery.value.trim().toLowerCase();
+  return lessons.filter((lesson) => {
+    if ((lesson.title || '').toLowerCase().includes(q)) return true;
+    return (lesson.videos || []).some((v) => (v.title || '').toLowerCase().includes(q));
+  });
+});
+
+// Highlight helper for v-html. Escapes HTML first so any user-typed query
+// (or course-author title) can't inject markup, then wraps every literal
+// occurrence of the query in <mark>. Returning escaped-but-unwrapped text
+// when there's no query keeps the v-html call safe in both states.
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (
+    { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+  ));
+}
+function highlightMatch(text) {
+  const safe = escapeHtml(text);
+  const q = lessonSearchQuery.value.trim();
+  if (!q) return safe;
+  const safeQ = escapeHtml(q).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+  return safe.replace(
+    new RegExp(`(${safeQ})`, 'ig'),
+    '<mark class="bg-yellow-200 dark:bg-yellow-600 text-gray-900 dark:text-white rounded px-0.5">$1</mark>'
+  );
+}
+
 // Methods
 function toggleLesson(lessonId) {
+  // Search forces every matching lesson open, so accordion clicks are a
+  // no-op while a query is active — collapsing here would just be re-expanded
+  // by the v-if and look broken.
+  if (isLessonSearchActive.value) return;
+
   // Check if the lesson is already expanded
   const isCurrentlyExpanded = expandedLessons.value[lessonId];
-  
+
   if (isCurrentlyExpanded) {
     // If it's already expanded, just collapse it
     expandedLessons.value[lessonId] = false;
