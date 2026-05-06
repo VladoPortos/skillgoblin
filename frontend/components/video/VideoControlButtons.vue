@@ -1,8 +1,12 @@
 <template>
+  <!-- Touch-friendly sizes on mobile (>= 36px hits a comfortable thumb
+       target without crossing the iOS 44 / Material 48 zone where the
+       buttons dominate the row); shrink back to the previous compact
+       desktop sizes from the sm: breakpoint up. -->
   <div class="shrink-0 flex space-x-2">
-    <button 
+    <button
       @click="$emit('toggle-completion')"
-      class="rounded-full flex items-center justify-center w-7 h-7"
+      class="rounded-full flex items-center justify-center w-9 h-9 sm:w-7 sm:h-7"
       :class="isCompleted ? 'bg-green-500 dark:bg-green-400 text-white' : 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300'"
       title="Toggle completion status"
     >
@@ -10,9 +14,9 @@
         <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
       </svg>
     </button>
-    <button 
+    <button
       @click="$emit('reset-progress')"
-      class="w-6 h-6 rounded-full flex items-center justify-center bg-red-500 dark:bg-red-400 text-white"
+      class="rounded-full flex items-center justify-center w-9 h-9 sm:w-6 sm:h-6 bg-red-500 dark:bg-red-400 text-white"
       title="Reset progress"
     >
       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
