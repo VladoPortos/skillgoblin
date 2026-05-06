@@ -35,6 +35,11 @@ services:
       # in sync with PW_ADMIN_NAME / PW_ADMIN_PASSWORD on the tests service.
       - ADMIN_NAME=root
       - ADMIN_PASSWORD=TestAdminPass!
+      # Skip the entrypoint's volume-ownership repair pass — branding and
+      # content below are bind-mounted from tracked repo fixtures, and a
+      # recursive chown to uid 1000 would dirty the working tree on the
+      # host. Privilege drop to `node` still happens.
+      - SKILLGOBLIN_SKIP_PERM_REPAIR=1
     volumes:
       # /app/data is a fresh tmpfs on every run. Long-form is required so
       # we can set mode=1777 — the prod image runs as the unprivileged
