@@ -10,7 +10,7 @@
       @toggle-favorite="toggleFavorite"
       @mark-completed="markCourseCompleted"
       @reset-progress="resetCourseProgress"
-      @logout="logout"
+      @logout="handleLogout"
       @delete="showDeleteConfirm = true"
       @manage="showUserManagement = true"
       @admin="showAdminPanel = true"
@@ -88,6 +88,8 @@
         :subtitle-src="subtitleSrc"
         @timeupdate="updateProgress"
         @ended="markAsCompleted"
+        @pause="flushProgressSave"
+        @seeked="flushProgressSave"
         @loadedmetadata="handleVideoLoaded"
         @start-from-beginning="startFromBeginning"
       />
@@ -210,7 +212,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useSession } from '~/composables/useSession';
 import CourseFilesModal from '~/components/CourseFilesModal.vue';
@@ -233,6 +235,19 @@ const router = useRouter();
 
 // Get user from session composable
 const { userName, userAvatar, logout, deleteAccount: userDelete, userId, isAdmin, isActive } = useSession();
+
+// Flush any throttled / pending progress save BEFORE the session tears down.
+// useSession.logout() clears userId synchronously, after which a trailing
+// edge save would skip its own userId guard and silently drop up to
+// SAVE_INTERVAL_MS of progress. Same hazard for onBeforeUnmount (which
+// runs after logout has already cleared the session).
+async function handleLogout() {
+  // Await the in-flight save — without this, the POST is still in flight
+  // when useSession.logout() clears the auth cookie, and the server rejects
+  // the late write under requireSelfOrAdmin.
+  await flushProgressSave();
+  await logout();
+}
 
 // Create a computed user object with the correct structure. Must include
 // id so the My Profile (UserManagement) modal knows which user to load and
@@ -344,6 +359,15 @@ const expectedSrc = ref(null);
 
 // Fetch course data and user progress
 onMounted(async () => {
+  // Register the pagehide listener up-front, BEFORE the awaited fetches.
+  // If the user navigates away while those promises are still pending, the
+  // component unmounts immediately and onBeforeUnmount runs — registering
+  // here later would leak a listener that fires on a future unload and saves
+  // stale state, possibly under a different user.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('pagehide', saveProgressOnHide);
+  }
+
   try {
     isLoading.value = true;
 
@@ -389,6 +413,20 @@ onMounted(async () => {
     // the smart-open watcher would never pick anything and the page would
     // stay stuck on the placeholder.
     progressReady.value = true;
+  }
+});
+
+onBeforeUnmount(() => {
+  if (trailingSaveTimer) {
+    clearTimeout(trailingSaveTimer);
+    trailingSaveTimer = null;
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('pagehide', saveProgressOnHide);
+  }
+  // Final flush in case the user navigates within the SPA (no pagehide fires).
+  if (userId.value && course.value?.id) {
+    saveProgress();
   }
 });
 
@@ -611,6 +649,12 @@ function playVideo(lesson, video, autoPlay = true) {
   }
 }
 
+// 90% is the canonical "treat as watched" threshold (Plex / industry standard).
+// Lets users skip credits / outros without leaving the lesson stuck at "in
+// progress" forever; the `ended` event still fires markAsCompleted for the
+// users who watch all the way through.
+const COMPLETION_THRESHOLD_PCT = 90;
+
 function updateProgress(event) {
   if (!videoPlayer.value || !currentVideoId.value) return;
   // Don't write progress while the player is mid-transition between videos
@@ -623,7 +667,19 @@ function updateProgress(event) {
   if (!Number.isFinite(duration) || duration <= 0) return;
   const progress = (currentTime / duration) * 100;
   videoProgress.value[currentVideoId.value] = progress;
-  saveProgress();
+
+  // Auto-complete at the 90% threshold so a missed last 10s doesn't leave
+  // the lesson "in progress" forever. Guarded so it runs once per video.
+  if (
+    progress >= COMPLETION_THRESHOLD_PCT &&
+    !completedVideos.value[currentVideoId.value]
+  ) {
+    completedVideos.value[currentVideoId.value] = true;
+    flushProgressSave();
+    return;
+  }
+
+  scheduleProgressSave();
 }
 
 // Video progress handling is done via loadedmetadata event in the template
@@ -652,12 +708,10 @@ function handleVideoLoaded() {
     forceFromZeroFor.value = null;
     return;
   }
-  // A completed video should always reopen at 0 even if a stale partial-progress
-  // entry exists for it (e.g. user re-watched, then was auto-marked completed).
-  if (completedVideos.value[currentVideoId.value]) {
-    currentTimeForPlayer.value = 0;
-    return;
-  }
+  // Resume from saved position regardless of whether the video was previously
+  // marked completed — re-watching a finished lesson should pick up where the
+  // user left off, not snap to zero. The "Start from beginning" button stays
+  // available for an explicit rewind.
   const savedProgress = videoProgress.value[currentVideoId.value] || 0;
   if (savedProgress > 0 && savedProgress < 100) {
     currentTimeForPlayer.value = (savedProgress / 100) * duration;
@@ -738,13 +792,20 @@ function resetVideoProgressById(videoId) {
   saveProgress();
 }
 
-// Save progress to database
-async function saveProgress() {
-  if (!userId.value) return;
-  
-  try {
-    // Prepare progress data for this course
-    const progressData = {
+// Throttled progress persistence. The player previously POSTed on every
+// timeupdate (~4× / sec) which wasted bandwidth and produced races. We now
+// keep the in-memory progress map up-to-date in real time but persist at
+// most once per SAVE_INTERVAL_MS, with an immediate flush on
+// pause / seeked / ended / 90% completion / page hide so the worst-case
+// progress loss on a crash is one window's worth of playback.
+const SAVE_INTERVAL_MS = 5000;
+let lastProgressSaveAt = 0;
+let trailingSaveTimer = null;
+
+function buildProgressBody() {
+  return {
+    courseId: course.value.id,
+    data: {
       completed: completedVideos.value,
       progress: videoProgress.value,
       favorite: isFavorite.value,
@@ -752,19 +813,83 @@ async function saveProgress() {
         lessonId: currentLesson.value?.id,
         videoIndex: currentLesson.value?.videos.indexOf(currentVideo.value)
       }
-    };
-    
-    // Save to database
+    }
+  };
+}
+
+// Leading + trailing throttle: first call within a quiet window writes
+// immediately, subsequent calls in the same window are coalesced and the
+// trailing edge fires SAVE_INTERVAL_MS after the leading save.
+function scheduleProgressSave() {
+  if (!userId.value || !course.value?.id) return;
+  const now = Date.now();
+  const elapsed = now - lastProgressSaveAt;
+  if (elapsed >= SAVE_INTERVAL_MS) {
+    lastProgressSaveAt = now;
+    if (trailingSaveTimer) {
+      clearTimeout(trailingSaveTimer);
+      trailingSaveTimer = null;
+    }
+    saveProgress();
+    return;
+  }
+  if (trailingSaveTimer) return;
+  trailingSaveTimer = setTimeout(() => {
+    lastProgressSaveAt = Date.now();
+    trailingSaveTimer = null;
+    saveProgress();
+  }, SAVE_INTERVAL_MS - elapsed);
+}
+
+// Returns the in-flight save promise so callers (logout, in particular)
+// can await the persisted write before the session is torn down.
+function flushProgressSave() {
+  if (!userId.value || !course.value?.id) return Promise.resolve();
+  if (trailingSaveTimer) {
+    clearTimeout(trailingSaveTimer);
+    trailingSaveTimer = null;
+  }
+  lastProgressSaveAt = Date.now();
+  return saveProgress();
+}
+
+// Immediate write. Used directly by completion / favorite / reset handlers
+// where the user expects their action to land before a possible reload.
+async function saveProgress() {
+  if (!userId.value || !course.value?.id) return;
+  try {
     await $fetch(`/api/user-progress/${userId.value}`, {
       method: 'POST',
-      body: {
-        courseId: course.value.id,
-        data: progressData
-      }
+      body: buildProgressBody()
     });
   } catch (error) {
     console.error('Error saving progress:', error);
   }
+}
+
+// Page-hide path: regular fetch may be cancelled by the browser on unload.
+// sendBeacon is the documented mechanism for "fire-and-forget on the way
+// out" and queues the request even after the page is gone. Falls back to
+// a sync flush if the API isn't available.
+function saveProgressOnHide() {
+  if (!userId.value || !course.value?.id) return;
+  if (trailingSaveTimer) {
+    clearTimeout(trailingSaveTimer);
+    trailingSaveTimer = null;
+  }
+  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+    try {
+      const blob = new Blob([JSON.stringify(buildProgressBody())], { type: 'application/json' });
+      // sendBeacon returns false when the user agent declines to queue the
+      // request — typically because the body is over the keepalive budget or
+      // the queue is full. Fall back to the regular fetch path so we don't
+      // silently drop the unload save.
+      if (navigator.sendBeacon(`/api/user-progress/${userId.value}`, blob)) return;
+    } catch (err) {
+      // Fall through to fetch fallback below.
+    }
+  }
+  saveProgress();
 }
 
 function startFromBeginning() {
