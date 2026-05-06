@@ -5,7 +5,12 @@ import { getContentDir } from './courseHelpers';
 import { generateCourseJson } from './courseGenerator';
 import { saveCourseToDb, removeCourseFromDb, getCoursesWithDirectories, getCourseCountFromDb } from './courseDatabase';
 import { getDb } from './db';
-import { readAndProcessThumbnail, getCourseRootPath } from './thumbnailUtils';
+import {
+  readAndProcessThumbnail,
+  getCourseRootPath,
+  findLocalThumbnailPath,
+  extractFrameThumbnail,
+} from './thumbnailUtils';
 import { generateCourseId } from './courseHelpers'; // Added generateCourseId import explicitly for clarity within processCourseDirWithMetadataPreservation
 
 // Read just the keys of course.json so we know which fields the operator
@@ -52,8 +57,27 @@ export const initialScanStatus = {
   preserveMetadata: true
 };
 
-// Function to synchronize thumbnail between filesystem and database
-async function synchronizeCourseThumbnail(courseId, courseFolderName) {
+// Resolve the absolute path of a course's first video by walking the lesson
+// tree the generator produced. Used by the frame-extract thumbnail fallback
+// when neither a local asset nor a cached DB blob is available.
+function resolveFirstVideoPath(courseRoot, courseData) {
+  if (!courseRoot || !courseData?.lessons?.length) return null;
+  for (const lesson of courseData.lessons) {
+    const videos = lesson?.videos;
+    if (!Array.isArray(videos) || videos.length === 0) continue;
+    const file = videos[0]?.file;
+    if (!file || typeof file !== 'string') continue;
+    return path.join(courseRoot, lesson.folder || '', file);
+  }
+  return null;
+}
+
+// Function to synchronize thumbnail between filesystem and database.
+// `courseData` is optional — passing it lets the function fall back to a
+// frame-extract from the first video when no operator-supplied cover art
+// exists. Callers that don't have courseData (e.g. a generic refresh path)
+// just lose the frame-extract fallback, which degrades to "no thumbnail."
+async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData = null) {
   if (!courseId || !courseFolderName) {
     console.error('synchronizeCourseThumbnail: courseId and courseFolderName are required.');
     return;
@@ -61,7 +85,10 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName) {
 
   const db = getDb();
   const courseRoot = getCourseRootPath(courseFolderName);
-  const localThumbnailPath = path.join(courseRoot, 'thumbnail.png');
+
+  // Plex-style asset detection: thumbnail.* / cover.* / poster.* / folder.*
+  // in priority order. Returning null means none exist on disk.
+  const localThumbnailPath = findLocalThumbnailPath(courseRoot);
 
   try {
     const courseResult = db.prepare('SELECT thumbnail_data FROM courses WHERE id = ?').get(courseId);
@@ -73,28 +100,45 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName) {
     // eliminates the TOCTOU window between an upfront fs.existsSync sample
     // and the later read/write that CodeQL flagged twice (#30, #134).
     let localFileBuffer = null;
-    try {
-      localFileBuffer = fs.readFileSync(localThumbnailPath);
-    } catch (readError) {
-      if (readError.code !== 'ENOENT') throw readError;
+    if (localThumbnailPath) {
+      try {
+        localFileBuffer = fs.readFileSync(localThumbnailPath);
+      } catch (readError) {
+        if (readError.code !== 'ENOENT') throw readError;
+      }
     }
 
-    // Case 1: DB thumbnail_data is NULL and thumbnail.png exists locally.
+    // Case 1: DB thumbnail_data is NULL and a local asset exists.
     if (!dbThumbnailData && localFileBuffer) {
-      console.log(`[${courseId}] DB thumb is NULL, local exists. Updating DB from local file.`);
+      console.log(`[${courseId}] DB thumb is NULL, local ${path.basename(localThumbnailPath)} exists. Updating DB from local file.`);
       const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath);
       if (processedLocalBuffer) {
         db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(processedLocalBuffer, courseId);
-        console.log(`[${courseId}] DB thumbnail_data updated from local ${localThumbnailPath}`);
+        console.log(`[${courseId}] DB thumbnail_data updated from ${localThumbnailPath}`);
       }
     }
-    // Case 2: DB thumbnail_data is NULL and thumbnail.png does NOT exist locally.
+    // Case 2: DB thumbnail_data is NULL and no local asset.
+    // Try to derive one from the first video at the 10% mark. Frame-extract
+    // failures (missing ffmpeg, corrupt video, ...) silently degrade to "no
+    // thumbnail" — the UI's letter-fallback handles that branch already.
     else if (!dbThumbnailData && !localFileBuffer) {
-      // console.log(`[${courseId}] DB thumb is NULL, local does not exist. Doing nothing.`);
+      const firstVideoPath = resolveFirstVideoPath(courseRoot, courseData);
+      if (firstVideoPath) {
+        console.log(`[${courseId}] No cover art on disk and DB thumb is NULL. Trying frame extract from ${path.basename(firstVideoPath)}.`);
+        const frameBuffer = await extractFrameThumbnail(firstVideoPath);
+        if (frameBuffer) {
+          db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(frameBuffer, courseId);
+          console.log(`[${courseId}] DB thumbnail_data populated from extracted frame.`);
+        }
+      }
     }
-    // Case 3: DB thumbnail_data is NOT NULL and thumbnail.png does NOT exist locally.
+    // Case 3: DB thumbnail_data is NOT NULL and no local asset.
+    // Write the DB blob back to thumbnail.png so the operator sees a file in
+    // the course folder. Uses the canonical name (thumbnail.png) so a
+    // round-trip never overwrites a user-supplied cover.jpg / poster.png.
     else if (dbThumbnailData && !localFileBuffer) {
-      console.log(`[${courseId}] DB thumb exists, local does not. Writing DB thumb to local file.`);
+      const writeBackPath = path.join(courseRoot, 'thumbnail.png');
+      console.log(`[${courseId}] DB thumb exists, no local asset. Writing DB thumb to ${path.basename(writeBackPath)}.`);
       try {
         // mkdirSync with recursive:true is idempotent — no exists-check needed.
         fs.mkdirSync(courseRoot, { recursive: true });
@@ -102,25 +146,44 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName) {
         // concurrent process created the file between our read attempt
         // above and this write — their file is already a thumbnail, so
         // leave it.
-        fs.writeFileSync(localThumbnailPath, dbThumbnailData, { flag: 'wx' });
-        console.log(`[${courseId}] Local thumbnail.png created from DB data at ${localThumbnailPath}`);
+        fs.writeFileSync(writeBackPath, dbThumbnailData, { flag: 'wx' });
+        console.log(`[${courseId}] Local thumbnail.png created from DB data at ${writeBackPath}`);
       } catch (writeError) {
         if (writeError.code === 'EEXIST') {
           console.log(`[${courseId}] Local thumbnail.png appeared concurrently; skipping write.`);
         } else {
-          console.error(`[${courseId}] Error writing DB thumbnail to ${localThumbnailPath}:`, writeError);
+          console.error(`[${courseId}] Error writing DB thumbnail to ${writeBackPath}:`, writeError);
         }
       }
     }
-    // Case 4: DB thumbnail_data is NOT NULL and thumbnail.png exists locally.
+    // Case 4: DB thumbnail_data is NOT NULL and a local asset exists.
+    // If the operator dropped one of the named cover-art conventions
+    // (cover.jpg / poster.png / folder.jpg / ...), prefer it over whatever
+    // is in the DB — that's the "I imported the course, then added a cover
+    // later, rescanned, and expected it to win" flow. We only ever write
+    // back to thumbnail.png ourselves, so a thumbnail.png on disk is the
+    // round-tripped DB blob and stays under the existing edit-process-wins
+    // semantics (admin uploads via the UI keep their precedence there).
     else if (dbThumbnailData && localFileBuffer) {
-      // localFileBuffer was already read above — no second readFileSync needed.
-      if (!localFileBuffer.equals(dbThumbnailData)) {
-        // Log the difference but do not automatically overwrite.
-        // The edit process handles ensuring consistency after an intentional change.
-        console.log(`[${courseId}] DB thumbnail and local thumbnail differ. The application will use the DB version for display. The local file will not be automatically changed by this scan operation.`);
-      } else {
-        // console.log(`[${courseId}] DB thumbnail and local thumbnail are in sync.`);
+      const localName = path.basename(localThumbnailPath);
+      // Case-sensitive comparison: the only filename we ever round-trip from
+      // DB to disk is exactly `thumbnail.png`. Any other casing or basename
+      // (`Thumbnail.png`, `cover.jpg`, `Poster.PNG`, ...) means an operator
+      // dropped the file in by hand.
+      const isOperatorAuthored = localName !== 'thumbnail.png';
+      const differs = !localFileBuffer.equals(dbThumbnailData);
+      if (isOperatorAuthored && differs) {
+        console.log(`[${courseId}] Operator-authored ${localName} differs from DB blob — replacing DB with the local file.`);
+        const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath);
+        if (processedLocalBuffer) {
+          db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(processedLocalBuffer, courseId);
+          console.log(`[${courseId}] DB thumbnail_data updated from ${localThumbnailPath}`);
+        }
+      } else if (differs) {
+        // Round-tripped thumbnail.png whose contents diverged from the DB
+        // blob (e.g. admin-uploaded after the file was already on disk).
+        // Keep DB-as-authority; the edit process is the source of truth.
+        console.log(`[${courseId}] DB thumbnail and local ${localName} differ. Using DB version for display.`);
       }
     }
   } catch (error) {
@@ -210,7 +273,7 @@ const processCourseDirectory = async (courseDirPath, preserveMetadata = false) =
       
       console.log(`Course data saved to database for ${courseDir}`);
       // After saving basic course data, synchronize the thumbnail
-      await synchronizeCourseThumbnail(courseData.id, courseDir);
+      await synchronizeCourseThumbnail(courseData.id, courseDir, courseData);
       return { success: true, courseId: courseData.id };
     }
   } catch (error) {
@@ -260,7 +323,7 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
       await saveCourseToDb(updatedCourseData, courseDir);
       console.log(`Course metadata updated (preserved) for ${courseDir}`);
       // After saving/updating course data, synchronize the thumbnail
-      await synchronizeCourseThumbnail(updatedCourseData.id, courseDir);
+      await synchronizeCourseThumbnail(updatedCourseData.id, courseDir, updatedCourseData);
 
     } else if (courseData) {
       // New course or no existing metadata to preserve, treat as new
@@ -268,7 +331,7 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
       await saveCourseToDb(courseData, courseDir);
       console.log(`New course data saved (or no metadata to preserve) for ${courseDir}`);
       // After saving basic course data, synchronize the thumbnail
-      await synchronizeCourseThumbnail(courseData.id, courseDir);
+      await synchronizeCourseThumbnail(courseData.id, courseDir, courseData);
     } else {
       console.warn(`Could not generate course data for ${courseDir} during metadata preservation.`);
     }
