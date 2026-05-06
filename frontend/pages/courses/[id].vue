@@ -202,6 +202,40 @@
 
     </main>
 
+    <!-- Course-completion toast: surfaces once per page-mount when the
+         percentage transitions to 100. Read-only and archival on purpose
+         (research is clear that confetti / streaks read as patronizing to
+         the kind of user who self-hosts a learning library); the message
+         is the fact, the dismiss button is the only interaction. -->
+    <div
+      v-if="showCompletionToast"
+      role="status"
+      aria-live="polite"
+      data-testid="course-completion-toast"
+      class="fixed bottom-4 right-4 z-50 max-w-sm bg-gray-900 text-white border border-green-500/60 rounded-lg shadow-xl p-4 flex items-start gap-3"
+    >
+      <div class="shrink-0 w-8 h-8 rounded-full bg-green-500/20 flex items-center justify-center text-green-400">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true">
+          <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+        </svg>
+      </div>
+      <div class="flex-1 text-sm">
+        <p class="font-semibold">Course complete</p>
+        <p class="text-gray-300 mt-0.5">{{ completedVideosCount }} / {{ totalVideos }} lessons watched.</p>
+      </div>
+      <button
+        type="button"
+        class="text-gray-400 hover:text-white"
+        aria-label="Dismiss"
+        data-testid="course-completion-dismiss"
+        @click="dismissCompletionToast"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
+    </div>
+
     <CourseFilesModal 
       :visible="showFilesModal" 
       :course-id="course?.id" 
@@ -421,6 +455,10 @@ onBeforeUnmount(() => {
     clearTimeout(trailingSaveTimer);
     trailingSaveTimer = null;
   }
+  if (completionToastTimer) {
+    clearTimeout(completionToastTimer);
+    completionToastTimer = null;
+  }
   if (typeof window !== 'undefined') {
     window.removeEventListener('pagehide', saveProgressOnHide);
   }
@@ -516,6 +554,42 @@ const courseCompletionPercentage = computed(() => {
   if (totalVideos.value === 0) return 0;
   return (completedVideosCount.value / totalVideos.value) * 100;
 });
+
+// Course-completion celebration: a single dismissible toast that appears
+// the first time the percentage TRANSITIONS to 100 within this page-load.
+// Reopening a finished course shouldn't refire the toast, so the watcher
+// only triggers on a < 100 → === 100 edge, and we mark "shown" once it has
+// fired this mount. Auto-dismisses after 8s.
+const showCompletionToast = ref(false);
+const completionToastShown = ref(false);
+let completionToastTimer = null;
+
+watch(courseCompletionPercentage, (newVal, oldVal) => {
+  if (completionToastShown.value) return;
+  if (totalVideos.value === 0) return;
+  // Wait for the smart-open progress fetch to settle before reacting; the
+  // initial render briefly sees newVal === 0 against oldVal === undefined,
+  // so the strict edge guard below is what keeps us quiet on mount when
+  // the user is already at 100 from a previous session.
+  if (!progressReady.value) return;
+  if (Number.isFinite(oldVal) && oldVal < 100 && newVal >= 100) {
+    showCompletionToast.value = true;
+    completionToastShown.value = true;
+    if (completionToastTimer) clearTimeout(completionToastTimer);
+    completionToastTimer = setTimeout(() => {
+      showCompletionToast.value = false;
+      completionToastTimer = null;
+    }, 8000);
+  }
+});
+
+function dismissCompletionToast() {
+  showCompletionToast.value = false;
+  if (completionToastTimer) {
+    clearTimeout(completionToastTimer);
+    completionToastTimer = null;
+  }
+}
 
 // Lesson search filter — matches lesson titles AND video titles inside each
 // lesson, case-insensitive. When a query is active, every lesson with at
