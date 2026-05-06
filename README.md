@@ -193,15 +193,17 @@ What you'll see depending on the prior state of your install:
 - **No admin user exists.** The server refuses to boot until you set `ADMIN_NAME` / `ADMIN_PASSWORD` (see [First-run bootstrap](#first-run-bootstrap)).
 - **An admin already exists.** Bootstrap is skipped and the env vars are ignored. You log in with your existing admin credentials.
 
-### Upgrading to the non-root container (one-time host fix-up)
+### Upgrading to the non-root container
 
-Recent versions drop privileges inside the container — the app runs as the unprivileged `node` user (uid/gid `1000`) instead of root. If you're upgrading from a prior release, the bind-mounted host data directory is likely owned by root from when the container created files as root. Once on the host:
+Recent versions run the app as the unprivileged `node` user (uid/gid `1000`) instead of root. If you're upgrading from a release that ran as root, your bind-mounted host data directory is likely owned by root.
 
-```sh
-sudo chown -R 1000:1000 ./data
-```
+**No action needed on the host.** The entrypoint detects this on every start and repairs ownership of `data/database/`, `data/branding/`, and the app-managed files (`course.json`, `thumbnail.png`) under `data/content/` before dropping to `node`. Video files keep their original ownership — mode 644 read access is sufficient for streaming. Just `docker compose pull && docker compose up -d` and the upgrade goes through.
 
-(Or whatever path you mapped to `/app/data`.) After that, restart the container as usual. New installs are unaffected — Docker creates the bind-mount target with the right ownership automatically.
+Operators who'd rather manage permissions themselves can opt out:
+- `user: "1000:1000"` in compose — entrypoint detects non-root start and skips the chown pass entirely.
+- `SKILLGOBLIN_SKIP_PERM_REPAIR=1` env — drops privileges to `node` but skips the chown pass. Useful when bind-mounting from tracked repo paths (the test compose sets this).
+
+The Node process (the only thing on the network) never runs as root. The brief root window is bounded to the entrypoint's chown pass and `exec`-replaced into uid 1000 via `su-exec` before any TCP listener exists.
 
 ## Content management
 
