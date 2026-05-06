@@ -26,7 +26,11 @@ WORKDIR /app
 # video when the operator hasn't dropped a cover image in the course folder.
 # Alpine's package is the static build (~50 MB); pinned to no-cache so layer
 # rebuilds stay reproducible.
-RUN apk add --no-cache ffmpeg
+#
+# su-exec is the Alpine-native ~20 KB equivalent of gosu — used by the
+# entrypoint to drop from root to `node` after fixing volume ownership
+# on first start (see frontend/scripts/entrypoint.sh).
+RUN apk add --no-cache ffmpeg su-exec
 
 # Copy the build output from the builder stage. Chown to the unprivileged
 # `node` user (uid 1000) shipped by the official node:20-alpine image so the
@@ -47,21 +51,41 @@ ENV PORT=3000
 ENV NODE_ENV=production
 
 # Create necessary directories owned by `node`. /app/data is the bind-mount
-# target for the host's data volume — the host directory must be writable
-# by uid 1000 (host: `chown -R 1000:1000 ./data` if migrating from a
-# pre-USER-drop install where files were created by root in the container).
+# target for the host's data volume; the entrypoint will repair its
+# ownership on each start when the bind-mount comes in with the wrong uid
+# (typically the case when upgrading from a pre-uid-1000 image where files
+# were created as root inside the container).
 RUN mkdir -p /app/data/database && chown -R node:node /app/data
 
 EXPOSE 3000
 
-# Drop root before running the app — addresses Trivy/CodeQL DS-0002.
-USER node
+# Note: a `USER node` directive is intentionally NOT set here. The
+# entrypoint starts as root (PID 1) just long enough to chown the bind-
+# mounted data/database and data/branding directories to uid 1000, then
+# drops to the `node` user via `su-exec` before launching Node. The
+# Node.js process — the only thing on the network — never runs as root.
+#
+# This trades the static `USER node` posture for an automatic upgrade
+# path: operators moving from a pre-uid-1000 image no longer have to
+# `sudo chown -R 1000:1000 ./data` on the host before the new container
+# can open its database. Operators who'd rather manage perms themselves
+# can override the runtime user (compose: `user: 1000:1000`); the
+# entrypoint detects that case and skips the root branch entirely.
+#
+# This pattern is shared by the official postgres / redis / nextcloud
+# images for the same reason. CodeQL DS-0002 / Trivy
+# DKL-DI-0006 will flag this as "missing USER" — the trade-off is
+# documented and intentional.
 
 # Liveness probe — uses the same /api/users endpoint and shape that
 # docker-compose.test.yml's healthcheck uses.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/api/users >/dev/null 2>&1 || exit 1
 
-# Start the server (entrypoint script maps APP_* -> NUXT_PUBLIC_BRANDING_*
-# then exec's node .output/server/index.mjs)
-CMD ["/usr/local/bin/skillgoblin-entrypoint.sh"]
+# ENTRYPOINT + CMD split: the entrypoint always runs (repairs volume
+# perms, drops to `node`, maps APP_* -> NUXT_PUBLIC_BRANDING_*) and then
+# exec's whatever the CMD is. That way a `docker run image bash` or
+# compose `command: <something>` override still gets the privilege drop
+# instead of running as root.
+ENTRYPOINT ["/usr/local/bin/skillgoblin-entrypoint.sh"]
+CMD ["node", ".output/server/index.mjs"]
