@@ -52,6 +52,8 @@ course.json
 # Test artifacts
 frontend/test-results
 frontend/playwright-report
+# Playwright MCP scratch (per-screenshot DOM snapshots / console logs)
+.playwright-mcp/
 frontend/tests/e2e/.tmp-data
 frontend/tests/fixtures/content/**/course.json
 
