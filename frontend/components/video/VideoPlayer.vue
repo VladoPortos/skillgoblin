@@ -9,6 +9,8 @@
         crossorigin="anonymous"
         @timeupdate="$emit('timeupdate', $event)"
         @ended="$emit('ended')"
+        @pause="$emit('pause')"
+        @seeked="$emit('seeked')"
         @loadedmetadata="onLoadedMetadata"
       >
         <source :key="src" :src="src" type="video/mp4">
@@ -86,7 +88,7 @@ const props = defineProps({
   placeholderText: { type: String, default: 'Select a video to start' },
 });
 
-const emit = defineEmits(['timeupdate', 'ended', 'loadedmetadata', 'start-from-beginning']);
+const emit = defineEmits(['timeupdate', 'ended', 'pause', 'seeked', 'loadedmetadata', 'start-from-beginning']);
 
 const player = ref(null);
 const ALLOWED_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
