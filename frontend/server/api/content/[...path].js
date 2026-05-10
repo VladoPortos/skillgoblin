@@ -371,8 +371,15 @@ export default defineEventHandler(async (event) => {
     // Determine content type based on file extension
     let contentType = 'application/octet-stream';
     const ext = path.extname(filePath).toLowerCase();
-    
-    if (ext === '.mp4') {
+
+    // Video extensions surfaced as lessons by courseGenerator.js — keep this
+    // set in sync with VIDEO_EXTENSIONS there. We label all of them as
+    // video/mp4 because mainstream desktop browsers decode by codec rather
+    // than by container, so an .mkv or .avi holding H.264+AAC plays fine.
+    const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi']);
+    const isVideo = VIDEO_EXTS.has(ext);
+
+    if (isVideo) {
       contentType = 'video/mp4';
     } else if (ext === '.jpg' || ext === '.jpeg') {
       contentType = 'image/jpeg';
@@ -401,7 +408,7 @@ export default defineEventHandler(async (event) => {
     const useCompression = shouldCompress(event.node.req, contentType);
     
     // Handle video streaming with proper range support
-    if (ext === '.mp4') {
+    if (isVideo) {
       setResponseHeader(event, 'Accept-Ranges', 'bytes');
       
       // Add caching headers for videos
