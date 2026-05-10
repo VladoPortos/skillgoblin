@@ -3,6 +3,24 @@ import path from 'path';
 import { generateCourseId, naturalSort } from './courseHelpers';
 import { applyCourseJsonOverride } from './courseJsonOverride.js';
 
+// Video extensions surfaced as lessons. Each entry has been empirically
+// verified to play in mainstream desktop browsers (Chrome/Edge) when served
+// with a `video/mp4` content-type — see /api/content/[...path].js. The
+// inner streams need to be browser-decodable (H.264 + AAC is the safe
+// baseline); exotic codecs in any container will still fail playback.
+// Headless build of Chromium used by Playwright lacks some proprietary
+// codecs, so the test loop can give false negatives here — verify in a
+// real browser before adding more extensions.
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi']);
+
+function isVideoFile(name) {
+  return VIDEO_EXTENSIONS.has(path.extname(name).toLowerCase());
+}
+
+function stripVideoExt(name) {
+  return name.replace(/\.[^.]+$/, '');
+}
+
 // Build a per-video subtitle hint: if `lesson1.srt` exists next to
 // `lesson1.mp4`, return the corresponding `.vtt` filename so the client can
 // request it directly. The content endpoint converts the sibling .srt on
@@ -27,7 +45,7 @@ export const generateLessonsFromFolder = (coursePath) => {
   const items = fs.readdirSync(coursePath, { withFileTypes: true });
   const lessonDirs = items.filter((item) => item.isDirectory());
   const rootVideos = items.filter(
-    (item) => !item.isDirectory() && item.name.toLowerCase().endsWith('.mp4'),
+    (item) => !item.isDirectory() && isVideoFile(item.name),
   );
 
   if (rootVideos.length > 0) {
@@ -35,7 +53,7 @@ export const generateLessonsFromFolder = (coursePath) => {
       const fullPath = path.join(coursePath, video.name);
       const subtitle = findSubtitleSibling(fullPath);
       const entry = {
-        title: video.name.replace('.mp4', '').replace(/_/g, ' '),
+        title: stripVideoExt(video.name).replace(/_/g, ' '),
         file: video.name,
       };
       if (subtitle) entry.subtitle = subtitle;
@@ -56,12 +74,12 @@ export const generateLessonsFromFolder = (coursePath) => {
     const lessonPath = path.join(coursePath, lessonDir.name);
     const lessonVideos = fs
       .readdirSync(lessonPath, { withFileTypes: true })
-      .filter((item) => !item.isDirectory() && item.name.toLowerCase().endsWith('.mp4'))
+      .filter((item) => !item.isDirectory() && isVideoFile(item.name))
       .map((video) => {
         const fullPath = path.join(lessonPath, video.name);
         const subtitle = findSubtitleSibling(fullPath);
         const entry = {
-          title: video.name.replace('.mp4', '').replace(/_/g, ' '),
+          title: stripVideoExt(video.name).replace(/_/g, ' '),
           file: video.name,
         };
         if (subtitle) entry.subtitle = subtitle;
