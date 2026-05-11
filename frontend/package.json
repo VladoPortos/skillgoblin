@@ -16,14 +16,14 @@
   },
   "dependencies": {
     "@tailwindcss/forms": "^0.5.7",
-    "@tailwindcss/vite": "^4.2.4",
+    "@tailwindcss/vite": "^4.3.0",
     "argon2": "^0.44.0",
     "beanheads-vue": "1.2.1",
     "better-sqlite3": "^12.9.0",
     "busboy": "^1.6.0",
     "chokidar": "^5.0.0",
     "lru-cache": "^11.3.6",
-    "nuxt": "^4.0.0",
+    "nuxt": "^4.4.5",
     "sharp": "^0.34.5",
     "tailwindcss": "^4.2.4"
   },
