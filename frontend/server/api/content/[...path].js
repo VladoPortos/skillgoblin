@@ -3,7 +3,8 @@ import path from 'path';
 import { defineEventHandler, getRequestURL, createError, setResponseHeader, getRequestHeaders } from 'h3';
 import zlib from 'zlib';
 import { getDb } from '../../utils/db'; // Added for database access
-import { resolveCourseDir, resolvePathInCourse } from '../../utils/courseHelpers';
+import { getContentDir, generateCourseId, resolveCourseById, resolveCourseDir, resolvePathInCourse, VIDEO_EXTENSIONS } from '../../utils/courseHelpers';
+import { loadThumbnail } from '../../utils/thumbnailUtils';
 
 // Cache to store open file handles and their last access time
 const fileHandleCache = new Map();
@@ -47,7 +48,7 @@ setInterval(() => {
       thumbnailCache.delete(thumbnailKey);
     }
   }
-}, 30 * 1000); // Check every 30 seconds
+}, 30 * 1000).unref(); // Check every 30 seconds
 
 // Get a file handle from cache or create a new one
 const getFileHandle = async (filePath) => {
@@ -197,7 +198,6 @@ export default defineEventHandler(async (event) => {
       // 1. Check Thumbnail Cache
       if (thumbnailCache.has(cacheKey)) {
         const cachedThumbnail = thumbnailCache.get(cacheKey);
-        console.log(`Serving cached thumbnail for course: ${courseId} with query: ${queryString}`);
         cachedThumbnail.lastAccessed = now; // Update access time
         setResponseHeader(event, 'Content-Type', 'image/png');
         setResponseHeader(event, 'Content-Length', cachedThumbnail.data.length);
@@ -209,43 +209,9 @@ export default defineEventHandler(async (event) => {
         return cachedThumbnail.data;
       }
       
-      // 2. Query Database
-      let thumbnailData = null;
-      try {
-        const course = db.prepare('SELECT thumbnail_data FROM courses WHERE id = ?').get(courseId);
-        if (course && course.thumbnail_data) {
-          thumbnailData = course.thumbnail_data;
-          console.log(`Serving thumbnail from DB for course: ${courseId}`);
-        } else {
-          console.log(`Thumbnail data not found in DB for course: ${courseId}. Serving placeholder.`);
-        }
-      } catch (dbError) {
-        console.error(`Database error fetching thumbnail for ${courseId}:`, dbError);
-        // Proceed to serve placeholder on DB error
-      }
-      
-      // 3. Prepare Data to Serve (DB or Placeholder)
-      let dataToServe = null;
-      let isPlaceholder = false;
-      if (thumbnailData) {
-        dataToServe = thumbnailData;
-      } else {
-        // Serve placeholder
-        const placeholderPath = path.resolve(process.cwd(), 'public/images/placeholder.png');
-        try {
-          if (fs.existsSync(placeholderPath)) {
-             dataToServe = fs.readFileSync(placeholderPath);
-             isPlaceholder = true;
-          } else {
-             console.error(`Placeholder image not found at: ${placeholderPath}`);
-             throw createError({ statusCode: 404, statusMessage: 'Placeholder image not found' });
-          }
-        } catch (placeholderError) {
-           console.error(`Error reading placeholder image: ${placeholderError.message}`);
-           throw createError({ statusCode: 500, statusMessage: 'Error serving content' });
-        }
-      }
-      
+      // 2/3. Load from DB or fall back to the placeholder
+      const { data: dataToServe, isPlaceholder } = await loadThumbnail(db, courseId);
+
       // 4. Cache the result (DB data or placeholder)
       if (thumbnailCache.size >= MAX_CACHED_THUMBNAILS) {
         // Basic LRU eviction (can be optimized)
@@ -276,35 +242,26 @@ export default defineEventHandler(async (event) => {
     // --- END THUMBNAIL HANDLING ---
     
     // --- BEGIN NON-THUMBNAIL FILE HANDLING (Filesystem based) ---
-    const contentDir = path.resolve(process.cwd(), '/app/data/content');
-    
-    // Get all course directories
-    const courseDirs = fs.readdirSync(contentDir, { withFileTypes: true })
-      .filter(dirent => dirent.isDirectory())
-      .map(dirent => dirent.name);
-    
     // Find the actual folder name that matches the course ID
-    let actualCourseFolder = null; 
-    const courseRecord = db.prepare('SELECT folder_name FROM courses WHERE id = ?').get(courseIdFromPath);
-    if (courseRecord && courseRecord.folder_name) {
-        actualCourseFolder = courseRecord.folder_name;
-        // Verify it actually exists on disk? Optional, adds overhead.
-        // if (!fs.existsSync(path.join(contentDir, actualCourseFolder))) { 
-        //    console.warn(`Folder ${actualCourseFolder} from DB not found on disk for ID ${courseIdFromPath}`);
-        //    actualCourseFolder = null; // Treat as not found if folder missing
-        // }
-    } else {
-        // Fallback: Scan directories if not found in DB (legacy support? or error?)
-        console.warn(`Course ID ${courseIdFromPath} not found in DB or missing folder_name, attempting filesystem scan...`);
-        for (const dir of courseDirs) {
-          const generatedId = dir.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-');
-          if (generatedId === courseIdFromPath) {
-            actualCourseFolder = dir;
-            break;
-          }
+    let actualCourseFolder = null;
+    let courseDir = null;
+    try {
+      ({ folderName: actualCourseFolder, courseDir } = resolveCourseById(db, courseIdFromPath));
+    } catch (err) {
+      if (err?.statusCode !== 404) throw err;
+      // Fallback: Scan directories if not found in DB (legacy support? or error?)
+      console.warn(`Course ID ${courseIdFromPath} not found in DB or missing folder_name, attempting filesystem scan...`);
+      const courseDirs = (await fs.promises.readdir(getContentDir(), { withFileTypes: true }))
+        .filter(dirent => dirent.isDirectory())
+        .map(dirent => dirent.name);
+      for (const dir of courseDirs) {
+        if (generateCourseId(dir) === courseIdFromPath) {
+          actualCourseFolder = dir;
+          break;
         }
+      }
     }
-    
+
     if (!actualCourseFolder) {
       console.error(`Course folder could not be determined for ID: ${courseIdFromPath}`);
       throw createError({
@@ -312,16 +269,14 @@ export default defineEventHandler(async (event) => {
         statusMessage: 'Course not found'
       });
     }
-    
-    // Replace the first segment (course ID) with the actual folder name
-    decodedSegments[0] = actualCourseFolder;
 
     // Construct the path to the content file
-    let courseDir;
-    try {
-      courseDir = resolveCourseDir(actualCourseFolder);
-    } catch (err) {
-      throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
+    if (!courseDir) {
+      try {
+        courseDir = resolveCourseDir(actualCourseFolder);
+      } catch (err) {
+        throw createError({ statusCode: 400, statusMessage: 'Invalid course folder' });
+      }
     }
     let filePath;
     try {
@@ -329,55 +284,53 @@ export default defineEventHandler(async (event) => {
     } catch (err) {
       throw createError({ statusCode: 400, statusMessage: 'Invalid content path' });
     }
-    
-    console.log(`Attempting to serve file: ${filePath}`);
+
+    // Get file stats (a single stat doubles as the existence check)
+    let stats = null;
+    try {
+      stats = await fs.promises.stat(filePath);
+    } catch (err) {
+      if (err.code !== 'ENOENT') throw err;
+    }
 
     // .vtt requests: if the file doesn't exist on disk but a sibling .srt does,
     // convert and serve. This lets operators drop an .srt next to the video and
     // have the player consume a real WebVTT track.
-    if (path.extname(filePath).toLowerCase() === '.vtt' && !fs.existsSync(filePath)) {
+    if (!stats && path.extname(filePath).toLowerCase() === '.vtt') {
       const srtCandidate = filePath.slice(0, -4) + '.srt';
-      if (fs.existsSync(srtCandidate)) {
-        try {
-          const { convertSrtFileToVtt } = await import('../../utils/srtToVtt.js');
-          const vttBuffer = await convertSrtFileToVtt(srtCandidate, fs);
-          setResponseHeader(event, 'Content-Type', 'text/vtt; charset=utf-8');
-          setResponseHeader(event, 'Content-Length', vttBuffer.length);
-          setResponseHeader(event, 'Cache-Control', 'public, max-age=600');
-          return vttBuffer;
-        } catch (err) {
-          if (err && err.code === 'ENOENT') {
-            // The .srt disappeared between existsSync and read — fall through to the
-            // normal not-found handling below.
-          } else {
-            console.error(`SRT to VTT conversion failed for ${srtCandidate}:`, err);
-            throw createError({ statusCode: 500, statusMessage: 'Subtitle conversion failed' });
-          }
+      try {
+        const { convertSrtFileToVtt } = await import('../../utils/srtToVtt.js');
+        const vttBuffer = await convertSrtFileToVtt(srtCandidate, fs);
+        setResponseHeader(event, 'Content-Type', 'text/vtt; charset=utf-8');
+        setResponseHeader(event, 'Content-Length', vttBuffer.length);
+        setResponseHeader(event, 'Cache-Control', 'public, max-age=600');
+        return vttBuffer;
+      } catch (err) {
+        if (err && err.code === 'ENOENT') {
+          // No .srt sibling — fall through to the normal not-found handling below.
+        } else {
+          console.error(`SRT to VTT conversion failed for ${srtCandidate}:`, err);
+          throw createError({ statusCode: 500, statusMessage: 'Subtitle conversion failed' });
         }
       }
     }
     // Check if the file exists
-    if (!fs.existsSync(filePath)) {
+    if (!stats) {
       console.error(`File not found (non-thumbnail): ${filePath}`);
       throw createError({
         statusCode: 404,
         statusMessage: 'File not found'
       });
     }
-    
-    // Get file stats
-    const stats = fs.statSync(filePath);
-    
+
     // Determine content type based on file extension
     let contentType = 'application/octet-stream';
     const ext = path.extname(filePath).toLowerCase();
 
-    // Video extensions surfaced as lessons by courseGenerator.js — keep this
-    // set in sync with VIDEO_EXTENSIONS there. We label all of them as
-    // video/mp4 because mainstream desktop browsers decode by codec rather
-    // than by container, so an .mkv or .avi holding H.264+AAC plays fine.
-    const VIDEO_EXTS = new Set(['.mp4', '.mkv', '.avi']);
-    const isVideo = VIDEO_EXTS.has(ext);
+    // We label all video extensions as video/mp4 because mainstream desktop
+    // browsers decode by codec rather than by container, so an .mkv or .avi
+    // holding H.264+AAC plays fine.
+    const isVideo = VIDEO_EXTENSIONS.has(ext);
 
     if (isVideo) {
       contentType = 'video/mp4';
@@ -427,9 +380,7 @@ export default defineEventHandler(async (event) => {
         const end = Math.min(requestedEnd, maxEnd);
         
         const chunkSize = (end - start) + 1;
-        
-        console.log(`Serving range request for video: ${start}-${end}/${stats.size}`);
-        
+
         // Set headers for range response
         setResponseHeader(event, 'Content-Range', `bytes ${start}-${end}/${stats.size}`);
         setResponseHeader(event, 'Content-Length', chunkSize);
@@ -457,7 +408,6 @@ export default defineEventHandler(async (event) => {
         
         // For large files, encourage clients to use range requests instead
         if (stats.size > 20 * 1024 * 1024) { // 20MB
-          console.log(`File too large for full download, suggesting ranges: ${filePath}`);
           return createError({
             statusCode: 413,
             statusMessage: 'Request Entity Too Large - Use Range Requests'
@@ -503,7 +453,6 @@ export default defineEventHandler(async (event) => {
       // Handle connection close to clean up resources
       event.node.req.on('close', () => {
         if (fileStream) {
-          console.log(`Connection closed, cleaning up file stream for: ${filePath}`);
           fileStream.destroy();
         }
       });
@@ -535,11 +484,16 @@ export default defineEventHandler(async (event) => {
     if (fileStream) {
       fileStream.destroy();
     }
-    
+
+    // Already-shaped h3 errors carry an intentional status/message; anything
+    // else stays generic so internals don't leak to clients.
+    if (error && error.statusCode) {
+      throw error;
+    }
     console.error('Error serving content:', error);
     throw createError({
-      statusCode: error.statusCode || 500,
-      statusMessage: error.message || 'Internal Server Error'
+      statusCode: 500,
+      statusMessage: 'Internal Server Error'
     });
   }
 });

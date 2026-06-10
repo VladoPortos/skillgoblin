@@ -24,12 +24,12 @@
                 class="stroke-gray-200 dark:stroke-gray-700"
               />
               <!-- Progress circle -->
-              <circle 
-                cx="18" cy="18" r="15.5" 
-                fill="none" 
-                stroke-width="3" 
-                stroke-dasharray="97.5" 
-                :stroke-dashoffset="97.5 - (97.5 * courseCompletionPercentage / 100)"
+              <circle
+                cx="18" cy="18" r="15.5"
+                fill="none"
+                stroke-width="3"
+                :stroke-dasharray="PROGRESS_RING_CIRCUMFERENCE"
+                :stroke-dashoffset="PROGRESS_RING_CIRCUMFERENCE - (PROGRESS_RING_CIRCUMFERENCE * courseCompletionPercentage / 100)"
                 stroke-linecap="round" 
                 class="stroke-blue-500 dark:stroke-blue-400"
                 transform="rotate(-90 18 18)"
@@ -93,11 +93,14 @@ import UserProfile from '../UserProfile.vue';
 
 const branding = useRuntimeConfig().public.branding;
 
+// Circumference (2πr, r=15.5) of the progress ring circles above.
+const PROGRESS_RING_CIRCUMFERENCE = 97.5;
+
 // Setup router for navigation
 const router = useRouter();
 
 // Define props
-const props = defineProps({
+defineProps({
   course: {
     type: Object,
     required: true
@@ -125,7 +128,7 @@ const props = defineProps({
 });
 
 // Define emitted events
-const emit = defineEmits(['toggle-favorite', 'mark-completed', 'reset-progress', 'logout', 'delete', 'manage', 'admin', 'rescan']);
+defineEmits(['toggle-favorite', 'mark-completed', 'reset-progress', 'logout', 'delete', 'manage', 'admin', 'rescan']);
 
 // Navigation method (back arrow only — Delete Account routes to the parent
 // page's confirmation modal so the destructive action stays gated).

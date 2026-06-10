@@ -38,11 +38,6 @@
         </div>
       </div>
       
-      <!-- Debug info -->
-      <div v-if="!isLoading && users.length > 0" class="text-white text-xs mb-1 col-span-3 text-center">
-        <p>Found {{ users.length }} users</p>
-      </div>
-      
       <!-- Users grid -->
       <div v-if="!isLoading" :class="{ 'grid grid-cols-3 gap-2 sm:gap-3 md:gap-4 mt-2': users.length > 0, 'flex justify-center mt-2': users.length === 0 }">
         <!-- Existing Users -->
@@ -135,6 +130,7 @@
           <ClientOnly>
             <div class="avatar-customization-container overflow-y-auto max-h-[40vh] pr-2 mb-4 custom-scrollbar">
               <AvatarSelector
+                ref="avatarSelectorRef"
                 v-model="newUser.avatar"
                 id="avatar"
                 :hide-preview="true"
@@ -337,10 +333,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, nextTick } from 'vue';
+import { ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useSession } from '~/composables/useSession';
 import { useUserManagement } from '~/composables/useUserManagement';
+import { isValidAvatarJson, parseAvatar } from '~/utils/avatar';
 import AvatarSelector from '../components/AvatarSelector.vue';
 import SetCredentialsModal from '../components/SetCredentialsModal.vue';
 import PinInput from '../components/ui/PinInput.vue';
@@ -358,7 +355,6 @@ const {
   newUser,
   isCreating,
   createError,
-  useAuth,
   authType,
   showAuthModal,
   isAuthenticating,
@@ -381,6 +377,9 @@ const {
 // the first digit when the auth modal opens for a PIN-capable user.
 const pinInputRef = ref(null);
 const passwordInput = ref(null);
+// Template ref to the signup AvatarSelector so opening the modal can roll
+// a random avatar via its exposed randomize().
+const avatarSelectorRef = ref(null);
 
 // Dismiss handler for SetCredentialsModal. Bootstrap dismissals just close
 // the modal (the user has no session yet). Post-login dismissals close the
@@ -452,34 +451,12 @@ function onCreateUserBackdropClick() {
 const randomBanner = ref('/logos/skillgoblin-logo-wide.png');
 const bannerLoaded = ref(false);
 
-// Helper functions for avatar handling
-const isValidAvatarJson = (avatarString) => {
-  try {
-    const parsed = JSON.parse(avatarString);
-    return typeof parsed === 'object' && parsed !== null && 
-           (parsed.skin !== undefined || parsed.hair !== undefined || parsed.eye !== undefined);
-  } catch (e) {
-    return false;
-  }
-};
-
-const parseAvatar = (avatarString) => {
-  try {
-    return JSON.parse(avatarString);
-  } catch (e) {
-    console.error('Failed to parse avatar data:', e);
-    return {};
-  }
-};
-
 // Show the create user modal
 const openCreateUserModal = () => {
   createPinDigits.value = '';
   isAdminCheckbox.value = false;
-  useAuth.value = true; // auth is mandatory now (the legacy "no-auth" path is gone)
-  // Default to password; force it when PINs are disabled globally so the
-  // PIN tab can never be selected when it cannot be used.
-  authType.value = systemSettings.value.allow_pin ? 'password' : 'password';
+  // Default to password.
+  authType.value = 'password';
   authError.value = '';
   createError.value = '';
   
@@ -510,23 +487,33 @@ const openCreateUserModal = () => {
   };
   
   showCreateUser.value = true;
-  
-  setTimeout(() => {
-    const randomizeButton = document.querySelector('.avatar-options button');
-    if (randomizeButton) randomizeButton.click();
-  }, 100);
+
+  nextTick(() => avatarSelectorRef.value?.randomize());
 };
+
+// Refresh the user list when the tab becomes visible again.
+const onVisibilityChange = () => {
+  if (document.visibilityState === 'visible') fetchUsers();
+};
+
+// Preload a banner from the rotation and swap it in once loaded.
+const loadRotationBanner = () =>
+  $fetch('/api/random-banner').then(({ path }) => {
+    if (path) {
+      const img = new Image();
+      img.onload = () => randomBanner.value = path;
+      img.src = path;
+    }
+  });
 
 // Make sure we fetch users on page load
 onMounted(async () => {
   fetchUsers();
-  
+
   if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') fetchUsers();
-    });
+    document.addEventListener('visibilitychange', onVisibilityChange);
   }
-  
+
   // Operator override probe: if /api/login-banner returns 200 the operator
   // dropped a custom banner — use it directly, no rotation. Otherwise
   // fall back to the existing random rotation from /api/random-banner so
@@ -544,25 +531,19 @@ onMounted(async () => {
         randomBanner.value = '/api/login-banner';
         return;
       }
-      return $fetch('/api/random-banner').then(({ path }) => {
-        if (path) {
-          const img = new Image();
-          img.onload = () => randomBanner.value = path;
-          img.src = path;
-        }
-      });
+      return loadRotationBanner();
     })
     .catch(() => {
       // Probe aborted/errored — fall back to the rotation.
       clearTimeout(probeTimeout);
-      $fetch('/api/random-banner').then(({ path }) => {
-        if (path) {
-          const img = new Image();
-          img.onload = () => randomBanner.value = path;
-          img.src = path;
-        }
-      }).catch(console.error);
+      loadRotationBanner().catch(console.error);
     });
+});
+
+onBeforeUnmount(() => {
+  if (typeof document !== 'undefined') {
+    document.removeEventListener('visibilitychange', onVisibilityChange);
+  }
 });
 
 // Auto-focus the right input when the auth modal opens. PIN-capable users

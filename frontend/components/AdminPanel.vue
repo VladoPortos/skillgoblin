@@ -250,6 +250,7 @@
         >
           {{ exportingAll ? 'Exporting…' : 'Export all to course.json' }}
         </button>
+        <div v-if="exportError" class="text-red-400 text-sm" data-testid="admin-export-error">{{ exportError }}</div>
         <div v-if="exportResult" class="text-sm" data-testid="admin-export-result">
           <p class="text-green-400">Wrote {{ exportResult.written.length }} file(s).</p>
           <p v-if="exportResult.failed.length" class="text-orange-400">
@@ -378,7 +379,7 @@
       v-if="showCreateUser"
       class="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4"
       data-testid="admin-create-user-modal"
-      @click.self="onCreateUserBackdrop"
+      @click.self="closeCreateUser"
     >
       <div class="bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full">
         <div class="flex justify-between items-center mb-4">
@@ -512,6 +513,14 @@ const createSettings = ref({ allow_pin: true });
 const createSaving = ref(false);
 const createError = ref('');
 
+// Extract a usable message from a failed fetch Response, falling back to a
+// status-based default when the body isn't JSON.
+async function apiError(r, fallback) {
+  let msg = fallback;
+  try { msg = (await r.json())?.statusMessage || msg; } catch {}
+  return msg;
+}
+
 async function openCreateUser() {
   createForm.value = { name: '', password: '', pin: '', mode: 'password' };
   createError.value = '';
@@ -520,7 +529,7 @@ async function openCreateUser() {
     const r = await fetch('/api/system-settings');
     if (r.ok) {
       const body = await r.json();
-      createSettings.value = { allow_pin: (body.allow_pin ?? 'true') === 'true' };
+      createSettings.value = { allow_pin: coerceBool(body.allow_pin ?? true) };
       // If PINs are disabled, force the mode to password.
       if (!createSettings.value.allow_pin) createForm.value.mode = 'password';
     }
@@ -529,11 +538,6 @@ async function openCreateUser() {
 }
 
 function closeCreateUser() {
-  if (createSaving.value) return;
-  showCreateUser.value = false;
-}
-
-function onCreateUserBackdrop() {
   // In-flight save guard mirrors the rest of the modals in this app.
   if (createSaving.value) return;
   showCreateUser.value = false;
@@ -573,9 +577,7 @@ async function submitCreateUser() {
       })
     });
     if (!r.ok) {
-      let msg = `Create failed (${r.status})`;
-      try { msg = (await r.json())?.statusMessage || msg; } catch {}
-      createError.value = msg;
+      createError.value = await apiError(r, `Create failed (${r.status})`);
       return;
     }
     showCreateUser.value = false;
@@ -627,9 +629,7 @@ async function callPut(body) {
     body: JSON.stringify(body)
   });
   if (!r.ok) {
-    let msg = `Action failed (${r.status})`;
-    try { msg = (await r.json())?.statusMessage || msg; } catch {}
-    actionError.value = msg;
+    actionError.value = await apiError(r, `Action failed (${r.status})`);
     return false;
   }
   return true;
@@ -688,17 +688,22 @@ async function openSessions(u) {
   }
 }
 
+// Shared force-logout call. Throws with an extracted message on failure so
+// each caller can route the error to its own display slot.
+async function kickSessions(userId) {
+  const r = await fetch(`/api/users/${userId}/kick-sessions`, { method: 'POST' });
+  if (!r.ok) throw new Error(await apiError(r, `Kick failed (${r.status})`));
+}
+
 async function kickAllForTarget() {
   const target = sessionsTarget.value;
   if (!target) return;
-  const r = await fetch(`/api/users/${target.id}/kick-sessions`, { method: 'POST' });
-  if (!r.ok) {
-    let msg = `Kick failed (${r.status})`;
-    try { msg = (await r.json())?.statusMessage || msg; } catch {}
-    sessionsError.value = msg;
-    return;
+  try {
+    await kickSessions(target.id);
+    sessionsList.value = [];
+  } catch (err) {
+    sessionsError.value = err.message;
   }
-  sessionsList.value = [];
 }
 
 function askKick(u) { kickTarget.value = u; }
@@ -707,11 +712,10 @@ async function confirmKick() {
   kickTarget.value = null;
   if (!target) return;
   actionError.value = '';
-  const r = await fetch(`/api/users/${target.id}/kick-sessions`, { method: 'POST' });
-  if (!r.ok) {
-    let msg = `Kick failed (${r.status})`;
-    try { msg = (await r.json())?.statusMessage || msg; } catch {}
-    actionError.value = msg;
+  try {
+    await kickSessions(target.id);
+  } catch (err) {
+    actionError.value = err.message;
   }
 }
 
@@ -727,9 +731,7 @@ async function confirmDelete() {
     body: JSON.stringify({ userId: target.id })
   });
   if (!r.ok) {
-    let msg = `Delete failed (${r.status})`;
-    try { msg = (await r.json())?.statusMessage || msg; } catch {}
-    actionError.value = msg;
+    actionError.value = await apiError(r, `Delete failed (${r.status})`);
     return;
   }
   await loadUsers();
@@ -773,9 +775,7 @@ async function putSetting(key, value) {
     body: JSON.stringify({ key, value: !!value })
   });
   if (!r.ok) {
-    let msg = `Save failed (${r.status})`;
-    try { msg = (await r.json())?.statusMessage || msg; } catch {}
-    throw new Error(msg);
+    throw new Error(await apiError(r, `Save failed (${r.status})`));
   }
 }
 
@@ -814,15 +814,17 @@ function close() {
 
 const exportingAll = ref(false);
 const exportResult = ref(null);
+const exportError = ref('');
 
 async function exportAllJson() {
   exportingAll.value = true;
   exportResult.value = null;
+  exportError.value = '';
   try {
     const res = await $fetch('/api/courses/export-json-all', { method: 'POST' });
     exportResult.value = res;
   } catch (err) {
-    actionError.value = err?.statusMessage || err?.message || 'Export failed';
+    exportError.value = err?.statusMessage || err?.message || 'Export failed';
   } finally {
     exportingAll.value = false;
   }

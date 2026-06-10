@@ -5,6 +5,7 @@ import { hashCredential } from '../../utils/credentials';
 import { requireSelfOrAdmin } from '../../utils/authz';
 import { deleteUserSessions } from '../../utils/sessions';
 import { ensureNotLastAdmin } from '../../utils/lastAdminGuard';
+import { getBoolSetting } from '../../utils/systemSettings';
 
 // /api/users
 //   GET  — list users for the login screen. Public.
@@ -44,10 +45,7 @@ export default defineEventHandler(async (event) => {
       // the anonymous signup path through when the setting is true; we
       // also do not want a deactivated session-cookie holder to be
       // treated the same as an anonymous caller.
-      const allowRegRow = db
-        .prepare("SELECT value FROM system_settings WHERE key = 'allow_user_registration'")
-        .get();
-      const allowRegistration = (allowRegRow?.value ?? 'true') === 'true';
+      const allowRegistration = getBoolSetting(db, 'allow_user_registration', true);
 
       const sessionUser = event.context.user || null;
       const isAdminCaller = !!(sessionUser && sessionUser.is_active && sessionUser.isAdmin);
@@ -87,10 +85,7 @@ export default defineEventHandler(async (event) => {
         });
       }
 
-      const allowPinRow = db
-        .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
-        .get();
-      const allowPin = (allowPinRow?.value ?? 'true') === 'true';
+      const allowPin = getBoolSetting(db, 'allow_pin', true);
 
       // When PINs are globally disabled, a PIN-only signup must be refused
       // (the user would not be able to log in without a password). A signup
@@ -118,11 +113,7 @@ export default defineEventHandler(async (event) => {
       if (isAdminCaller) {
         isActive = 1;
       } else {
-        const autoApproveRow = db
-          .prepare("SELECT value FROM system_settings WHERE key = 'auto_approve_new_users'")
-          .get();
-        const autoApprove = (autoApproveRow?.value ?? 'false') === 'true';
-        isActive = autoApprove ? 1 : 0;
+        isActive = getBoolSetting(db, 'auto_approve_new_users', false) ? 1 : 0;
       }
 
       const userId = uuidv4();
@@ -140,8 +131,8 @@ export default defineEventHandler(async (event) => {
 
       const newUser = db.prepare(`
         SELECT id, name, avatar, isAdmin, is_active,
-               CASE WHEN password IS NOT NULL THEN 1 ELSE 0 END AS has_password,
-               CASE WHEN pin      IS NOT NULL THEN 1 ELSE 0 END AS has_pin
+               CASE WHEN password IS NOT NULL AND password != '' THEN 1 ELSE 0 END AS has_password,
+               CASE WHEN pin      IS NOT NULL AND pin      != '' THEN 1 ELSE 0 END AS has_pin
         FROM users WHERE id = ?
       `).get(userId);
       return newUser;
@@ -172,6 +163,18 @@ export default defineEventHandler(async (event) => {
         return createError({ statusCode: 404, statusMessage: 'User not found' });
       }
 
+      // Mirror the POST duplicate check — renaming to another user's name
+      // (case-insensitively) is refused.
+      const duplicate = db
+        .prepare('SELECT id FROM users WHERE name = ? COLLATE NOCASE AND id != ?')
+        .get(body.name.trim(), body.id);
+      if (duplicate) {
+        return createError({
+          statusCode: 409,
+          statusMessage: 'A user with this name already exists'
+        });
+      }
+
       // Build the field list incrementally. Untouched fields stay as-is in
       // the DB so partial updates (e.g., admin-panel "activate" sending only
       // { id, name, is_active }) don't accidentally clobber unrelated columns
@@ -190,10 +193,7 @@ export default defineEventHandler(async (event) => {
       // update if it would leave the row with neither password nor PIN —
       // the new auth model requires at least one. We only consult the DB
       // for the fields the body did NOT touch.
-      const allowPinRow = db
-        .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
-        .get();
-      const allowPin = (allowPinRow?.value ?? 'true') === 'true';
+      const allowPin = getBoolSetting(db, 'allow_pin', true);
 
       const passwordTouched = body.password !== undefined;
       const pinTouched = body.pin !== undefined;
@@ -313,8 +313,8 @@ export default defineEventHandler(async (event) => {
 
       const updatedUser = db.prepare(`
         SELECT id, name, avatar, isAdmin, is_active,
-               CASE WHEN password IS NOT NULL THEN 1 ELSE 0 END AS has_password,
-               CASE WHEN pin      IS NOT NULL THEN 1 ELSE 0 END AS has_pin
+               CASE WHEN password IS NOT NULL AND password != '' THEN 1 ELSE 0 END AS has_password,
+               CASE WHEN pin      IS NOT NULL AND pin      != '' THEN 1 ELSE 0 END AS has_pin
         FROM users WHERE id = ?
       `).get(body.id);
       return updatedUser;

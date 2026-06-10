@@ -1,4 +1,5 @@
 import argon2 from 'argon2';
+import crypto from 'crypto';
 
 // Single source of truth for credential hashing.
 //
@@ -62,13 +63,6 @@ export async function verifyCredential(plaintext, stored) {
   // every user has logged in once post-upgrade.
   const a = Buffer.from(plaintext, 'utf8');
   const b = Buffer.from(stored, 'utf8');
-  const same = a.length === b.length && timingSafeEqual(a, b);
+  const same = a.length === b.length && crypto.timingSafeEqual(a, b);
   return { ok: same, needsRehash: same };
-}
-
-function timingSafeEqual(a, b) {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  return diff === 0;
 }

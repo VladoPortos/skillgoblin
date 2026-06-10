@@ -3,58 +3,14 @@
     <!-- Avatar Preview (only shown if hidePreview is false) -->
     <div v-if="!hidePreview" ref="previewContainer" class="avatar-preview mb-4 flex justify-center">
       <div class="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center">
-        <!-- Show loading spinner when avatar is being randomized -->
-        <div v-if="isAvatarLoading" class="flex items-center justify-center w-full h-full">
-          <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-purple-500"></div>
-        </div>
-        <!-- Show avatar when not loading -->
-        <Beanhead 
-          v-else
-          :skin="avatar.skin"
-          :body="avatar.body"
-          :eye="avatar.eye"
-          :with-lashes="avatar.withLashes"
-          :eyebrows="avatar.eyebrows"
-          :mouth="avatar.mouth"
-          :lip-color="avatar.lipColor"
-          :facial-hair="avatar.facialHair"
-          :hair="avatar.hair"
-          :hair-color="avatar.hairColor"
-          :clothing="avatar.clothing"
-          :clothing-color="avatar.clothingColor"
-          :clothing-graphic="avatar.clothingGraphic"
-          :hat="avatar.hat"
-          :hat-color="avatar.hatColor"
-          :accessory="avatar.accessory"
-          :face-mask="avatar.faceMask"
-          :face-mask-color="avatar.faceMaskColor"
-        />
+        <Beanhead v-bind="avatar" />
       </div>
     </div>
 
     <!-- Floating Preview (appears when scrolled) -->
-    <div v-show="isPreviewFloating && !isAvatarLoading" class="floating-preview">
+    <div v-show="isPreviewFloating" class="floating-preview">
       <div class="w-16 h-16 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center shadow-lg">
-        <Beanhead 
-          :skin="avatar.skin"
-          :body="avatar.body"
-          :eye="avatar.eye"
-          :with-lashes="avatar.withLashes"
-          :eyebrows="avatar.eyebrows"
-          :mouth="avatar.mouth"
-          :lip-color="avatar.lipColor"
-          :facial-hair="avatar.facialHair"
-          :hair="avatar.hair"
-          :hair-color="avatar.hairColor"
-          :clothing="avatar.clothing"
-          :clothing-color="avatar.clothingColor"
-          :clothing-graphic="avatar.clothingGraphic"
-          :hat="avatar.hat"
-          :hat-color="avatar.hatColor"
-          :accessory="avatar.accessory"
-          :face-mask="avatar.faceMask"
-          :face-mask-color="avatar.faceMaskColor"
-        />
+        <Beanhead v-bind="avatar" />
       </div>
     </div>
 
@@ -105,7 +61,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Skin</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="skin in ['light', 'yellow', 'brown', 'dark', 'red', 'black']" 
+            v-for="skin in skinColors" 
             :key="skin"
             type="button"
             :id="'skin-' + skin"
@@ -124,7 +80,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Eyes</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="eye in ['content-eyes', 'dizzy-eyes', 'happy-eyes', 'heart-eyes', 'left-twitch-eyes', 'normal-eyes', 'simple-eyes', 'squint-eyes', 'wink']" 
+            v-for="eye in eyeStyles" 
             :key="eye"
             type="button"
             :id="'eye-' + eye"
@@ -143,7 +99,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Eyebrows</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="eyebrow in ['normal', 'left-lowered', 'angry', 'concerned']" 
+            v-for="eyebrow in eyebrowOptions" 
             :key="eyebrow"
             type="button"
             :id="'eyebrow-' + eyebrow"
@@ -162,7 +118,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Mouth</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="mouth in ['grin', 'lips', 'sad', 'serious', 'open', 'tongue']" 
+            v-for="mouth in mouthStyles" 
             :key="mouth"
             type="button"
             :id="'mouth-' + mouth"
@@ -181,7 +137,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Lip Color</h3>
         <div class="flex justify-center gap-2">
           <button 
-            v-for="color in ['red', 'purple', 'pink', 'turquoise', 'green']" 
+            v-for="color in lipColors" 
             :key="color"
             type="button"
             :id="'lip-color-' + color"
@@ -202,7 +158,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Hair</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="hair in ['none', 'afro', 'balding', 'bob', 'bun', 'buzz', 'long', 'pixie', 'short']" 
+            v-for="hair in hairStyles" 
             :key="hair"
             type="button"
             :id="'hair-' + hair"
@@ -221,7 +177,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Hair Color</h3>
         <div class="flex justify-center gap-2">
           <button 
-            v-for="color in ['blonde', 'orange', 'black', 'white', 'brown', 'blue', 'pink']" 
+            v-for="color in hairColors" 
             :key="color"
             type="button"
             :id="'hair-color-' + color"
@@ -242,7 +198,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Facial Hair</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="facialHair in ['none', 'stubble', 'medium-beard']" 
+            v-for="facialHair in facialHairStyles" 
             :key="facialHair"
             type="button"
             :id="'facial-hair-' + facialHair"
@@ -261,7 +217,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Clothing</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="clothing in ['naked', 'dress', 'dress-shirt', 'shirt', 'tank-top', 'v-neck']" 
+            v-for="clothing in clothingStyles" 
             :key="clothing"
             type="button"
             :id="'clothing-' + clothing"
@@ -280,7 +236,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Clothing Color</h3>
         <div class="flex justify-center gap-2">
           <button 
-            v-for="color in ['white', 'blue', 'black', 'green', 'red']" 
+            v-for="color in clothingColors" 
             :key="color"
             type="button"
             :id="'clothing-color-' + color"
@@ -301,7 +257,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Accessories</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="accessory in ['none', 'round-glasses', 'tiny-glasses', 'shades']" 
+            v-for="accessory in accessoryStyles" 
             :key="accessory"
             type="button"
             :id="'accessory-' + accessory"
@@ -320,7 +276,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Hat</h3>
         <div class="grid grid-cols-3 gap-2">
           <button 
-            v-for="hat in ['none', 'beanie', 'turban']" 
+            v-for="hat in hatStyles" 
             :key="hat"
             type="button"
             :id="'hat-' + hat"
@@ -339,7 +295,7 @@
         <h3 class="block text-sm font-medium text-gray-300 mb-1">Hat Color</h3>
         <div class="flex justify-center gap-2">
           <button 
-            v-for="color in ['white', 'blue', 'black', 'green', 'red']" 
+            v-for="color in clothingColors" 
             :key="color"
             type="button"
             :id="'hat-color-' + color"
@@ -359,7 +315,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
+import { ref, reactive, watch, onMounted, onBeforeUnmount } from 'vue';
 import { Beanhead } from 'beanheads-vue';
 
 const props = defineProps({
@@ -387,7 +343,7 @@ const defaultAvatar = {
   facialHair: 'none',
   hair: 'none',
   hairColor: 'brown',
-  clothing: 'none',
+  clothing: 'naked',
   clothingColor: 'white',
   clothingGraphic: 'none',
   hat: 'none',
@@ -415,61 +371,60 @@ const avatar = reactive(props.modelValue ?
 const previewContainer = ref(null);
 const isPreviewFloating = ref(false);
 
+// Observes the component's own preview element (works in any scroll
+// container — modal or page) and shows the floating preview whenever the
+// main one is scrolled out of view.
+let previewObserver = null;
+
+const setupPreviewObserver = () => {
+  if (!previewContainer.value || typeof IntersectionObserver === 'undefined') return;
+  previewObserver = new IntersectionObserver(([entry]) => {
+    isPreviewFloating.value = !entry.isIntersecting;
+  });
+  previewObserver.observe(previewContainer.value);
+};
+
 // Lifecycle hooks
 onMounted(() => {
   // Only randomize on mount if no avatar data was provided
   if (!props.modelValue) {
     randomizeAvatar();
   }
-  
-  // Set up scroll observer for preview
-  setupScrollObserver();
+
+  setupPreviewObserver();
 });
 
 onBeforeUnmount(() => {
-  // Remove scroll event listener
-  const scrollContainer = document.querySelector('.avatar-customization-container');
-  if (scrollContainer) {
-    scrollContainer.removeEventListener('scroll', checkPreviewVisibility);
+  if (previewObserver) {
+    previewObserver.disconnect();
+    previewObserver = null;
   }
 });
-
-// Check if the preview is visible in the viewport
-const checkPreviewVisibility = () => {
-  if (!previewContainer.value) return;
-  
-  const rect = previewContainer.value.getBoundingClientRect();
-  const scrollContainer = document.querySelector('.avatar-customization-container');
-  
-  if (scrollContainer) {
-    const containerRect = scrollContainer.getBoundingClientRect();
-    // If the preview is above the visible part of the container, show the floating preview
-    isPreviewFloating.value = rect.bottom < containerRect.top || rect.top < containerRect.top;
-  }
-};
 
 // Watch for changes and emit the updated avatar
 watch(avatar, () => {
   emit('update:modelValue', JSON.stringify(avatar));
 }, { deep: true });
 
-// Randomize avatar function
+// Option lists — shared by the template buttons and the randomizer.
 const skinColors = ['light', 'yellow', 'brown', 'dark', 'red', 'black'];
 const hairStyles = ['none', 'afro', 'balding', 'bob', 'bun', 'buzz', 'long', 'pixie', 'short'];
 const hairColors = ['blonde', 'orange', 'black', 'white', 'brown', 'blue', 'pink'];
 const eyeStyles = ['content-eyes', 'dizzy-eyes', 'happy-eyes', 'heart-eyes', 'left-twitch-eyes', 'normal-eyes', 'simple-eyes', 'squint-eyes', 'wink'];
+// The randomizer deliberately sticks to 'normal' eyebrows; the UI offers more.
 const eyebrowStyles = ['normal'];
+const eyebrowOptions = ['normal', 'left-lowered', 'angry', 'concerned'];
 const mouthStyles = ['grin', 'lips', 'sad', 'serious', 'open', 'tongue'];
 const lipColors = ['red', 'purple', 'pink', 'turquoise', 'green'];
 const facialHairStyles = ['none', 'stubble', 'medium-beard'];
-const clothingStyles = ['none', 'naked', 'dress', 'dress-shirt', 'shirt', 'tank-top', 'v-neck'];
+const clothingStyles = ['naked', 'dress', 'dress-shirt', 'shirt', 'tank-top', 'v-neck'];
 const clothingColors = ['white', 'blue', 'black', 'green', 'red'];
 const accessoryStyles = ['none', 'round-glasses', 'tiny-glasses', 'shades'];
+const hatStyles = ['none', 'beanie', 'turban'];
 
 // Use a ref to track randomization state
 const isRandomizing = ref(false);
 
-// Create a completely separate randomization function that doesn't rely on Vue's reactivity
 function getRandomAvatarData() {
   // Create a new avatar object with random values
   return {
@@ -488,103 +443,23 @@ function getRandomAvatarData() {
     accessory: accessoryStyles[Math.floor(Math.random() * accessoryStyles.length)],
     faceMask: false,
     faceMaskColor: 'white',
-    hat: ['none', 'beanie', 'turban'][Math.floor(Math.random() * 3)],
-    hatColor: ['white', 'blue', 'black', 'green', 'red'][Math.floor(Math.random() * 5)],
+    hat: hatStyles[Math.floor(Math.random() * hatStyles.length)],
+    hatColor: clothingColors[Math.floor(Math.random() * clothingColors.length)],
     clothingGraphic: 'none'
   };
 }
 
-// Add a loading state to completely hide the avatar during randomization
-const isAvatarLoading = ref(false);
-
-// Completely isolated randomization function with loading state
+// Synchronous randomization — the deep watcher above emits the update once.
 const randomizeAvatar = () => {
-  // Prevent multiple clicks
-  if (isRandomizing.value) {
-    console.log('Already randomizing, ignoring click');
-    return;
-  }
-  
-  // Set both randomizing and loading states
+  if (isRandomizing.value) return;
   isRandomizing.value = true;
-  isAvatarLoading.value = true;
-  
-  // Create a safe delay before starting any changes
-  setTimeout(() => {
-    try {
-      // Create a completely new avatar object instead of modifying the existing one
-      const newAvatar = {
-        body: Math.random() > 0.5 ? 'chest' : 'breasts',
-        skin: skinColors[Math.floor(Math.random() * skinColors.length)],
-        hair: hairStyles[Math.floor(Math.random() * hairStyles.length)],
-        hairColor: hairColors[Math.floor(Math.random() * hairColors.length)],
-        eye: eyeStyles[Math.floor(Math.random() * eyeStyles.length)],
-        eyebrows: eyebrowStyles[Math.floor(Math.random() * eyebrowStyles.length)],
-        withLashes: Math.random() > 0.5,
-        mouth: mouthStyles[Math.floor(Math.random() * mouthStyles.length)],
-        lipColor: lipColors[Math.floor(Math.random() * lipColors.length)],
-        facialHair: facialHairStyles[Math.floor(Math.random() * facialHairStyles.length)],
-        clothing: clothingStyles[Math.floor(Math.random() * clothingStyles.length)],
-        clothingColor: clothingColors[Math.floor(Math.random() * clothingColors.length)],
-        accessory: accessoryStyles[Math.floor(Math.random() * accessoryStyles.length)],
-        faceMask: false, // Always boolean false
-        faceMaskColor: 'white',
-        hat: ['none', 'beanie', 'turban'][Math.floor(Math.random() * 3)],
-        hatColor: ['white', 'blue', 'black', 'green', 'red'][Math.floor(Math.random() * 5)],
-        clothingGraphic: 'none'
-      };
-      
-      // Serialize the new avatar to JSON
-      const serializedAvatar = JSON.stringify(newAvatar);
-      
-      // Wait a bit longer before updating to ensure component stability
-      setTimeout(() => {
-        try {
-          // Emit the new avatar value directly without modifying the reactive object first
-          emit('update:modelValue', serializedAvatar);
-          
-          // Only after emitting, update the local avatar object
-          nextTick(() => {
-            // Update the local avatar object after the parent has processed the update
-            Object.assign(avatar, newAvatar);
-            
-            // Wait for everything to settle before removing loading state
-            setTimeout(() => {
-              isAvatarLoading.value = false;
-              
-              // Wait a bit more before allowing another randomization
-              setTimeout(() => {
-                isRandomizing.value = false;
-              }, 300);
-            }, 200);
-          });
-        } catch (error) {
-          console.error('Error during avatar update:', error);
-          isAvatarLoading.value = false;
-          isRandomizing.value = false;
-        }
-      }, 200);
-    } catch (error) {
-      console.error('Error generating random avatar:', error);
-      isAvatarLoading.value = false;
-      isRandomizing.value = false;
-    }
-  }, 200); // Longer initial delay for better stability
+  Object.assign(avatar, getRandomAvatarData());
+  isRandomizing.value = false;
 };
+
+defineExpose({ randomize: randomizeAvatar });
 
 // Color class helpers
-const getSkinColorClass = (skin) => {
-  const classes = {
-    'light': 'bg-amber-200',
-    'yellow': 'bg-yellow-300',
-    'brown': 'bg-amber-700',
-    'dark': 'bg-amber-900',
-    'red': 'bg-red-500',
-    'black': 'bg-gray-900'
-  };
-  return classes[skin] || 'bg-amber-200';
-};
-
 const getHairColorClass = (color) => {
   return {
     'blonde': 'bg-[#FEDC58]',
@@ -616,13 +491,6 @@ const getClothingColorClass = (color) => {
     'red': 'bg-red-500'
   };
   return classes[color] || 'bg-gray-100';
-};
-
-const setupScrollObserver = () => {
-  const scrollContainer = document.querySelector('.avatar-customization-container');
-  if (scrollContainer) {
-    scrollContainer.addEventListener('scroll', checkPreviewVisibility);
-  }
 };
 </script>
 

@@ -1,8 +1,10 @@
-import { defineEventHandler, readBody, createError, setCookie } from 'h3';
+import { defineEventHandler, readBody, createError, setCookie, getRequestIP } from 'h3';
 import { getDb } from '../../utils/db';
 import { hashCredential } from '../../utils/credentials';
 import { createSession } from '../../utils/sessions';
 import { sessionCookieOpts, SESSION_COOKIE } from '../../middleware/session';
+import { checkRateLimit, recordFailure, recordSuccess } from '../../utils/rate-limit';
+import { getBoolSetting } from '../../utils/systemSettings';
 
 // POST /api/users/bootstrap-credentials  Body: { userId, password?, pin? }
 //
@@ -36,30 +38,42 @@ export default defineEventHandler(async (event) => {
     });
   }
 
+  // Rate limit per (userId, ip) like /api/users/auth — this endpoint is
+  // unauthenticated and lets a caller claim a credential-less account.
+  const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
+  const rlKey = `bootstrap:${userId}:${ip}`;
+  const rl = checkRateLimit(rlKey);
+  if (!rl.allowed) {
+    return createError({
+      statusCode: 429,
+      statusMessage: `Too many attempts. Try again in ${rl.retryAfterSeconds}s.`
+    });
+  }
+
   const db = getDb();
   const user = db
     .prepare('SELECT id, password, pin, is_active FROM users WHERE id = ?')
     .get(userId);
   if (!user) {
+    recordFailure(rlKey);
     return createError({ statusCode: 404, statusMessage: 'User not found' });
   }
   if (user.password || user.pin) {
+    recordFailure(rlKey);
     return createError({
       statusCode: 409,
       statusMessage: 'This account already has credentials. Use the normal sign-in screen.'
     });
   }
   if (!user.is_active) {
+    recordFailure(rlKey);
     return createError({
       statusCode: 403,
       statusMessage: 'This account is awaiting administrator approval'
     });
   }
 
-  const allowPinRow = db
-    .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
-    .get();
-  const allowPin = (allowPinRow?.value ?? 'true') === 'true';
+  const allowPin = getBoolSetting(db, 'allow_pin', true);
 
   if (!allowPin && !password) {
     return createError({
@@ -77,6 +91,7 @@ export default defineEventHandler(async (event) => {
   const userAgent = event.node.req.headers['user-agent'] || null;
   const { token, expiresAt } = createSession(db, userId, { userAgent });
   setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
+  recordSuccess(rlKey);
 
   const refreshed = db
     .prepare('SELECT id, name, avatar, isAdmin, is_active FROM users WHERE id = ?')

@@ -135,6 +135,7 @@
 <script setup>
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
 import {
+  ALLOWED_RATES,
   getCcDefault,
   setCcDefault,
   getPlaybackRate,
@@ -152,7 +153,6 @@ const props = defineProps({
 const emit = defineEmits(['timeupdate', 'ended', 'pause', 'seeked', 'loadedmetadata', 'start-from-beginning']);
 
 const player = ref(null);
-const ALLOWED_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const playbackRate = ref(1);
 const ccOn = ref(false);
 // Buffering / error / PiP state. All client-side; survives only as long as
@@ -286,17 +286,25 @@ function retryLoad() {
 function onEnterPip() { isPipActive.value = true; }
 function onLeavePip() { isPipActive.value = false; }
 
+// Like attachedTextTracks above: remember which element the listeners were
+// attached to so we can detach from that exact element (player.value may
+// already be nulled by the time we tear down) and never double-attach.
+let attachedPipEl = null;
+
 function attachPipListeners(videoEl) {
-  if (!videoEl) return;
+  if (!videoEl || attachedPipEl === videoEl) return;
+  detachPipListeners();
   videoEl.addEventListener('enterpictureinpicture', onEnterPip);
   videoEl.addEventListener('leavepictureinpicture', onLeavePip);
+  attachedPipEl = videoEl;
 }
 function detachPipListeners() {
-  if (!player.value) return;
+  if (!attachedPipEl) return;
   try {
-    player.value.removeEventListener('enterpictureinpicture', onEnterPip);
-    player.value.removeEventListener('leavepictureinpicture', onLeavePip);
+    attachedPipEl.removeEventListener('enterpictureinpicture', onEnterPip);
+    attachedPipEl.removeEventListener('leavepictureinpicture', onLeavePip);
   } catch {}
+  attachedPipEl = null;
 }
 
 async function togglePip() {

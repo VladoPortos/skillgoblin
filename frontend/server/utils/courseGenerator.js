@@ -1,17 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import { generateCourseId, naturalSort } from './courseHelpers';
+import { generateCourseId, naturalSort, VIDEO_EXTENSIONS } from './courseHelpers';
 import { applyCourseJsonOverride } from './courseJsonOverride.js';
-
-// Video extensions surfaced as lessons. Each entry has been empirically
-// verified to play in mainstream desktop browsers (Chrome/Edge) when served
-// with a `video/mp4` content-type — see /api/content/[...path].js. The
-// inner streams need to be browser-decodable (H.264 + AAC is the safe
-// baseline); exotic codecs in any container will still fail playback.
-// Headless build of Chromium used by Playwright lacks some proprietary
-// codecs, so the test loop can give false negatives here — verify in a
-// real browser before adding more extensions.
-const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi']);
 
 function isVideoFile(name) {
   return VIDEO_EXTENSIONS.has(path.extname(name).toLowerCase());
@@ -25,40 +15,41 @@ function stripVideoExt(name) {
 // `lesson1.mp4`, return the corresponding `.vtt` filename so the client can
 // request it directly. The content endpoint converts the sibling .srt on
 // demand; clients don't need to know about the .srt.
-function findSubtitleSibling(videoFilePath) {
+async function findSubtitleSibling(videoFilePath) {
   const dir = path.dirname(videoFilePath);
   const base = path.basename(videoFilePath, path.extname(videoFilePath));
   const srtName = `${base}.srt`;
   const vttName = `${base}.vtt`;
   const candidate = path.join(dir, srtName);
   try {
-    return fs.existsSync(candidate) ? vttName : null;
+    await fs.promises.access(candidate);
+    return vttName;
   } catch {
     return null;
   }
 }
 
 // Function to generate lessons from the folder structure
-export const generateLessonsFromFolder = (coursePath) => {
+export const generateLessonsFromFolder = async (coursePath) => {
   const lessons = [];
 
-  const items = fs.readdirSync(coursePath, { withFileTypes: true });
+  const items = await fs.promises.readdir(coursePath, { withFileTypes: true });
   const lessonDirs = items.filter((item) => item.isDirectory());
   const rootVideos = items.filter(
     (item) => !item.isDirectory() && isVideoFile(item.name),
   );
 
   if (rootVideos.length > 0) {
-    const introVideos = rootVideos.map((video) => {
+    const introVideos = await Promise.all(rootVideos.map(async (video) => {
       const fullPath = path.join(coursePath, video.name);
-      const subtitle = findSubtitleSibling(fullPath);
+      const subtitle = await findSubtitleSibling(fullPath);
       const entry = {
         title: stripVideoExt(video.name).replace(/_/g, ' '),
         file: video.name,
       };
       if (subtitle) entry.subtitle = subtitle;
       return entry;
-    });
+    }));
 
     introVideos.sort((a, b) => naturalSort(a, b));
 
@@ -70,21 +61,23 @@ export const generateLessonsFromFolder = (coursePath) => {
     });
   }
 
-  lessonDirs.forEach((lessonDir) => {
+  for (const lessonDir of lessonDirs) {
     const lessonPath = path.join(coursePath, lessonDir.name);
-    const lessonVideos = fs
-      .readdirSync(lessonPath, { withFileTypes: true })
-      .filter((item) => !item.isDirectory() && isVideoFile(item.name))
-      .map((video) => {
-        const fullPath = path.join(lessonPath, video.name);
-        const subtitle = findSubtitleSibling(fullPath);
-        const entry = {
-          title: stripVideoExt(video.name).replace(/_/g, ' '),
-          file: video.name,
-        };
-        if (subtitle) entry.subtitle = subtitle;
-        return entry;
-      });
+    const lessonEntries = await fs.promises.readdir(lessonPath, { withFileTypes: true });
+    const lessonVideos = await Promise.all(
+      lessonEntries
+        .filter((item) => !item.isDirectory() && isVideoFile(item.name))
+        .map(async (video) => {
+          const fullPath = path.join(lessonPath, video.name);
+          const subtitle = await findSubtitleSibling(fullPath);
+          const entry = {
+            title: stripVideoExt(video.name).replace(/_/g, ' '),
+            file: video.name,
+          };
+          if (subtitle) entry.subtitle = subtitle;
+          return entry;
+        }),
+    );
 
     if (lessonVideos.length > 0) {
       const lessonId = lessonDir.name
@@ -102,7 +95,7 @@ export const generateLessonsFromFolder = (coursePath) => {
         videos: lessonVideos,
       });
     }
-  });
+  }
 
   lessons.sort((a, b) => naturalSort(a, b));
   return lessons;
@@ -110,11 +103,9 @@ export const generateLessonsFromFolder = (coursePath) => {
 
 // Generate course metadata from folder structure, then layer course.json
 // overrides on top so the operator's intent wins over auto-detection.
-export const generateCourseJson = (courseDir, coursePath) => {
-  console.log(`Generating course data for ${courseDir}`);
-
+export const generateCourseJson = async (courseDir, coursePath) => {
   const courseId = generateCourseId(courseDir);
-  const lessons = generateLessonsFromFolder(coursePath);
+  const lessons = await generateLessonsFromFolder(coursePath);
 
   const autoDetected = {
     id: courseId,

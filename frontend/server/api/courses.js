@@ -1,160 +1,81 @@
-import { defineEventHandler, getMethod, readBody } from 'h3';
-import { getDb } from '../utils/db';
-import { getAllCoursesWithMeta, getCourseFromDb } from '../utils/courseDatabase';
+import { defineEventHandler, getMethod, createError } from 'h3';
+import { getAllCoursesWithMeta } from '../utils/courseDatabase';
 import { parseNewBadgeDays, isWithinNewWindow } from '../utils/recencyHelpers.js';
-import { setupFileWatcher } from '../utils/courseWatcher';
-import { requireAdmin } from '../utils/authz';
 
-// Set up file watching
-setupFileWatcher();
+const MAX_PAGE_SIZE = 100;
 
 // Main API handler
 export default defineEventHandler(async (event) => {
   const method = getMethod(event);
-  
-  // GET - Retrieve all courses or a specific course
+
+  // GET - Retrieve all courses
   if (method === 'GET') {
-    const courseId = event.context.params?.id;
-    
-    if (courseId) {
-      // Get a specific course
-      try {
-        // Get from database
-        const course = getCourseFromDb(courseId);
-        
-        if (course) {
-          return course;
-        } else {
-          return { error: 'Course not found' };
-        }
-      } catch (error) {
-        console.error(`Error retrieving course ${courseId}:`, error);
-        return { error: 'Failed to retrieve course' };
-      }
-    } else {
-      // Get all courses
-      try {
-        // Get filter and pagination parameters from query
-        const url = new URL(event.node.req.url, 'http://localhost');
-        const sortParam = url.searchParams.get('sort');
-        const sort = sortParam === 'newest' ? 'newest' : 'title';
-        if (sortParam && sort !== sortParam) {
-          console.warn(`[courses] unknown sort "${sortParam}", falling back to title`);
-        }
-        const courses = getAllCoursesWithMeta(null, { sort });
-        const newDays = parseNewBadgeDays(process.env.NEW_BADGE_DAYS);
-        const nowMs = Date.now();
-        for (const c of courses) {
-          c.isNew = isWithinNewWindow(c.created_at, newDays, nowMs);
-        }
-
-        // Calculate category counts from all courses before filtering
-        const categoryCounts = {};
-        categoryCounts['all'] = courses.length;
-
-        // Count courses per category
-        courses.forEach(course => {
-          const category = course.category || 'Uncategorized';
-          categoryCounts[category] = (categoryCounts[category] || 0) + 1;
-        });
-
-        const category = url.searchParams.get('category');
-        const searchQuery = url.searchParams.get('search')?.toLowerCase();
-        const page = parseInt(url.searchParams.get('page')) || 1;
-        const limit = parseInt(url.searchParams.get('limit')) || 9; // Default 9 courses per page
-        
-        // Apply filters first
-        let filteredCourses = [...courses];
-        
-        // Apply category filter if specified
-        if (category && category !== 'all') {
-          filteredCourses = filteredCourses.filter(course => course.category === category);
-        }
-        
-        // Apply search filter if specified
-        if (searchQuery) {
-          filteredCourses = filteredCourses.filter(course => 
-            course.title?.toLowerCase().includes(searchQuery) || 
-            course.description?.toLowerCase().includes(searchQuery) ||
-            course.category?.toLowerCase().includes(searchQuery)
-          );
-        }
-        
-        // Calculate start and end indices for pagination
-        const startIndex = (page - 1) * limit;
-        const endIndex = page * limit;
-        
-        // Create a pagination result object
-        const paginationResult = {
-          totalItems: filteredCourses.length,
-          totalPages: Math.ceil(filteredCourses.length / limit),
-          currentPage: page,
-          pageSize: limit,
-          items: filteredCourses.slice(startIndex, endIndex),
-          categoryCounts: categoryCounts,
-          lastUpdate: Date.now() // Add timestamp for cache busting
-        };
-        
-        return paginationResult;
-      } catch (error) {
-        console.error('Error retrieving courses:', error);
-        return { 
-          totalItems: 0,
-          totalPages: 0,
-          currentPage: 1,
-          pageSize: 9,
-          items: [],
-          categoryCounts: { 'all': 0 }
-        };
-      }
-    }
-  }
-  
-  // POST - Refresh course data or rescan. Both are admin-only.
-  if (method === 'POST') {
-    requireAdmin(event);
     try {
-      const body = await readBody(event);
-
-      if (body.action === 'refresh') {
-        const courseId = body.courseId;
-        
-        if (!courseId) {
-          return { error: 'Course ID is required' };
-        }
-        
-        // Get course from database
-        const course = getCourseFromDb(courseId);
-        
-        if (!course) {
-          return { error: 'Course not found' };
-        }
-        
-        // For refreshing, we'll trigger a database update with the lastUpdate field
-        // to bust any caches
-        const db = getDb();
-        
-        // Parse existing data and update lastUpdate timestamp
-        const courseData = JSON.parse(JSON.stringify(course)); // Deep clone
-        courseData.lastUpdate = Date.now();
-        
-        // Update the database
-        db.prepare(`
-          UPDATE courses 
-          SET data = ?, updated_at = CURRENT_TIMESTAMP 
-          WHERE id = ?
-        `).run(JSON.stringify(courseData), courseId);
-        
-        return courseData;
-      } else if (body.action === 'rescan') {
-        // Redirect to the dedicated rescan endpoint
-        return $fetch('/api/courses/rescan', { method: 'POST' });
+      // Get filter and pagination parameters from query
+      const url = new URL(event.node.req.url, 'http://localhost');
+      const sortParam = url.searchParams.get('sort');
+      const sort = sortParam === 'newest' ? 'newest' : 'title';
+      if (sortParam && sort !== sortParam) {
+        console.warn(`[courses] unknown sort "${sortParam}", falling back to title`);
       }
-      
-      return { error: 'Invalid action' };
+      const courses = getAllCoursesWithMeta(null, { sort });
+      const newDays = parseNewBadgeDays(process.env.NEW_BADGE_DAYS);
+      const nowMs = Date.now();
+      for (const c of courses) {
+        c.isNew = isWithinNewWindow(c.created_at, newDays, nowMs);
+      }
+
+      // Calculate category counts from all courses before filtering
+      const categoryCounts = {};
+      categoryCounts['all'] = courses.length;
+
+      // Count courses per category
+      courses.forEach(course => {
+        const category = course.category || 'Uncategorized';
+        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+      });
+
+      const category = url.searchParams.get('category');
+      const searchQuery = url.searchParams.get('search')?.toLowerCase();
+      const page = Math.max(parseInt(url.searchParams.get('page')) || 1, 1);
+      const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit')) || 9, 1), MAX_PAGE_SIZE); // Default 9 courses per page
+
+      // Apply filters first
+      let filteredCourses = [...courses];
+
+      // Apply category filter if specified
+      if (category && category !== 'all') {
+        filteredCourses = filteredCourses.filter(course => course.category === category);
+      }
+
+      // Apply search filter if specified
+      if (searchQuery) {
+        filteredCourses = filteredCourses.filter(course =>
+          course.title?.toLowerCase().includes(searchQuery) ||
+          course.description?.toLowerCase().includes(searchQuery) ||
+          course.category?.toLowerCase().includes(searchQuery)
+        );
+      }
+
+      // Calculate start and end indices for pagination
+      const startIndex = (page - 1) * limit;
+      const endIndex = page * limit;
+
+      // Create a pagination result object
+      const paginationResult = {
+        totalItems: filteredCourses.length,
+        totalPages: Math.ceil(filteredCourses.length / limit),
+        currentPage: page,
+        pageSize: limit,
+        items: filteredCourses.slice(startIndex, endIndex),
+        categoryCounts: categoryCounts,
+        lastUpdate: Date.now() // Add timestamp for cache busting
+      };
+
+      return paginationResult;
     } catch (error) {
-      console.error('Error processing request:', error);
-      return { error: 'Failed to process request' };
+      console.error('Error retrieving courses:', error);
+      throw createError({ statusCode: 500, statusMessage: 'Failed to load courses' });
     }
   }
 });

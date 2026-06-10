@@ -16,9 +16,7 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits } from 'vue';
-
-const props = defineProps({
+defineProps({
   /**
    * The current search query value
    */

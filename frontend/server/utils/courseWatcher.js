@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import chokidar from 'chokidar';
-import { getContentDir } from './courseHelpers';
+import { getContentDir, generateCourseId } from './courseHelpers';
 import { generateCourseJson } from './courseGenerator';
 import { saveCourseToDb, removeCourseFromDb, getCoursesWithDirectories, getCourseCountFromDb } from './courseDatabase';
 import { getDb } from './db';
@@ -11,31 +11,14 @@ import {
   findLocalThumbnailPath,
   extractFrameThumbnail,
 } from './thumbnailUtils';
-import { generateCourseId } from './courseHelpers'; // Added generateCourseId import explicitly for clarity within processCourseDirWithMetadataPreservation
+import { readCourseJson, ALLOWED } from './courseJsonOverride.js';
 
 // Read just the keys of course.json so we know which fields the operator
 // pinned. Returns an empty Set on any read/parse failure so the caller treats
 // the course as "no pinned fields."
 function readCourseJsonKeys(courseDirPath) {
-  const filePath = path.join(courseDirPath, 'course.json');
-  let raw;
-  try {
-    raw = fs.readFileSync(filePath, 'utf8');
-  } catch (err) {
-    if (err.code !== 'ENOENT') {
-      console.warn(`[courseWatcher] cannot read ${filePath}: ${err.message}`);
-    }
-    return new Set();
-  }
-  let parsed;
-  try {
-    parsed = JSON.parse(raw.replace(/^﻿/, ''));
-  } catch (err) {
-    console.warn(`[courseWatcher] malformed JSON in ${filePath}: ${err.message}`);
-    return new Set();
-  }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return new Set();
-  const ALLOWED = ['title', 'description', 'category', 'releaseDate'];
+  const parsed = readCourseJson(courseDirPath);
+  if (!parsed) return new Set();
   const pinned = new Set();
   for (const key of ALLOWED) {
     if (key in parsed && typeof parsed[key] === 'string') {
@@ -110,11 +93,9 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
 
     // Case 1: DB thumbnail_data is NULL and a local asset exists.
     if (!dbThumbnailData && localFileBuffer) {
-      console.log(`[${courseId}] DB thumb is NULL, local ${path.basename(localThumbnailPath)} exists. Updating DB from local file.`);
-      const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath);
+      const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath, localFileBuffer);
       if (processedLocalBuffer) {
         db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(processedLocalBuffer, courseId);
-        console.log(`[${courseId}] DB thumbnail_data updated from ${localThumbnailPath}`);
       }
     }
     // Case 2: DB thumbnail_data is NULL and no local asset.
@@ -124,11 +105,9 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
     else if (!dbThumbnailData && !localFileBuffer) {
       const firstVideoPath = resolveFirstVideoPath(courseRoot, courseData);
       if (firstVideoPath) {
-        console.log(`[${courseId}] No cover art on disk and DB thumb is NULL. Trying frame extract from ${path.basename(firstVideoPath)}.`);
         const frameBuffer = await extractFrameThumbnail(firstVideoPath);
         if (frameBuffer) {
           db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(frameBuffer, courseId);
-          console.log(`[${courseId}] DB thumbnail_data populated from extracted frame.`);
         }
       }
     }
@@ -138,7 +117,6 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
     // round-trip never overwrites a user-supplied cover.jpg / poster.png.
     else if (dbThumbnailData && !localFileBuffer) {
       const writeBackPath = path.join(courseRoot, 'thumbnail.png');
-      console.log(`[${courseId}] DB thumb exists, no local asset. Writing DB thumb to ${path.basename(writeBackPath)}.`);
       try {
         // mkdirSync with recursive:true is idempotent — no exists-check needed.
         fs.mkdirSync(courseRoot, { recursive: true });
@@ -147,11 +125,8 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
         // above and this write — their file is already a thumbnail, so
         // leave it.
         fs.writeFileSync(writeBackPath, dbThumbnailData, { flag: 'wx' });
-        console.log(`[${courseId}] Local thumbnail.png created from DB data at ${writeBackPath}`);
       } catch (writeError) {
-        if (writeError.code === 'EEXIST') {
-          console.log(`[${courseId}] Local thumbnail.png appeared concurrently; skipping write.`);
-        } else {
+        if (writeError.code !== 'EEXIST') {
           console.error(`[${courseId}] Error writing DB thumbnail to ${writeBackPath}:`, writeError);
         }
       }
@@ -173,105 +148,39 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
       const isOperatorAuthored = localName !== 'thumbnail.png';
       const differs = !localFileBuffer.equals(dbThumbnailData);
       if (isOperatorAuthored && differs) {
-        console.log(`[${courseId}] Operator-authored ${localName} differs from DB blob — replacing DB with the local file.`);
-        const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath);
+        const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath, localFileBuffer);
         if (processedLocalBuffer) {
           db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(processedLocalBuffer, courseId);
-          console.log(`[${courseId}] DB thumbnail_data updated from ${localThumbnailPath}`);
         }
-      } else if (differs) {
-        // Round-tripped thumbnail.png whose contents diverged from the DB
-        // blob (e.g. admin-uploaded after the file was already on disk).
-        // Keep DB-as-authority; the edit process is the source of truth.
-        console.log(`[${courseId}] DB thumbnail and local ${localName} differ. Using DB version for display.`);
       }
+      // Otherwise: round-tripped thumbnail.png whose contents diverged from
+      // the DB blob (e.g. admin-uploaded after the file was already on disk).
+      // Keep DB-as-authority; the edit process is the source of truth.
     }
   } catch (error) {
     console.error(`Error synchronizing thumbnail for course ${courseId} (${courseFolderName}):`, error);
   }
 }
 
-// Process new or changed course directories
-const processCourseDirectory = async (courseDirPath, preserveMetadata = false) => {
+// Process new or changed course directories without preserving metadata:
+// any cached thumbnail blob is cleared so synchronizeCourseThumbnail
+// re-derives it from disk (or a video frame).
+const processCourseDirectory = async (courseDirPath) => {
   try {
     const courseDir = path.basename(courseDirPath);
-    console.log(`Processing course directory: ${courseDir}`);
-    
+
     // Only scan directory structure to get basic course info
-    const courseData = generateCourseJson(courseDir, courseDirPath);
-    
+    const courseData = await generateCourseJson(courseDir, courseDirPath);
+
     if (courseData) {
-      // Thumbnail reading removed, handled elsewhere.
-      // const thumbnailBuffer = readThumbnailFile(courseDirPath, courseData.thumbnail);
-      
-      // Store in database
-      const db = getDb();
-      const existingCourse = db.prepare('SELECT id FROM courses WHERE id = ?').get(courseData.id);
-      
-      if (existingCourse) {
-        // Update existing course
-        if (preserveMetadata) { // Simplified condition - thumbnailBuffer check removed
-          // Update existing course, keeping existing thumbnail_data if preserveMetadata is true
-          // Note: thumbnail_data is NOT updated here anymore.
-          db.prepare(`
-            UPDATE courses 
-            SET title = ?, description = ?, folder_name = ?, thumbnail = ?, 
-                category = ?, release_date = ?, data = ?, 
-                updated_at = CURRENT_TIMESTAMP 
-            WHERE id = ?
-          `).run(
-            courseData.title, 
-            courseData.description, 
-            courseDir,
-            courseData.thumbnail,
-            // thumbnailBuffer, // Removed
-            courseData.category,
-            courseData.releaseDate,
-            JSON.stringify(courseData),
-            courseData.id
-          );
-        } else {
-          // When not preserving metadata, clear thumbnail data
-          db.prepare(`
-            UPDATE courses 
-            SET title = ?, description = ?, folder_name = ?, thumbnail = ?,
-                thumbnail_data = NULL, category = ?, release_date = ?, data = ?, 
-                updated_at = CURRENT_TIMESTAMP 
-            WHERE id = ?
-          `).run(
-            courseData.title, 
-            courseData.description, 
-            courseDir,
-            courseData.thumbnail,
-            courseData.category,
-            courseData.releaseDate,
-            JSON.stringify(courseData),
-            courseData.id
-          );
-        }
-      } else {
-        // Insert new course, setting thumbnail_data to NULL initially
-        db.prepare(`
-          INSERT INTO courses (
-            id, title, description, folder_name, thumbnail, 
-            thumbnail_data, category, release_date, data, 
-            created_at, updated_at
-          )
-          VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        `).run(
-          courseData.id,
-          courseData.title,
-          courseData.description,
-          courseDir,
-          courseData.thumbnail,
-          // thumbnailBuffer, // Removed
-          courseData.category,
-          courseData.releaseDate,
-          JSON.stringify(courseData)
-        );
+      const result = saveCourseToDb(courseData, courseDir);
+      if (result.error) {
+        console.error(`Failed to save course ${courseDir} to database: ${result.error}`);
+        return { success: false };
       }
-      
-      console.log(`Course data saved to database for ${courseDir}`);
+      const db = getDb();
+      db.prepare('UPDATE courses SET thumbnail_data = NULL WHERE id = ?').run(courseData.id);
+
       // After saving basic course data, synchronize the thumbnail
       await synchronizeCourseThumbnail(courseData.id, courseDir, courseData);
       return { success: true, courseId: courseData.id };
@@ -286,13 +195,10 @@ const processCourseDirectory = async (courseDirPath, preserveMetadata = false) =
 const processCourseDirWithMetadataPreservation = async (courseDirPath, existingCourses) => {
   try {
     const courseDir = path.basename(courseDirPath);
-    const courseId = generateCourseId(courseDir); // Use generateCourseId from courseHelpers
-    console.log(`Processing course directory with metadata preservation: ${courseDir}`);
-    // The following debug line can be removed once confirmed working
-    // console.log('[Debug] existingCourses type:', typeof existingCourses, 'Is Array:', Array.isArray(existingCourses));
+    const courseId = generateCourseId(courseDir);
 
     const existingCourseResult = existingCourses.find(c => c.id === courseId);
-    const courseData = generateCourseJson(courseDir, courseDirPath);
+    const courseData = await generateCourseJson(courseDir, courseDirPath);
 
     if (existingCourseResult && courseData) {
       // course.json (already applied inside generateCourseJson) is the source of
@@ -320,16 +226,22 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
       // its UPDATE statement already excludes thumbnail_data so existing
       // blob data survives unchanged. synchronizeCourseThumbnail handles
       // the actual data sync afterwards.
-      await saveCourseToDb(updatedCourseData, courseDir);
-      console.log(`Course metadata updated (preserved) for ${courseDir}`);
+      const result = saveCourseToDb(updatedCourseData, courseDir);
+      if (result.error) {
+        console.error(`Failed to save course ${courseDir} to database: ${result.error}`);
+        return;
+      }
       // After saving/updating course data, synchronize the thumbnail
       await synchronizeCourseThumbnail(updatedCourseData.id, courseDir, updatedCourseData);
 
     } else if (courseData) {
       // New course or no existing metadata to preserve, treat as new
       // saveCourseToDb's INSERT branch sets thumbnail_data to NULL initially.
-      await saveCourseToDb(courseData, courseDir);
-      console.log(`New course data saved (or no metadata to preserve) for ${courseDir}`);
+      const result = saveCourseToDb(courseData, courseDir);
+      if (result.error) {
+        console.error(`Failed to save course ${courseDir} to database: ${result.error}`);
+        return;
+      }
       // After saving basic course data, synchronize the thumbnail
       await synchronizeCourseThumbnail(courseData.id, courseDir, courseData);
     } else {
@@ -393,15 +305,14 @@ export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata
     initialScanStatus.error = null;
     initialScanStatus.preserveMetadata = preserveMetadata;
     
-    console.log(`Beginning course scan with preserveMetadata=${preserveMetadata}...`);
+    console.log(`Beginning course scan of ${getContentDir()} with preserveMetadata=${preserveMetadata}...`);
     const contentDir = getContentDir();
     const courseDirs = fs.readdirSync(contentDir, { withFileTypes: true })
       .filter(dirent => dirent.isDirectory())
       .filter(dirent => !dirent.name.startsWith('.')) // Ignore directories starting with a dot (like .Recycle.Bin)
       .map(dirent => dirent.name);
-    
+
     initialScanStatus.totalCourses = courseDirs.length;
-    console.log(`Found ${initialScanStatus.totalCourses} course directories to scan.`);
 
     // Fetch existing courses from DB if preserving metadata
     let existingCourses = []; // Initialize as an empty array
@@ -410,8 +321,6 @@ export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata
         const db = getDb();
         // This should fetch all relevant fields for comparison, as an array
         existingCourses = db.prepare('SELECT id, title, description, category, release_date, folder_name, thumbnail_data FROM courses').all();
-        console.log(`[Debug DB Query] Raw queryResult type: ${typeof existingCourses}, Is Array: ${Array.isArray(existingCourses)}`);
-        console.log(`Fetched ${existingCourses.length} existing courses from DB for metadata preservation.`);
       } catch (dbError) {
         console.error('Error fetching existing courses from DB:', dbError);
         // Continue with an empty existingCourses array if DB fetch fails, 
@@ -428,7 +337,7 @@ export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata
           await processCourseDirWithMetadataPreservation(courseDirPath, existingCourses);
         } else {
           // Standard processing that resets metadata
-          await processCourseDirectory(courseDirPath, false);
+          await processCourseDirectory(courseDirPath);
         }
         
         initialScanStatus.processedCourses++;
@@ -476,14 +385,17 @@ const cleanupRemovedCourses = (existingCourseDirs) => {
   }
 };
 
-// Set up file watching
-export const setupFileWatcher = () => {
+// Debounce before processing newly added course directories so half-copied
+// courses aren't indexed instantly.
+const ADD_DIR_DEBOUNCE_MS = 2000;
+const pendingAddDirTimers = new Map();
+
+// Set up file watching. The polling interval is parsed once by the caller
+// (server/plugins/courseScanner.js) from CHOKIDAR_POLLING_INTERVAL.
+export const setupFileWatcher = (pollingInterval = 60000) => {
   try {
     const contentDir = getContentDir();
     console.log(`Setting up course watcher on: ${contentDir}`);
-
-    // Read interval from environment variable or use default (60 seconds)
-    const pollingInterval = parseInt(process.env.CHOKIDAR_POLLING_INTERVAL || '60000', 10);
 
     // Only watch for directory additions and removals at the top level
     const watcher = chokidar.watch(contentDir, {
@@ -494,29 +406,37 @@ export const setupFileWatcher = () => {
       usePolling: true, // Enable polling for reliability in Docker
       interval: pollingInterval // Use configured interval
     });
-    
+
     // Handle directory additions
-    watcher.on('addDir', async path => {
+    watcher.on('addDir', dirPath => {
       // Only process top-level directories in the content folder
-      if (path !== contentDir && path.split('/').length === contentDir.split('/').length + 1) {
-        console.log(`New course directory detected: ${path}`);
-        processCourseDirectory(path, false);
+      if (dirPath !== contentDir && path.dirname(dirPath) === contentDir) {
+        console.log(`New course directory detected: ${dirPath}`);
+        clearTimeout(pendingAddDirTimers.get(dirPath));
+        pendingAddDirTimers.set(dirPath, setTimeout(() => {
+          pendingAddDirTimers.delete(dirPath);
+          processCourseDirectory(dirPath).catch(error => {
+            console.error(`Error processing course directory ${dirPath}:`, error);
+          });
+        }, ADD_DIR_DEBOUNCE_MS));
       }
     });
-    
+
     // Handle directory removals
-    watcher.on('unlinkDir', path => {
-      if (path !== contentDir && path.split('/').length === contentDir.split('/').length + 1) {
-        console.log(`Course directory removed: ${path}`);
-        handleCourseDirectoryRemoval(path);
+    watcher.on('unlinkDir', dirPath => {
+      if (dirPath !== contentDir && path.dirname(dirPath) === contentDir) {
+        console.log(`Course directory removed: ${dirPath}`);
+        clearTimeout(pendingAddDirTimers.get(dirPath));
+        pendingAddDirTimers.delete(dirPath);
+        handleCourseDirectoryRemoval(dirPath);
       }
     });
-    
+
     // Handle errors
     watcher.on('error', error => {
       console.error('Course watcher error:', error);
     });
-    
+
     console.log('Course watcher set up successfully');
     return watcher;
   } catch (error) {
@@ -524,16 +444,3 @@ export const setupFileWatcher = () => {
     return null;
   }
 };
-
-// Initial scan on startup
-scanCoursesOnStartup();
-
-// Start watching for changes only if polling interval is > 0
-const pollingIntervalEnv = process.env.CHOKIDAR_POLLING_INTERVAL;
-const pollingInterval = parseInt(pollingIntervalEnv || '60000', 10); // Default 60s if not set
-
-if (pollingInterval > 0) {
-  setupFileWatcher();
-} else {
-  console.log('CHOKIDAR_POLLING_INTERVAL is set to 0. File watcher disabled.');
-}

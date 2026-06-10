@@ -1,4 +1,4 @@
-import { defineEventHandler } from 'h3';
+import { defineEventHandler, createError } from 'h3';
 import { getDb } from '../utils/db';
 
 export default defineEventHandler(async (event) => {
@@ -25,6 +25,6 @@ export default defineEventHandler(async (event) => {
     return Array.from(categories).sort();
   } catch (error) {
     console.error('Error getting categories:', error);
-    return [];
+    throw createError({ statusCode: 500, statusMessage: 'Failed to load categories' });
   }
 });

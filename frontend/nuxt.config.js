@@ -28,13 +28,6 @@ export default defineNuxtConfig({
   nitro: {
     // Configure for better handling of large static files and caching
     routeRules: {
-      // Content caching - allow byte ranges for videos but keep cache control
-      '/content/**': {
-        static: true,
-        headers: {
-          'Accept-Ranges': 'bytes',
-        }
-      },
       // API endpoints - prevent caching to ensure fresh data
       '/api/**': {
         headers: {

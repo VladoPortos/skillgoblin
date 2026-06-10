@@ -162,14 +162,10 @@ const props = defineProps({
   isAdmin: {
     type: Boolean,
     default: false
-  },
-  isFavorite: {
-    type: Boolean,
-    default: false
   }
 });
 
-const emit = defineEmits(['edit-course', 'toggle-favorite', 'click']);
+defineEmits(['edit-course']);
 
 const router = useRouter();
 
@@ -179,14 +175,13 @@ const showDetails = ref(false);
 const thumbnailUrl = computed(() => {
   // If no thumbnail specified, use a placeholder
   if (!props.course.thumbnail) {
-    // Add cache-busting timestamp to prevent caching issues
-    return `/images/placeholder.png?t=${Date.now()}`;
+    return '/images/placeholder.png';
   }
-  
-  // Use the new database-backed thumbnail endpoint with the course ID
-  // Add cache-busting with lastUpdate timestamp or current time
-  const cacheBuster = props.course.lastUpdate || Date.now();
-  return `/api/course-thumbnail/${encodeURIComponent(props.course.id)}?t=${cacheBuster}`;
+
+  // Use the database-backed thumbnail endpoint with the course ID,
+  // cache-busted by the (reactive) lastUpdate timestamp when present.
+  const base = `/api/course-thumbnail/${encodeURIComponent(props.course.id)}`;
+  return props.course.lastUpdate ? `${base}?t=${props.course.lastUpdate}` : base;
 });
 
 const formattedReleaseDate = computed(() => {
@@ -228,20 +223,11 @@ const newBadgeTitle = computed(() => {
 });
 
 const shouldShowReleaseDate = computed(() => {
-  // This double-check ensures we don't show the date badge for empty values
-  if (props.course.releaseDate === undefined || 
-      props.course.releaseDate === null || 
-      props.course.releaseDate === '' || 
-      (typeof props.course.releaseDate === 'string' && props.course.releaseDate.trim() === '')) {
-    return false;
-  }
   return formattedReleaseDate.value !== null && formattedReleaseDate.value !== '';
 });
 
 function navigateToCourse() {
   router.push(`/courses/${props.course.id}`);
-  // Also emit click event for parent components that need it
-  emit('click', props.course);
 }
 
 function navigateAndClose() {

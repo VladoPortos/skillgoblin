@@ -4,16 +4,13 @@ import { getDb } from './db';
 // This should only update metadata, not thumbnail blob data.
 export const saveCourseToDb = (courseData, folderName) => {
   try {
-    console.log(`Scanning/Saving course metadata to DB: ${folderName} with category: ${courseData.category}`);
     const db = getDb();
-    
+
     // Check if course already exists in database
     const existingCourse = db.prepare('SELECT id FROM courses WHERE id = ?').get(courseData.id); // Only need ID to check existence
-    
+
     if (existingCourse) {
       // Update existing course metadata (DO NOT TOUCH thumbnail_data here)
-      console.log(`Updating existing course metadata: ${courseData.id}`);
-      
       // Update metadata only, excluding thumbnail_data
       db.prepare(`
         UPDATE courses 
@@ -33,7 +30,6 @@ export const saveCourseToDb = (courseData, folderName) => {
 
     } else {
       // Insert new course metadata (set thumbnail_data to NULL initially)
-      console.log(`Inserting new course metadata: ${courseData.id}`);
       db.prepare(`
         INSERT INTO courses (id, title, description, folder_name, thumbnail, 
                             thumbnail_data, category, release_date, data, 
@@ -59,19 +55,7 @@ export const saveCourseToDb = (courseData, folderName) => {
   }
 };
 
-// Function to get all courses from database
-export const getAllCoursesFromDb = () => {
-  try {
-    const db = getDb();
-    const dbCourses = db.prepare('SELECT data FROM courses ORDER BY title').all();
-    return dbCourses.map(course => JSON.parse(course.data));
-  } catch (error) {
-    console.error('Error retrieving courses from database:', error);
-    return [];
-  }
-};
-
-// Like getAllCoursesFromDb but includes created_at and supports a sort param.
+// Get all courses including created_at, with a sort param.
 // Accepts an explicit `db` for unit testing; defaults to the singleton.
 export const getAllCoursesWithMeta = (dbInstance = null, opts = {}) => {
   const db = dbInstance || getDb();
@@ -98,18 +82,6 @@ export const getCourseFromDb = (courseId) => {
     return course ? JSON.parse(course.data) : null;
   } catch (error) {
     console.error(`Error retrieving course ${courseId} from database:`, error);
-    return null;
-  }
-};
-
-// Function to get course folder name by ID
-export const getCourseFolderNameById = (courseId) => {
-  try {
-    const db = getDb();
-    const course = db.prepare('SELECT folder_name FROM courses WHERE id = ?').get(courseId);
-    return course ? course.folder_name : null;
-  } catch (error) {
-    console.error(`Error retrieving folder name for course ${courseId}:`, error);
     return null;
   }
 };

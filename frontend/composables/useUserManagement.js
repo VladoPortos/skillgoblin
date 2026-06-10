@@ -53,10 +53,8 @@ export function useUserManagement() {
   const newUser = ref({ name: '', avatar: '', password: '', pin: '' });
   const isCreating = ref(false);
   const createError = ref('');
-  const useAuth = ref(false);
   const authType = ref('password');
   const createPinDigits = ref('');
-  const isAdminCheckbox = ref(false);
 
   const fetchUsers = async () => {
     try {
@@ -127,9 +125,10 @@ export function useUserManagement() {
       showAuthModal.value = true;
       authData.value = { password: '', pin: '' };
       authError.value = '';
+      return { success: true };
     } catch (error) {
       console.error('Error selecting user:', error);
-      throw error;
+      return { success: false, message: error.message };
     }
   };
 
@@ -277,10 +276,8 @@ export function useUserManagement() {
     newUser,
     isCreating,
     createError,
-    useAuth,
     authType,
     createPinDigits,
-    isAdminCheckbox,
     showSetCredentialsModal,
     setCredentialsMode,
     systemSettings,

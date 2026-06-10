@@ -10,6 +10,8 @@
 // $fetch in Nuxt 3 sends same-origin cookies by default, so as long as
 // the API is on the same origin nothing extra is required.
 
+import { extractApiError } from '~/utils/apiError';
+
 export const useSession = () => {
   const userId = useState('userId', () => null);
   const userName = useState('userName', () => '');
@@ -70,8 +72,7 @@ export const useSession = () => {
       return { success: true, needsCredentialUpdate: result.needsCredentialUpdate || null };
     } catch (error) {
       console.error('Login error:', error);
-      const message = error?.data?.statusMessage || error?.statusMessage || error.message;
-      return { success: false, message };
+      return { success: false, message: extractApiError(error) };
     }
   };
 
@@ -116,8 +117,7 @@ export const useSession = () => {
       return { success: false, message: 'Failed to update user' };
     } catch (error) {
       console.error('Error updating user:', error);
-      const message = error?.data?.statusMessage || error?.statusMessage || error.message;
-      return { success: false, message };
+      return { success: false, message: extractApiError(error) };
     }
   };
 
@@ -136,8 +136,7 @@ export const useSession = () => {
       return { success: false, message: response?.message || 'Failed to delete account' };
     } catch (error) {
       console.error('Error deleting account:', error);
-      const message = error?.data?.statusMessage || error?.statusMessage || error.message;
-      return { success: false, message };
+      return { success: false, message: extractApiError(error) };
     }
   };
 

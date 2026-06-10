@@ -218,6 +218,14 @@
           >
             {{ exportingThisCourse ? 'Exporting…' : 'Export to course.json' }}
           </button>
+          <p
+            v-if="exportError"
+            data-testid="course-export-error"
+            role="alert"
+            class="mt-2 text-sm text-red-500 dark:text-red-400"
+          >
+            {{ exportError }}
+          </p>
         </div>
         <div class="flex space-x-4">
           <button
@@ -272,26 +280,32 @@ async function probeHasJson(courseId) {
   }
 }
 
+// Build the FormData payload shared by the save and export flows.
+function buildCourseFormData() {
+  const data = new FormData();
+  data.append('course', JSON.stringify({
+    id: formData.value.id,
+    title: formData.value.title,
+    description: formData.value.description,
+    category: formData.value.category,
+    releaseDate: formData.value.releaseDate
+  }));
+  if (formData.value.thumbnail) {
+    data.append('thumbnail', formData.value.thumbnail);
+  }
+  return data;
+}
+
 async function exportThisCourseJson() {
   if (!formData.value.id) return;
   exportingThisCourse.value = true;
+  exportError.value = '';
   try {
-    // Build the same FormData the parent's saveCourse handler expects.
-    const courseData = {
-      id: formData.value.id,
-      title: formData.value.title,
-      description: formData.value.description,
-      category: formData.value.category,
-      releaseDate: formData.value.releaseDate,
-    };
-    const data = new FormData();
-    data.append('course', JSON.stringify(courseData));
-    if (formData.value.thumbnail) {
-      data.append('thumbnail', formData.value.thumbnail);
-    }
-    const saveRes = await $fetch('/api/courses/edit', { method: 'POST', body: data });
+    // Save first so the exported JSON reflects the form's current values.
+    const saveRes = await $fetch('/api/courses/edit', { method: 'POST', body: buildCourseFormData() });
     if (!saveRes?.success) {
       console.error('Save before export failed:', saveRes);
+      exportError.value = saveRes?.message || 'Save before export failed.';
       return;
     }
     await $fetch(`/api/courses/${encodeURIComponent(formData.value.id)}/export-json`, {
@@ -300,12 +314,13 @@ async function exportThisCourseJson() {
     hasJson.value = true;
   } catch (err) {
     console.error('Export failed:', err);
+    exportError.value = err?.data?.statusMessage || err?.statusMessage || err?.message || 'Export failed.';
   } finally {
     exportingThisCourse.value = false;
   }
 }
 const thumbnailPreview = ref('');
-const thumbnailFile = ref(null);
+const exportError = ref('');
 
 // Dropzone state
 const isDragging = ref(false);
@@ -350,7 +365,6 @@ function applyImageFile(file) {
   if (file.size > SOFT_SIZE_WARN) {
     showError('Warning: file is larger than 10 MB and may be rejected by the server.');
   }
-  thumbnailFile.value = file;
   revokeLastObjectUrl();
   const url = URL.createObjectURL(file);
   lastObjectUrl = url;
@@ -447,35 +461,6 @@ const categorySuggestions = computed(() =>
   )
 );
 
-// Initialize form with course data
-const initializeForm = (course) => {
-  formData.value = {
-    id: course.id || '',
-    title: course.title || '',
-    description: course.description || '',
-    category: course.category || '',
-    thumbnail: null,
-    releaseDate: course.releaseDate || ''
-  };
-  
-  // Set thumbnail preview if available
-  if (course.thumbnail) {
-    // Check if it's a full URL
-    if (course.thumbnail.startsWith('http')) {
-      thumbnailPreview.value = course.thumbnail;
-    } else if (!course.thumbnail || course.thumbnail === 'placeholder.png') {
-      // Add cache-busting timestamp to prevent caching issues
-      thumbnailPreview.value = `/images/placeholder.png?t=${Date.now()}`;
-    } else {
-      // Always use the standardized thumbnail.png name with cache-busting
-      const courseId = encodeURIComponent(course.id);
-      thumbnailPreview.value = `/api/content/${courseId}/thumbnail.png?t=${Date.now()}`;
-    }
-  } else {
-    thumbnailPreview.value = '';
-  }
-};
-
 // Reset form to empty values
 const resetForm = () => {
   revokeLastObjectUrl();
@@ -487,6 +472,7 @@ const resetForm = () => {
     thumbnail: null,
     releaseDate: ''
   };
+  thumbnailPreview.value = '';
 };
 
 // Handle thumbnail upload
@@ -495,11 +481,12 @@ const handleThumbnailUpload = (event) => {
   if (file) applyImageFile(file);
 };
 
-// Handle form submission
-const handleSubmit = () => {
-  // Create FormData object for submission
-  const data = new FormData();
-  
+// Handle form submission. The parent owns the actual POST; it invokes the
+// `done` callback when the request settles so the Saving… state clears even
+// when the save fails and the editor stays open.
+const handleSubmit = async () => {
+  if (isSaving.value) return;
+
   // Normalize id if not editing
   if (!isEditing.value) {
     formData.value.id = formData.value.id
@@ -508,45 +495,26 @@ const handleSubmit = () => {
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-');
   }
-  
-  // Add course data as JSON string
-  const courseData = {
-    id: formData.value.id,
-    title: formData.value.title,
-    description: formData.value.description,
-    category: formData.value.category,
-    releaseDate: formData.value.releaseDate
-  };
-  
-  data.append('course', JSON.stringify(courseData));
-  
-  // Add thumbnail file if selected
-  if (formData.value.thumbnail) {
-    data.append('thumbnail', formData.value.thumbnail);
+
+  isSaving.value = true;
+  try {
+    await new Promise((resolve) => emit('save', buildCourseFormData(), resolve));
+  } finally {
+    isSaving.value = false;
   }
-  
-  // Emit save event with form data
-  emit('save', data);
 };
 
 // Fetch available categories when component mounts
 onMounted(async () => {
   try {
-    const categories = await fetch('/api/categories').then(res => res.json());
-    availableCategories.value = categories;
+    availableCategories.value = await $fetch('/api/categories');
   } catch (error) {
     console.error('Error fetching categories:', error);
   }
-  
-  // Initialize form with course data
-  if (props.course.id) {
-    initializeForm(props.course);
-  } else {
-    resetForm();
-  }
 });
 
-// Watch for course changes to initialize form
+// Watch for course changes to initialize form (single init path — fires
+// immediately on mount and whenever the parent replaces the prop wholesale)
 watch(() => props.course, (newCourse) => {
   if (newCourse && newCourse.id) {
     formData.value.id = newCourse.id;
@@ -556,26 +524,23 @@ watch(() => props.course, (newCourse) => {
     formData.value.category = newCourse.category || ''; // Handle potential null/undefined
     formData.value.releaseDate = newCourse.releaseDate ? newCourse.releaseDate.substring(0, 10) : '';
     formData.value.thumbnail = null; // Reset file input
-    thumbnailFile.value = null;
 
-    // Construct thumbnail preview URL with cache busting
+    // Construct thumbnail preview URL with cache busting. Thumbnails are
+    // always stored under the standardized thumbnail.png name and served
+    // from /api/content/<courseId>/thumbnail.png.
     if (newCourse.thumbnail) {
       // Use updated_at timestamp for cache busting if available, otherwise use Date.now()
       const cacheBuster = newCourse.updated_at ? new Date(newCourse.updated_at).getTime() : Date.now();
-      thumbnailPreview.value = `/api/content/${newCourse.id}/${newCourse.thumbnail}?v=${cacheBuster}`;
+      thumbnailPreview.value = `/api/content/${encodeURIComponent(newCourse.id)}/thumbnail.png?v=${cacheBuster}`;
     } else {
       thumbnailPreview.value = ''; // No existing thumbnail
     }
-
-    console.log("CourseEditor initialized with:", JSON.stringify(formData.value));
-    console.log("Thumbnail preview URL:", thumbnailPreview.value);
-
   } else {
     // Reset form if course prop is empty or invalid
     resetForm();
     hasJson.value = false;
   }
-}, { immediate: true, deep: true });
+}, { immediate: true });
 
 // Watch for category input changes to filter dropdown options
 const filterCategories = () => {

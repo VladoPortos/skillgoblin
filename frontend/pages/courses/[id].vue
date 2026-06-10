@@ -49,33 +49,13 @@
     />
 
     <!-- Rescan confirmation -->
-    <ConfirmationModal
+    <RescanConfirmModal
       v-if="showRescanConfirm"
-      title="Database Rescan"
-      message="Are you sure you want to rescan the courses database?"
-      confirm-button-text="Rescan Database"
-      cancel-button-text="Cancel"
+      v-model="preserveMetadata"
       :show="showRescanConfirm"
       @confirm="confirmRescan"
       @cancel="showRescanConfirm = false"
-    >
-      <div class="mb-6">
-        <div class="flex items-center mb-2">
-          <input
-            id="preserve-metadata"
-            v-model="preserveMetadata"
-            type="checkbox"
-            class="rounded text-primary-500 focus:ring-primary-500 dark:bg-gray-700 dark:border-gray-600"
-          />
-          <label for="preserve-metadata" class="ml-2 text-sm text-gray-700 dark:text-gray-300">
-            Preserve course metadata (thumbnails, descriptions, etc.)
-          </label>
-        </div>
-        <p class="text-sm text-gray-500 dark:text-gray-400 italic">
-          If unchecked, all custom metadata will be reset to defaults.
-        </p>
-      </div>
-    </ConfirmationModal>
+    />
     
     <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
       <!-- Video Player -->
@@ -159,7 +139,7 @@
               :key="`${lesson.id}-${index}`"
               :data-testid="`lesson-video-${lesson.id}-${index}`"
               class="py-2 px-4 hover:bg-gray-100 dark:hover:bg-gray-600 rounded mb-2 cursor-pointer"
-              @click="playVideo(lesson, video)"
+              @click="playVideo(lesson, video, index)"
             >
               <div class="flex items-center">
                 <div class="mr-3 shrink-0">
@@ -247,8 +227,9 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { useRoute } from 'vue-router';
 import { useSession } from '~/composables/useSession';
+import { useAccountActions } from '~/composables/useAccountActions';
 import CourseFilesModal from '~/components/CourseFilesModal.vue';
 import CourseHeader from '../../components/course/CourseHeader.vue';
 import VideoPlayer from '../../components/video/VideoPlayer.vue';
@@ -258,6 +239,7 @@ import VideoControlButtons from '../../components/video/VideoControlButtons.vue'
 import UserManagement from '../../components/UserManagement.vue';
 import AdminPanel from '../../components/AdminPanel.vue';
 import ConfirmationModal from '../../components/ui/ConfirmationModal.vue';
+import RescanConfirmModal from '../../components/RescanConfirmModal.vue';
 
 // Apply auth middleware
 definePageMeta({
@@ -265,10 +247,9 @@ definePageMeta({
 });
 
 const route = useRoute();
-const router = useRouter();
 
 // Get user from session composable
-const { userName, userAvatar, logout, deleteAccount: userDelete, userId, isAdmin, isActive } = useSession();
+const { logout, userId } = useSession();
 
 // Flush any throttled / pending progress save BEFORE the session tears down.
 // useSession.logout() clears userId synchronously, after which a trailing
@@ -283,65 +264,20 @@ async function handleLogout() {
   await logout();
 }
 
-// Create a computed user object with the correct structure. Must include
-// id so the My Profile (UserManagement) modal knows which user to load and
-// patch — without it the modal opens against an undefined user and silently
-// no-ops.
-const userObject = computed(() => {
-  return {
-    id: userId.value,
-    name: userName.value,
-    avatar: userAvatar.value,
-    isAdmin: isAdmin.value ? 1 : 0,
-    is_active: isActive.value ? 1 : 0,
-  };
-});
-
-// User-menu modal state. The user-menu in the header (UserProfile) emits
-// `manage` / `admin` / `rescan` / `delete`; before this fix CourseHeader
-// dropped manage/admin/rescan silently and routed delete to a back-button
-// navigation (no confirmation, no actual deletion).
-const showUserManagement = ref(false);
-const showAdminPanel = ref(false);
-const showRescanConfirm = ref(false);
-const showDeleteConfirm = ref(false);
-const isDeleting = ref(false);
-const preserveMetadata = ref(true);
-
-async function confirmRescan() {
-  showRescanConfirm.value = false;
-  try {
-    const response = await $fetch('/api/courses/rescan', {
-      method: 'POST',
-      body: { preserveMetadata: preserveMetadata.value },
-    });
-    if (!response?.success) {
-      console.error('Failed to start rescan:', response?.error || 'Unknown error');
-      alert(`Failed to start database rescan: ${response?.error || 'Unknown error'}`);
-    }
-  } catch (err) {
-    console.error('Error initiating rescan:', err);
-    alert(`Error initiating database rescan: ${err.message || 'Unknown error'}`);
-  }
-}
-
-async function deleteAccount() {
-  showDeleteConfirm.value = false;
-  isDeleting.value = true;
-  try {
-    const result = await userDelete();
-    if (!result?.success) {
-      console.error('Failed to delete account:', result?.message);
-      alert(`Failed to delete account: ${result?.message || 'Unknown error'}`);
-    }
-    // On success the useSession composable already logs out and redirects.
-  } catch (err) {
-    console.error('Error deleting account:', err);
-    alert('An error occurred while trying to delete your account.');
-  } finally {
-    isDeleting.value = false;
-  }
-}
+// Shared account / rescan machinery (header user object, delete-account
+// flow, rescan POST and the user-menu modal visibility refs). The user-menu
+// in the header (UserProfile) emits `manage` / `admin` / `rescan` / `delete`.
+const {
+  userObject,
+  showUserManagement,
+  showAdminPanel,
+  showDeleteConfirm,
+  isDeleting,
+  showRescanConfirm,
+  preserveMetadata,
+  deleteAccount,
+  confirmRescan
+} = useAccountActions();
 
 // State
 const course = ref({
@@ -354,12 +290,12 @@ const lessonSearchQuery = ref('');
 const currentLesson = ref(null);
 const currentVideo = ref(null);
 const currentVideoId = ref(null);
+const currentVideoIndex = ref(-1);
 const completedVideos = ref({});
 const videoProgress = ref({});
 const videoPlayer = ref(null);
 const currentTimeForPlayer = ref(0);
 const courseProgress = ref({});
-const isLoading = ref(true);
 const showFilesModal = ref(false);
 // Smart-open must wait until BOTH the course payload AND the user-progress
 // fetch have settled, otherwise we would pick the first video with empty
@@ -403,8 +339,6 @@ onMounted(async () => {
   }
 
   try {
-    isLoading.value = true;
-
     // Fetch course data
     const data = await $fetch(`/api/courses/${route.params.id}`);
     course.value = data;
@@ -438,10 +372,8 @@ onMounted(async () => {
       }
     }
 
-    isLoading.value = false;
   } catch (error) {
     console.error('Error loading course:', error);
-    isLoading.value = false;
   } finally {
     // Always mark progress as ready, even on failure — without this signal
     // the smart-open watcher would never pick anything and the page would
@@ -497,6 +429,7 @@ watch([course, progressReady], () => {
   expandedLessons.value[lesson.id] = true;
   currentLesson.value = lesson;
   currentVideo.value = video;
+  currentVideoIndex.value = pick.videoIndex;
   currentVideoId.value = `${lesson.id}-${pick.videoIndex}`;
   // Initial seek time is computed once duration is known, in handleVideoLoaded.
   currentTimeForPlayer.value = 0;
@@ -542,10 +475,9 @@ const totalVideos = computed(() => {
 const completedVideosCount = computed(() => {
   let count = 0;
   for (const lesson of course.value.lessons) {
-    for (const video of lesson.videos) {
-      const videoId = `${lesson.id}-${lesson.videos.indexOf(video)}`;
-      if (completedVideos.value[videoId]) count++;
-    }
+    lesson.videos.forEach((video, index) => {
+      if (completedVideos.value[`${lesson.id}-${index}`]) count++;
+    });
   }
   return count;
 });
@@ -651,7 +583,7 @@ function toggleLesson(lessonId) {
   }
 }
 
-function playVideo(lesson, video, autoPlay = true) {
+function playVideo(lesson, video, videoIndex, autoPlay = true) {
   // Store previous video info to check if we're changing videos
   const previousVideoId = currentVideoId.value;
   // Snapshot the URL BEFORE we mutate the refs that drive the computed.
@@ -660,7 +592,8 @@ function playVideo(lesson, video, autoPlay = true) {
   // Update current video information
   currentLesson.value = lesson;
   currentVideo.value = video;
-  currentVideoId.value = `${lesson.id}-${lesson.videos.indexOf(video)}`;
+  currentVideoIndex.value = videoIndex;
+  currentVideoId.value = `${lesson.id}-${videoIndex}`;
 
   // Only reset and play if we're changing videos
   if (previousVideoId !== currentVideoId.value) {
@@ -729,7 +662,7 @@ function playVideo(lesson, video, autoPlay = true) {
 // users who watch all the way through.
 const COMPLETION_THRESHOLD_PCT = 90;
 
-function updateProgress(event) {
+function updateProgress() {
   if (!videoPlayer.value || !currentVideoId.value) return;
   // Don't write progress while the player is mid-transition between videos
   // — currentVideoId already points at the new video but the <video>
@@ -806,26 +739,15 @@ function markAsCompleted() {
   playNextVideo();
 }
 
-// New function to manually mark a video as completed
-function toggleVideoCompletion() {
-  if (!currentVideoId.value) return;
-  
-  completedVideos.value[currentVideoId.value] = !completedVideos.value[currentVideoId.value];
-  
-  // Save progress to database
-  saveProgress();
-}
-
 // New function to mark the entire course as completed
 function markCourseCompleted() {
   // Mark all videos as completed
   for (const lesson of course.value.lessons) {
-    for (const video of lesson.videos) {
-      const videoId = `${lesson.id}-${lesson.videos.indexOf(video)}`;
-      completedVideos.value[videoId] = true;
-    }
+    lesson.videos.forEach((video, index) => {
+      completedVideos.value[`${lesson.id}-${index}`] = true;
+    });
   }
-  
+
   // Save progress to database
   saveProgress();
 }
@@ -835,16 +757,6 @@ function resetCourseProgress() {
   // Reset completed videos and video progress
   completedVideos.value = {};
   videoProgress.value = {};
-  
-  // Save progress to database
-  saveProgress();
-}
-
-// New function to reset video progress
-function resetVideoProgress() {
-  if (!currentVideoId.value) return;
-  
-  videoProgress.value[currentVideoId.value] = 0;
   
   // Save progress to database
   saveProgress();
@@ -885,7 +797,7 @@ function buildProgressBody() {
       favorite: isFavorite.value,
       lastViewed: {
         lessonId: currentLesson.value?.id,
-        videoIndex: currentLesson.value?.videos.indexOf(currentVideo.value)
+        videoIndex: currentLesson.value ? currentVideoIndex.value : undefined
       }
     }
   };
@@ -984,25 +896,25 @@ function startFromBeginning() {
 // Play next video in the current lesson or move to the next lesson
 function playNextVideo() {
   if (!currentLesson.value || !currentVideo.value) return;
-  
-  const currentIndex = currentLesson.value.videos.indexOf(currentVideo.value);
-  
+
+  const currentIndex = currentVideoIndex.value;
+
   // If there's another video in this lesson, play it
   if (currentIndex < currentLesson.value.videos.length - 1) {
     const nextVideo = currentLesson.value.videos[currentIndex + 1];
-    playVideo(currentLesson.value, nextVideo); 
+    playVideo(currentLesson.value, nextVideo, currentIndex + 1);
     return;
   }
-  
+
   // Otherwise, move to the next lesson
   const currentLessonIndex = course.value.lessons.indexOf(currentLesson.value);
   if (currentLessonIndex < course.value.lessons.length - 1) {
     const nextLesson = course.value.lessons[currentLessonIndex + 1];
     expandedLessons.value[nextLesson.id] = true; // Expand the next lesson
-    
+
     // Play the first video in the next lesson
     if (nextLesson.videos && nextLesson.videos.length > 0) {
-      playVideo(nextLesson, nextLesson.videos[0]);
+      playVideo(nextLesson, nextLesson.videos[0], 0);
     }
   }
 }
@@ -1010,13 +922,9 @@ function playNextVideo() {
 function toggleFavorite() {
   // Toggle favorite state
   isFavorite.value = !isFavorite.value;
-  
+
   // Save to database
   saveProgress();
-  
-  // Provide user feedback
-  const message = isFavorite.value ? 'Added to favorites' : 'Removed from favorites';
-  console.log(message);
 }
 
 const openFilesModal = () => {

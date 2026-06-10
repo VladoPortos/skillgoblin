@@ -25,13 +25,12 @@
     "lru-cache": "^11.5.0",
     "nuxt": "^4.4.7",
     "sharp": "^0.34.5",
-    "tailwindcss": "^4.2.4"
+    "tailwindcss": "^4.2.4",
+    "uuid": "^14.0.0"
   },
   "devDependencies": {
     "@playwright/test": "1.60.0",
-    "glob": "^10.3.10",
     "jsdom": "^29.1.1",
-    "uuid": "^14.0.0",
     "vitest": "^4.1.7"
   },
   "overrides": {
