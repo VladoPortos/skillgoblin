@@ -1,6 +1,7 @@
 import { defineEventHandler } from 'h3';
 import { getDb } from '../../utils/db';
 import { requireSelfOrAdmin } from '../../utils/authz';
+import { loadProgressData, fetchCoursesByIds } from '../../utils/userCourseProgress';
 
 // API endpoint to get ALL favorite courses for a user
 // This endpoint bypasses regular pagination and returns the complete list.
@@ -17,33 +18,29 @@ export default defineEventHandler(async (event) => {
     }
 
     requireSelfOrAdmin(event, userId);
-    
+
     const db = getDb();
-    
+
     // Fetch the user's progress to identify all favorites
-    const userProgress = db.prepare('SELECT progress FROM user_progress WHERE user_id = ?').get(userId);
-    
-    // If user has no progress data, return empty array
-    if (!userProgress || !userProgress.progress) {
-      console.log(`No progress data found for user ${userId}`);
-      return { 
-        success: true, 
-        favorites: [] 
-      };
-    }
-    
-    // Parse the progress data to get favorite course IDs
     let progressData;
     try {
-      progressData = JSON.parse(userProgress.progress);
+      progressData = loadProgressData(db, userId);
     } catch (e) {
-      console.error(`Error parsing progress data for user ${userId}:`, e);
-      return { 
-        success: false, 
+      console.error('Error parsing progress data:', e);
+      return {
+        success: false,
         error: 'Invalid progress data format'
       };
     }
-    
+
+    // If user has no progress data, return empty array
+    if (!progressData) {
+      return {
+        success: true,
+        favorites: []
+      };
+    }
+
     // Extract favorite course IDs
     const favoriteCourseIds = [];
     for (const courseId in progressData) {
@@ -51,43 +48,15 @@ export default defineEventHandler(async (event) => {
         favoriteCourseIds.push(courseId);
       }
     }
-    
-    console.log(`Found ${favoriteCourseIds.length} favorite courses for user ${userId}`);
-    
-    // If no favorites, return empty array
-    if (favoriteCourseIds.length === 0) {
-      return { 
-        success: true, 
-        favorites: [] 
-      };
-    }
-    
+
     // Fetch complete course data for all favorite courses
-    const placeholders = favoriteCourseIds.map(() => '?').join(',');
-    const favoriteCoursesStmt = db.prepare(`
-      SELECT data FROM courses 
-      WHERE id IN (${placeholders})
-    `);
-    
-    const favoriteCoursesResult = favoriteCoursesStmt.all(favoriteCourseIds);
-    
-    // Parse course data JSON
-    const favoriteCourses = favoriteCoursesResult.map(course => {
-      try {
-        return JSON.parse(course.data);
-      } catch (e) {
-        console.error(`Error parsing course data:`, e);
-        return null;
-      }
-    }).filter(Boolean); // Remove any null entries from parsing errors
-    
-    console.log(`Successfully fetched ${favoriteCourses.length} favorite courses for user ${userId}`);
-    
+    const favoriteCourses = fetchCoursesByIds(db, favoriteCourseIds).map(c => c.data);
+
     return {
       success: true,
       favorites: favoriteCourses
     };
-    
+
   } catch (error) {
     console.error('Error in user-favorites API:', error);
     return {

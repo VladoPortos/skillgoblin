@@ -87,32 +87,72 @@ export const findLocalThumbnailPath = (courseRoot) => {
 };
 
 /**
+ * Canonical thumbnail pipeline: 480x270 cover-cropped PNG. Forcing PNG
+ * output regardless of input format matters because /api/course-thumbnail/:id
+ * serves the cached blob with Content-Type: image/png, so a JPEG or WebP
+ * cover would otherwise be served with the wrong MIME type and mis-render
+ * in strict clients.
+ * @param {Buffer} inputBuffer - Raw image bytes.
+ * @returns {Promise<Buffer>} Processed PNG buffer.
+ */
+export const processThumbnailBuffer = (inputBuffer) =>
+  sharp(inputBuffer)
+    .resize(480, 270, {
+      fit: 'cover',
+      position: 'center',
+    })
+    .png()
+    .toBuffer();
+
+/**
  * Reads a thumbnail image file, processes it with sharp, and returns a buffer.
  * @param {string} thumbnailPath - Absolute path to the thumbnail file.
+ * @param {Buffer|null} fileBuffer - Already-read file contents; skips the disk read.
  * @returns {Promise<Buffer|null>} Processed image buffer or null if an error occurs.
  */
-export const readAndProcessThumbnail = async (thumbnailPath) => {
+export const readAndProcessThumbnail = async (thumbnailPath, fileBuffer = null) => {
   try {
-    if (!fs.existsSync(thumbnailPath)) {
-      return null;
-    }
-    const fileBuffer = fs.readFileSync(thumbnailPath);
-    // Force PNG output regardless of input format. /api/course-thumbnail/:id
-    // serves the cached blob with Content-Type: image/png, so a JPEG or WebP
-    // cover dropped in the course folder would otherwise be served with the
-    // wrong MIME type and mis-render in strict clients.
-    const processedBuffer = await sharp(fileBuffer)
-      .resize(480, 270, {
-        fit: 'cover',
-        position: 'center',
-      })
-      .png()
-      .toBuffer();
-    return processedBuffer;
+    const buffer = fileBuffer || await fs.promises.readFile(thumbnailPath);
+    return await processThumbnailBuffer(buffer);
   } catch (error) {
+    if (error.code === 'ENOENT') return null;
     console.error(`Error processing thumbnail at ${thumbnailPath}:`, error);
     return null;
   }
+};
+
+// Lazily-read, cached placeholder image. `public/` sits next to the Nitro
+// output in the docker prod image and at the project root in dev, so a
+// CWD-relative resolve works in both.
+let placeholderImagePromise = null;
+export const getPlaceholderImage = () => {
+  if (!placeholderImagePromise) {
+    const placeholderPath = path.resolve(process.cwd(), 'public/images/placeholder.png');
+    placeholderImagePromise = fs.promises.readFile(placeholderPath).catch((err) => {
+      placeholderImagePromise = null;
+      throw err;
+    });
+  }
+  return placeholderImagePromise;
+};
+
+/**
+ * Load a course's thumbnail blob from the DB, falling back to the bundled
+ * placeholder when the course has no thumbnail (or the DB read fails).
+ * @param {import('better-sqlite3').Database} db
+ * @param {string} courseId
+ * @returns {Promise<{ data: Buffer, isPlaceholder: boolean }>}
+ */
+export const loadThumbnail = async (db, courseId) => {
+  try {
+    const row = db.prepare('SELECT thumbnail_data FROM courses WHERE id = ?').get(courseId);
+    if (row && row.thumbnail_data) {
+      return { data: row.thumbnail_data, isPlaceholder: false };
+    }
+  } catch (dbError) {
+    console.error(`Database error fetching thumbnail for ${courseId}:`, dbError);
+  }
+  return { data: await getPlaceholderImage(), isPlaceholder: true };
 };
 
 /**
@@ -216,12 +256,7 @@ export const extractFrameThumbnail = async (videoPath) => {
 
   if (!rawFrame) return null;
   try {
-    // Force PNG output so the cached blob matches what the thumbnail
-    // endpoint advertises (Content-Type: image/png).
-    return await sharp(rawFrame)
-      .resize(480, 270, { fit: 'cover', position: 'center' })
-      .png()
-      .toBuffer();
+    return await processThumbnailBuffer(rawFrame);
   } catch (err) {
     console.warn(`[thumb] sharp failed to process extracted frame for ${videoPath}: ${err.message}`);
     return null;

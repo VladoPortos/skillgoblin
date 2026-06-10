@@ -1,8 +1,8 @@
 import fs from 'fs';
-import path from 'path';
 import { defineEventHandler, readBody, getMethod, createError } from 'h3';
 import { getDb } from '../../utils/db';
 import { requireSelfOrAdmin } from '../../utils/authz';
+import { getContentDir, generateCourseId } from '../../utils/courseHelpers';
 
 // /api/user-progress/[userId]
 //   GET  — read the user's progress JSON blob
@@ -28,12 +28,12 @@ export default defineEventHandler(async (event) => {
       const progress = JSON.parse(result.progress);
 
       // Drop progress entries for courses that no longer exist on disk.
-      const contentDir = path.resolve(process.cwd(), '/app/data/content');
+      const contentDir = getContentDir();
       let courseDirs = [];
       try {
         courseDirs = fs.readdirSync(contentDir, { withFileTypes: true })
           .filter(d => d.isDirectory())
-          .map(d => d.name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-'));
+          .map(d => generateCourseId(d.name));
       } catch (err) {
         // If the content dir doesn't exist yet, just return everything.
         return { progress };

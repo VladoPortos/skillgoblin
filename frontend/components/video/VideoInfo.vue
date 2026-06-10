@@ -21,10 +21,8 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
-
 // Props for the component
-const props = defineProps({
+defineProps({
   video: {
     type: Object,
     default: null
@@ -42,7 +40,4 @@ const props = defineProps({
     default: 0
   }
 });
-
-// Computed properties
-const hasVideo = computed(() => !!props.video);
 </script>

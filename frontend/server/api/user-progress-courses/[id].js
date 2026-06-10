@@ -1,6 +1,7 @@
 import { defineEventHandler } from 'h3';
 import { getDb } from '../../utils/db';
 import { requireSelfOrAdmin } from '../../utils/authz';
+import { loadProgressData, fetchCoursesByIds } from '../../utils/userCourseProgress';
 
 // API endpoint to get ALL in-progress courses for a user
 // This endpoint bypasses regular pagination and returns the complete list.
@@ -19,125 +20,81 @@ export default defineEventHandler(async (event) => {
     requireSelfOrAdmin(event, userId);
 
     const db = getDb();
-    
+
     // Fetch the user's progress data
-    const userProgress = db.prepare('SELECT progress FROM user_progress WHERE user_id = ?').get(userId);
-    
-    // If user has no progress data, return empty array
-    if (!userProgress || !userProgress.progress) {
-      console.log(`No progress data found for user ${userId}`);
-      return { 
-        success: true, 
-        inProgress: [] 
-      };
-    }
-    
-    // Parse the progress data
     let progressData;
     try {
-      progressData = JSON.parse(userProgress.progress);
+      progressData = loadProgressData(db, userId);
     } catch (e) {
-      console.error(`Error parsing progress data for user ${userId}:`, e);
-      return { 
-        success: false, 
+      console.error('Error parsing progress data:', e);
+      return {
+        success: false,
         error: 'Invalid progress data format'
       };
     }
-    
+
+    // If user has no progress data, return empty array
+    if (!progressData) {
+      return {
+        success: true,
+        inProgress: []
+      };
+    }
+
     // Extract course IDs with progress > 0% but not complete
     const inProgressCourseIds = [];
     const progressPercentages = {};
-    
+
     for (const courseId in progressData) {
-      if (progressData[courseId]) {
-        // Check if there are any completed videos
-        let hasProgress = false;
-        if (progressData[courseId].completed) {
-          const completedMap = progressData[courseId].completed;
-          for (const videoId in completedMap) {
-            if (completedMap[videoId]) {
-              hasProgress = true;
-              break;
-            }
+      if (progressData[courseId] && progressData[courseId].completed) {
+        let completedCount = 0;
+        const completedMap = progressData[courseId].completed;
+        for (const videoId in completedMap) {
+          if (completedMap[videoId]) {
+            completedCount++;
           }
         }
-        
-        if (hasProgress) {
+
+        if (completedCount > 0) {
           inProgressCourseIds.push(courseId);
-          
-          // Store the completed video count for later progress calculation
-          if (progressData[courseId].completed) {
-            let completedCount = 0;
-            const completedMap = progressData[courseId].completed;
-            for (const videoId in completedMap) {
-              if (completedMap[videoId]) {
-                completedCount++;
-              }
-            }
-            progressPercentages[courseId] = { completedVideos: completedCount };
-          }
+          progressPercentages[courseId] = { completedVideos: completedCount };
         }
       }
     }
-    
-    console.log(`Found ${inProgressCourseIds.length} in-progress courses for user ${userId}`);
-    
-    // If no in-progress courses, return empty array
-    if (inProgressCourseIds.length === 0) {
-      return { 
-        success: true, 
-        inProgress: [] 
-      };
-    }
-    
-    // Fetch complete course data for all in-progress courses
-    const placeholders = inProgressCourseIds.map(() => '?').join(',');
-    const inProgressCoursesStmt = db.prepare(`
-      SELECT id, data FROM courses 
-      WHERE id IN (${placeholders})
-    `);
-    
-    const inProgressCoursesResult = inProgressCoursesStmt.all(inProgressCourseIds);
-    
-    // Parse course data JSON and compute progress percentages
-    const inProgressCourses = inProgressCoursesResult.map(course => {
-      try {
-        const courseData = JSON.parse(course.data);
-        
-        // Calculate overall progress percentage using the total videos count
-        if (progressPercentages[course.id]) {
-          let totalVideos = 0;
-          
-          // Count all videos in the course
-          courseData.lessons?.forEach(lesson => {
-            if (lesson.videos) {
-              totalVideos += lesson.videos.length;
-            }
-          });
-          
-          if (totalVideos > 0) {
-            const completedVideos = progressPercentages[course.id].completedVideos;
-            const progressPercent = Math.min(Math.round((completedVideos / totalVideos) * 100), 100);
-            
-            // Add progress percentage to course data for the frontend
-            courseData.progressPercentage = progressPercent;
+
+    // Fetch complete course data for all in-progress courses and compute
+    // progress percentages
+    const inProgressCourses = fetchCoursesByIds(db, inProgressCourseIds).map(course => {
+      const courseData = course.data;
+
+      // Calculate overall progress percentage using the total videos count
+      if (progressPercentages[course.id]) {
+        let totalVideos = 0;
+
+        // Count all videos in the course
+        courseData.lessons?.forEach(lesson => {
+          if (lesson.videos) {
+            totalVideos += lesson.videos.length;
           }
+        });
+
+        if (totalVideos > 0) {
+          const completedVideos = progressPercentages[course.id].completedVideos;
+          const progressPercent = Math.min(Math.round((completedVideos / totalVideos) * 100), 100);
+
+          // Add progress percentage to course data for the frontend
+          courseData.progressPercentage = progressPercent;
         }
-        
-        return courseData;
-      } catch (e) {
-        console.error(`Error parsing course data:`, e);
-        return null;
       }
-    }).filter(Boolean); // Remove any null entries from parsing errors
-    
-    console.log(`Successfully fetched ${inProgressCourses.length} in-progress courses for user ${userId}`);
-    
+
+      return courseData;
+    });
+
     return {
       success: true,
       inProgress: inProgressCourses
     };
-    
+
   } catch (error) {
     console.error('Error in user-progress-courses API:', error);
     return {

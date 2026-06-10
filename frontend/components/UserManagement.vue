@@ -68,6 +68,11 @@
             Save Changes
           </button>
         </div>
+        <p
+          v-if="profileFeedback"
+          data-testid="profile-save-feedback"
+          class="text-red-400 text-xs mb-4 text-right"
+        >{{ profileFeedback }}</p>
       </form>
 
       <!-- Credentials — independent panels, OUTSIDE the profile form so
@@ -164,6 +169,7 @@
 import { ref, computed, watch } from 'vue';
 import { Beanhead } from 'beanheads-vue';
 import { useSession } from '~/composables/useSession';
+import { isValidAvatarJson, parseAvatar } from '~/utils/avatar';
 import PinInput from './ui/PinInput.vue';
 
 const props = defineProps({
@@ -183,10 +189,7 @@ const emit = defineEmits(['close', 'updated']);
 const userData = ref({
   id: '',
   name: '',
-  avatar: '',
-  password: null,
-  pin: null,
-  isAdmin: 0
+  avatar: ''
 });
 
 // Independent credential panels each maintain their own input state and
@@ -200,6 +203,7 @@ const passwordFeedback = ref('');
 const passwordFeedbackError = ref(false);
 const pinFeedback = ref('');
 const pinFeedbackError = ref(false);
+const profileFeedback = ref('');
 
 // allow_pin from /api/system-settings — controls whether the "Add PIN"
 // panel is offered to users who don't already have one. Existing PIN
@@ -210,7 +214,6 @@ const { updateUserSettings } = useSession();
 
 // Authentication state
 const authState = ref({
-  isLoading: true,
   hasPin: false,
   hasPassword: false
 });
@@ -221,7 +224,6 @@ const fetchUserAuthInfo = async () => {
   if (!props.user?.id) return;
 
   try {
-    authState.value.isLoading = true;
     const [userResp, settingsResp] = await Promise.all([
       fetch(`/api/users/${props.user.id}`),
       fetch('/api/system-settings')
@@ -237,53 +239,25 @@ const fetchUserAuthInfo = async () => {
     }
   } catch (error) {
     console.error('Error fetching user auth info:', error);
-  } finally {
-    authState.value.isLoading = false;
   }
 };
-
-// Watch for show modal to fetch auth data
-watch(() => props.show, (isVisible) => {
-  if (isVisible && props.user?.id) {
-    fetchUserAuthInfo();
-  }
-}, { immediate: true });
 
 // Auth modality is derived from credential presence — there's no separate
 // flag. authState is the canonical source.
 const hasPin = computed(() => authState.value.hasPin);
 const hasPassword = computed(() => authState.value.hasPassword);
 
-// Helper functions for avatar handling
-const isValidAvatarJson = (avatarString) => {
-  if (!avatarString) return false;
-  try {
-    JSON.parse(avatarString);
-    return true;
-  } catch (e) {
-    return false;
-  }
-};
-
-const parseAvatar = (avatarString) => {
-  try {
-    return JSON.parse(avatarString);
-  } catch (e) {
-    return {};
-  }
-};
-
-// Initialize form with user data + reset cred panels.
-watch(() => props.user, (newUser) => {
+// Initialize form with user data + reset cred panels, and fetch the auth
+// info exactly once per open (or when the target user changes while open).
+watch([() => props.show, () => props.user], ([isVisible, newUser]) => {
   if (!newUser) return;
   userData.value = {
     id: newUser.id,
     name: newUser.name,
-    avatar: newUser.avatar,
-    isAdmin: newUser.isAdmin
+    avatar: newUser.avatar
   };
   resetCredPanels();
-  if (newUser.id) fetchUserAuthInfo();
+  if (isVisible && newUser.id) fetchUserAuthInfo();
 }, { immediate: true });
 
 function resetCredPanels() {
@@ -293,6 +267,7 @@ function resetCredPanels() {
   passwordFeedbackError.value = false;
   pinFeedback.value = '';
   pinFeedbackError.value = false;
+  profileFeedback.value = '';
 }
 
 // Profile (name + avatar) save — credentials are NOT touched here. The
@@ -301,6 +276,7 @@ function resetCredPanels() {
 const updateUser = async () => {
   const userId = userData.value.id || props.user.id;
   if (!userId) return;
+  profileFeedback.value = '';
   const result = await updateUserSettings({
     id: userId,
     name: userData.value.name,
@@ -310,64 +286,57 @@ const updateUser = async () => {
     emit('updated', result.user);
     emit('close');
   } else {
-    console.error('Failed to update profile:', result.message);
+    profileFeedback.value = result.message || 'Could not save profile.';
   }
 };
 
-async function savePassword() {
-  if (!newPasswordValue.value) return;
-  passwordFeedback.value = '';
-  passwordFeedbackError.value = false;
-  savingPassword.value = true;
+// Shared password / PIN save flow — the two panels differ only in which
+// refs they read/write and the wording of their feedback.
+async function saveCredential(kind) {
+  const isPin = kind === 'pin';
+  const value = isPin ? newPinDigits.value : newPasswordValue.value;
+  const feedback = isPin ? pinFeedback : passwordFeedback;
+  const feedbackError = isPin ? pinFeedbackError : passwordFeedbackError;
+  const saving = isPin ? savingPin : savingPassword;
+
+  if (!isPin && !value) return;
+  feedback.value = '';
+  feedbackError.value = false;
+  if (isPin && !/^\d{4}$/.test(value)) {
+    feedback.value = 'PIN must be exactly 4 digits.';
+    feedbackError.value = true;
+    return;
+  }
+
+  saving.value = true;
   try {
     const userId = userData.value.id || props.user.id;
     const result = await updateUserSettings({
       id: userId,
       name: userData.value.name,
-      password: newPasswordValue.value
+      [kind]: value
     });
     if (result.success) {
-      passwordFeedback.value = hasPassword.value ? 'Password updated.' : 'Password saved.';
-      newPasswordValue.value = '';
-      authState.value.hasPassword = true;
+      if (isPin) {
+        feedback.value = hasPin.value ? 'PIN updated.' : 'PIN saved.';
+        newPinDigits.value = '';
+        authState.value.hasPin = true;
+      } else {
+        feedback.value = hasPassword.value ? 'Password updated.' : 'Password saved.';
+        newPasswordValue.value = '';
+        authState.value.hasPassword = true;
+      }
     } else {
-      passwordFeedback.value = result.message || 'Could not save password.';
-      passwordFeedbackError.value = true;
+      feedback.value = result.message || `Could not save ${isPin ? 'PIN' : 'password'}.`;
+      feedbackError.value = true;
     }
   } finally {
-    savingPassword.value = false;
+    saving.value = false;
   }
 }
 
-async function savePin() {
-  pinFeedback.value = '';
-  pinFeedbackError.value = false;
-  const pin = newPinDigits.value;
-  if (!/^\d{4}$/.test(pin)) {
-    pinFeedback.value = 'PIN must be exactly 4 digits.';
-    pinFeedbackError.value = true;
-    return;
-  }
-  savingPin.value = true;
-  try {
-    const userId = userData.value.id || props.user.id;
-    const result = await updateUserSettings({
-      id: userId,
-      name: userData.value.name,
-      pin
-    });
-    if (result.success) {
-      pinFeedback.value = hasPin.value ? 'PIN updated.' : 'PIN saved.';
-      newPinDigits.value = '';
-      authState.value.hasPin = true;
-    } else {
-      pinFeedback.value = result.message || 'Could not save PIN.';
-      pinFeedbackError.value = true;
-    }
-  } finally {
-    savingPin.value = false;
-  }
-}
+const savePassword = () => saveCredential('password');
+const savePin = () => saveCredential('pin');
 
 const close = () => {
   emit('close');

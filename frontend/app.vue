@@ -25,18 +25,4 @@ useHead({
 
 // Initialize theme on app load
 useTheme();
-
-// Set client-only flag to ensure proper hydration
-const nuxtApp = useNuxtApp();
-
-// Force page refresh on client-side
-if (import.meta.client) {
-  console.log('App initialized in client mode');
-
-  // Add debugging for client-side rendering
-  window.__MEDEMY_DEBUG = {
-    initialized: true,
-    timestamp: new Date().toISOString()
-  };
-}
 </script>

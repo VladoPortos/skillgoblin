@@ -9,7 +9,6 @@ export default defineNuxtRouteMiddleware((to, from) => {
   
   // If no user is logged in, redirect to homepage
   if (!isAuthenticated.value) {
-    console.log('User not authenticated, redirecting to home page');
     return navigateTo('/');
   }
 });

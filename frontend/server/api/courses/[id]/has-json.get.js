@@ -1,6 +1,6 @@
 import { defineEventHandler, createError } from 'h3';
 import { getDb } from '../../../utils/db';
-import { resolveCourseDir } from '../../../utils/courseHelpers';
+import { resolveCourseById } from '../../../utils/courseHelpers';
 import { hasCourseJson } from '../../../utils/courseJsonOverride.js';
 import { requireAdmin } from '../../../utils/authz';
 
@@ -12,11 +12,6 @@ export default defineEventHandler((event) => {
   }
 
   const db = getDb();
-  const row = db.prepare('SELECT folder_name FROM courses WHERE id = ?').get(courseId);
-  if (!row || !row.folder_name) {
-    throw createError({ statusCode: 404, statusMessage: 'Course not found' });
-  }
-
-  const courseDir = resolveCourseDir(row.folder_name);
+  const { courseDir } = resolveCourseById(db, courseId);
   return { hasJson: hasCourseJson(courseDir) };
 });

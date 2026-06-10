@@ -1,9 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { getDb } from './db';
-import { resolveCourseDir } from './courseHelpers';
+import { resolveCourseDir, VIDEO_EXTENSIONS } from './courseHelpers';
 
-const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.mkv', '.avi', '.webm', '.flv', '.wmv', '.srt'];
+// Files skipped when listing downloadable course extras: real videos
+// (served by the player, not the file list), unsupported video containers,
+// and subtitle .srt files (consumed via the on-the-fly .vtt conversion).
+const SKIPPED_EXTENSIONS = new Set([...VIDEO_EXTENSIONS, '.mov', '.webm', '.flv', '.wmv', '.srt']);
 const EXCLUDED_FILES = ['thumbnail.png', 'course.json'];
 const SYSTEM_FILES_TO_IGNORE = ['.ds_store', 'thumbs.db']; // Lowercase for case-insensitive comparison
 
@@ -34,14 +37,16 @@ export async function scanCourseFiles(courseId) {
     throw new Error('Invalid course folder.');
   }
 
-  if (!fs.existsSync(courseBasePath)) {
+  try {
+    await fs.promises.access(courseBasePath);
+  } catch {
     return { courseTitle: courseData.title, filesByFolder: [] };
   }
 
   const filesByFolder = [];
 
-  function walkDir(currentPath, relativeBase = '') {
-    const entries = fs.readdirSync(currentPath, { withFileTypes: true });
+  async function walkDir(currentPath, relativeBase = '') {
+    const entries = await fs.promises.readdir(currentPath, { withFileTypes: true });
 
     for (const entry of entries) {
       const entryNameLower = entry.name.toLowerCase();
@@ -54,15 +59,15 @@ export async function scanCourseFiles(courseId) {
       const relativeEntryPath = path.join(relativeBase, entry.name).replace(/\\/g, '/');
 
       if (entry.isDirectory()) {
-        walkDir(fullEntryPath, relativeEntryPath);
+        await walkDir(fullEntryPath, relativeEntryPath);
       } else if (entry.isFile()) {
         const ext = path.extname(entry.name).toLowerCase();
-        
-        if (VIDEO_EXTENSIONS.includes(ext) || EXCLUDED_FILES.includes(entry.name.toLowerCase())) {
+
+        if (SKIPPED_EXTENSIONS.has(ext) || EXCLUDED_FILES.includes(entry.name.toLowerCase())) {
           continue;
         }
 
-        const stats = fs.statSync(fullEntryPath);
+        const stats = await fs.promises.stat(fullEntryPath);
         const fileData = {
           name: entry.name,
           size: stats.size,
@@ -87,7 +92,7 @@ export async function scanCourseFiles(courseId) {
     }
   }
 
-  walkDir(courseBasePath);
+  await walkDir(courseBasePath);
 
   filesByFolder.sort((a, b) => {
     if (a.relativePathForDisplay === '.') return -1;

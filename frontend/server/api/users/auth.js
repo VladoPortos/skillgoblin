@@ -4,6 +4,7 @@ import { verifyCredential, hashCredential } from '../../utils/credentials';
 import { createSession } from '../../utils/sessions';
 import { sessionCookieOpts, SESSION_COOKIE } from '../../middleware/session';
 import { checkRateLimit, recordFailure, recordSuccess } from '../../utils/rate-limit';
+import { getBoolSetting } from '../../utils/systemSettings';
 
 // A hash to verify-against when the user/credential lookup misses, so the
 // response time of "no such user" / "no password set" matches the time of
@@ -57,10 +58,7 @@ export default defineEventHandler(async (event) => {
 
     // Read the current PIN policy once; used for the needsCredentialUpdate
     // signal at the end of the handler.
-    const allowPinRow = db
-      .prepare("SELECT value FROM system_settings WHERE key = 'allow_pin'")
-      .get();
-    const allowPin = (allowPinRow?.value ?? 'true') === 'true';
+    const allowPin = getBoolSetting(db, 'allow_pin', true);
 
     if (!user) {
       // Mirror the response shape AND timing of the "wrong password" path so

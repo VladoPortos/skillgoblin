@@ -16,7 +16,7 @@
     <div class="relative">
       <div class="flex items-center space-x-1 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
         <span class="hidden sm:inline truncate max-w-[100px]" :title="user ? user.name : ''">
-          {{ user && user.name ? (user.name.length > 10 ? user.name.substring(0, 10) + '...' : user.name) : 'User' }}
+          {{ user && user.name ? user.name : 'User' }}
           <small v-if="isUserAdmin" class="text-yellow-400">(admin)</small>
         </span>
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -97,6 +97,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import { Beanhead } from 'beanheads-vue';
+import { isValidAvatarJson, parseAvatar } from '~/utils/avatar';
 
 const props = defineProps({
   user: {
@@ -119,25 +120,6 @@ const emit = defineEmits(['logout', 'delete', 'rescan', 'manage', 'admin']);
 
 const showUserMenu = ref(false);
 const dropdownMenu = ref(null);
-
-// Helper functions for avatar handling
-const isValidAvatarJson = (avatarString) => {
-  if (!avatarString) return false;
-  try {
-    JSON.parse(avatarString);
-    return true;
-  } catch (e) {
-    return false;
-  }
-};
-
-const parseAvatar = (avatarString) => {
-  try {
-    return JSON.parse(avatarString);
-  } catch (e) {
-    return {};
-  }
-};
 
 function toggleMenu() {
   showUserMenu.value = !showUserMenu.value;
@@ -182,12 +164,6 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', clickOutside);
 });
-
-// Debug logs
-// console.log('UserProfile - user object:', props.user);
-// console.log('Is root user?', props.user?.name === 'root' || props.user?.name === 'Root');
-// console.log('Admin flag value:', props.user?.isAdmin);
-// console.log('Is admin (computed)?', isUserAdmin.value);
 </script>
 
 <style scoped>

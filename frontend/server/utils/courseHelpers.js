@@ -2,7 +2,14 @@ import path from 'path';
 import { createError } from 'h3';
 
 // Content directory path
-export const getContentDir = () => path.resolve(process.cwd(), '/app/data/content');
+export const getContentDir = () => path.resolve(process.env.CONTENT_PATH || '/app/data/content');
+
+// Video extensions surfaced as lessons. Each entry has been empirically
+// verified to play in mainstream desktop browsers (Chrome/Edge) when served
+// with a `video/mp4` content-type — see /api/content/[...path].js. The
+// inner streams need to be browser-decodable (H.264 + AAC is the safe
+// baseline); exotic codecs in any container will still fail playback.
+export const VIDEO_EXTENSIONS = new Set(['.mp4', '.mkv', '.avi']);
 
 // Resolve a course folder name relative to the content directory and verify
 // the result stays inside the content root. Throws on traversal attempts,
@@ -71,16 +78,13 @@ export const naturalSort = (a, b, property = 'title') => {
   return aValue.localeCompare(bValue);
 };
 
-// Resolve a file path, handling Docker volume mounts
-export const resolveFilePath = (filePath) => {
-  if (filePath.startsWith('..')) {
-    // Handle relative path from Docker volume
-    return path.resolve(process.cwd(), filePath);
-  } else if (path.isAbsolute(filePath)) {
-    // Already absolute path
-    return filePath;
-  } else {
-    // Relative path to content dir
-    return path.join(getContentDir(), filePath);
+// Look up a course's folder_name by ID and resolve it to a directory on
+// disk. Throws a 404 when the course (or its folder_name) is missing and
+// propagates resolveCourseDir's 400 on invalid folder names.
+export function resolveCourseById(db, courseId, { notFoundMessage = 'Course not found' } = {}) {
+  const row = db.prepare('SELECT folder_name FROM courses WHERE id = ?').get(courseId);
+  if (!row || !row.folder_name) {
+    throw createError({ statusCode: 404, statusMessage: notFoundMessage });
   }
-};
+  return { folderName: row.folder_name, courseDir: resolveCourseDir(row.folder_name) };
+}

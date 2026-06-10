@@ -15,6 +15,7 @@
       </svg>
     </button>
     <button
+      v-if="showResetButton"
       @click="$emit('reset-progress')"
       class="rounded-full flex items-center justify-center w-9 h-9 sm:w-6 sm:h-6 bg-red-500 dark:bg-red-400 text-white"
       title="Reset progress"
@@ -28,7 +29,7 @@
 
 <script setup>
 // Props for the component
-const props = defineProps({
+defineProps({
   isCompleted: {
     type: Boolean,
     default: false
@@ -40,5 +41,5 @@ const props = defineProps({
 });
 
 // Define emitted events
-const emit = defineEmits(['toggle-completion', 'reset-progress']);
+defineEmits(['toggle-completion', 'reset-progress']);
 </script>

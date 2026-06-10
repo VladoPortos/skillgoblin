@@ -15,9 +15,7 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits } from 'vue';
-
-const props = defineProps({
+defineProps({
   /**
    * Array of tab objects to display
    * Each tab should have at least an id and name property

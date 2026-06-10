@@ -3,6 +3,7 @@ import path from 'path';
 import { defineEventHandler } from 'h3';
 import { getDb } from '../../utils/db';
 import { resolveCourseDir } from '../../utils/courseHelpers';
+import { buildCourseJsonPayload } from '../../utils/courseJsonOverride.js';
 import { requireAdmin } from '../../utils/authz';
 
 export default defineEventHandler((event) => {
@@ -32,12 +33,7 @@ export default defineEventHandler((event) => {
       continue;
     }
 
-    const payload = {
-      title: row.title || '',
-      description: row.description || '',
-      category: row.category || '',
-      releaseDate: row.release_date || '',
-    };
+    const payload = buildCourseJsonPayload(row);
 
     try {
       fs.writeFileSync(path.join(dir, 'course.json'), JSON.stringify(payload, null, 2) + '\n', 'utf8');

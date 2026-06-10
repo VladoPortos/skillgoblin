@@ -25,9 +25,7 @@
 </template>
 
 <script setup>
-import { defineProps, defineEmits } from 'vue';
-
-const props = defineProps({
+defineProps({
   /**
    * List of available categories to display as filter options
    */

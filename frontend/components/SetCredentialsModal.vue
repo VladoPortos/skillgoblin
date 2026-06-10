@@ -97,6 +97,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import PinInput from './ui/PinInput.vue';
+import { extractApiError } from '~/utils/apiError';
 
 // Two upgrade scenarios:
 //   mode="bootstrap"   — legacy account with neither password nor PIN.
@@ -215,9 +216,7 @@ async function onSubmit() {
       else errorMessage.value = 'Could not save credentials. Please try again.';
     }
   } catch (err) {
-    errorMessage.value =
-      err?.data?.statusMessage || err?.statusMessage || err?.message ||
-      'Could not save credentials.';
+    errorMessage.value = extractApiError(err, 'Could not save credentials.');
   } finally {
     submitting.value = false;
   }

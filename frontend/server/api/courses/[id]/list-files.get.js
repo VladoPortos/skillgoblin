@@ -1,6 +1,8 @@
 import { scanCourseFiles } from '../../../utils/fileScanner'; // Adjusted path
+import { requireAuth } from '../../../utils/authz';
 
 export default defineEventHandler(async (event) => {
+  requireAuth(event);
   const courseId = event.context.params.id;
 
   if (!courseId) {
