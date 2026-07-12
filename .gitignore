@@ -67,5 +67,6 @@ manual-test/
 # docs operators actually need.
 notes/
 docs/superpowers/
+.worktrees/
 # Course.json files written by the e2e fixture during test runs.
 frontend/tests/fixtures/content/**/course.json
