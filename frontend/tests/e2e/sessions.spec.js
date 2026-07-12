@@ -63,6 +63,32 @@ test.describe('session lifecycle', () => {
 });
 
 test.describe('authorization gates', () => {
+  test('course read APIs require a session', async () => {
+    const anonCtx = await freshContext();
+    for (const route of [
+      '/api/courses',
+      '/api/categories',
+      '/api/courses/not-a-real-course',
+      '/api/course-thumbnail/not-a-real-course',
+      '/api/content/not-a-real-course/video.mp4',
+    ]) {
+      const response = await anonCtx.get(route);
+      expect(response.status(), `${route} should reject anonymous requests`).toBe(401);
+    }
+
+    const admin = await getAdmin(anonCtx);
+    await anonCtx.post('/api/users/auth', {
+      data: { userId: admin.id, password: ADMIN_PASSWORD }
+    });
+    expect((await anonCtx.get('/api/courses')).status()).toBe(200);
+    expect((await anonCtx.get('/api/categories')).status()).toBe(200);
+    const thumbnail = await anonCtx.get('/api/course-thumbnail/not-a-real-course');
+    expect(thumbnail.status()).toBe(200);
+    expect(thumbnail.headers()['cache-control']).toContain('private');
+    expect((await anonCtx.get('/api/content/not-a-real-course/video.mp4')).status()).toBe(404);
+    await anonCtx.dispose();
+  });
+
   test('PUT /api/users requires a session', async () => {
     const ctx = await freshContext();
     const admin = await getAdmin(ctx);
@@ -168,6 +194,22 @@ test.describe('authorization gates', () => {
     expect(peek.status()).toBe(403);
     await userCtx.dispose();
     await ctx.dispose();
+  });
+});
+
+test.describe('user identity invariants', () => {
+  test('concurrent case-insensitive duplicate registration returns conflict', async () => {
+    const first = await freshContext();
+    const second = await freshContext();
+    const name = `Concurrent-${Date.now()}`;
+    const [a, b] = await Promise.all([
+      first.post('/api/users', { data: { name, password: 'password-a' } }),
+      second.post('/api/users', { data: { name: name.toLowerCase(), password: 'password-b' } }),
+    ]);
+
+    expect([a.status(), b.status()].sort((x, y) => x - y)).toEqual([200, 409]);
+    await first.dispose();
+    await second.dispose();
   });
 });
 

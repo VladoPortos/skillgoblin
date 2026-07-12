@@ -70,7 +70,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     // The private keys which are only available server-side
-    databasePath: process.env.DATABASE_PATH || '/app/data/database/database.sqlite',
+    databasePath: process.env.DATABASE_PATH || process.env.DB_PATH || '/app/data/database/database.sqlite',
     // Public keys that are exposed to the client
     public: {
       apiBase: '/api',

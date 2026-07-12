@@ -109,13 +109,13 @@ test.describe('thumbnail dropzone', () => {
       dt.items.add(new File(['x'], 'x.png', { type: 'image/png' }));
       dz.dispatchEvent(new DragEvent('dragenter', { bubbles: true, cancelable: true, dataTransfer: dt }));
     });
-    await expect(page.locator('[data-testid=thumbnail-dropzone]')).toHaveClass(/border-primary/);
+    await expect(page.locator('[data-testid=thumbnail-dropzone]')).toHaveClass(/(^|\s)border-primary-\d/);
 
     await page.evaluate(() => {
       const dz = document.querySelector('[data-testid=thumbnail-dropzone]');
       dz.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() }));
     });
-    await expect(page.locator('[data-testid=thumbnail-dropzone]')).not.toHaveClass(/border-primary/);
+    await expect(page.locator('[data-testid=thumbnail-dropzone]')).not.toHaveClass(/(^|\s)border-primary-\d/);
   });
 
   test('keyboard activates the file picker', async ({ page, request }) => {

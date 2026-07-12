@@ -118,8 +118,8 @@ The application reads the following environment variables:
 | `APP_DESCRIPTION` | No | `A streamlined, self-hosted learning platform` | Meta description tag and PWA manifest `description`. |
 | `APP_THEME_COLOR` | No | `#111827` | Mobile browser chrome bar color and PWA manifest `theme_color`. Hex `#RRGGBB` or `#RGB`; invalid values fall back to default and log a startup warning. NOTE: This is the browser-chrome color, not the in-app dark/light theme. |
 | `APP_BACKGROUND_COLOR` | No | `#111827` | PWA splash screen background. Same hex format as `APP_THEME_COLOR`. |
-| `CONTENT_DIR` | No | `/app/data/content` | Directory inside the container where course folders live. |
-| `DB_PATH` / `DATABASE_PATH` | No | `/app/data/database/skillgoblin.db` | Path to the SQLite database file. |
+| `CONTENT_DIR` / `CONTENT_PATH` | No | `/app/data/content` | Directory inside the container where course folders live. `CONTENT_PATH` is retained as a compatibility alias. |
+| `DB_PATH` / `DATABASE_PATH` | No | `/app/data/database/database.sqlite` | Path to the SQLite database file. `DATABASE_PATH` takes precedence when both are set. |
 | `CHOKIDAR_POLLING_INTERVAL` | No | `60000` | File watcher polling interval in milliseconds. Set to `0` to disable the watcher entirely (e.g. on Unraid, to stop drives spinning up). |
 | `HOST` | No | `0.0.0.0` | Bind address. |
 | `NEW_BADGE_DAYS` | No | `7` | How recent (in days) a course must be to render the `NEW` badge on its card. Set to `0` to disable the badge entirely. |
@@ -190,7 +190,7 @@ The 002_auth_hardening migration (run on first boot of this version) does the fo
 What you'll see depending on the prior state of your install:
 
 - **Plaintext passwords / PINs.** Detected on each user's next successful login and rehashed inline (argon2id). Users do not need to do anything — they just log in normally.
-- **Users with no credentials.** Boot prints a warning listing them; an admin must set a password or PIN for each from the admin panel before they can log in. Until then, those accounts simply don't appear as a valid login.
+- **Users with no credentials.** Boot prints a warning listing them. On the trusted LAN, the first visitor who selects one of these legacy profiles can set its initial password or PIN and claim it. If the wrong person claims an account, an admin can reset its credentials from the Admin Panel. Do not use this recovery flow on an untrusted network; see [Security model](#security-model).
 - **No admin user exists.** The server refuses to boot until you set `ADMIN_NAME` / `ADMIN_PASSWORD` (see [First-run bootstrap](#first-run-bootstrap)).
 - **An admin already exists.** Bootstrap is skipped and the env vars are ignored. You log in with your existing admin credentials.
 

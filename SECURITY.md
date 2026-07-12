@@ -35,6 +35,15 @@ Out of scope (or addressed by deployment, not the app):
 - Reports based on running the container with default test credentials (`ADMIN_NAME` / `ADMIN_PASSWORD` env-var bootstrap is documented as required first-run setup — leaving these as defaults is operator error, not a vulnerability).
 - Reports based on exposing the service to the public internet without a reverse proxy / authentication layer in front of it. The threat model assumes a trusted LAN.
 
+### Legacy credential-less accounts
+
+Upgraded installations can contain active accounts created by older releases
+without a password or PIN. Their first visitor may set a credential and claim
+the account because no prior secret exists to verify ownership. This recovery
+flow is retained for trusted-LAN deployments. If the wrong person claims an
+account, an administrator can reset its password or PIN from the Admin Panel.
+Do not rely on this flow on an untrusted network.
+
 ## Hall of fame
 
 When fixes ship, the commit message will credit the reporter (with permission) by name or handle. There is no bug bounty program.

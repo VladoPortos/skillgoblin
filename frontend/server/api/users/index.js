@@ -7,6 +7,11 @@ import { deleteUserSessions } from '../../utils/sessions';
 import { ensureNotLastAdmin } from '../../utils/lastAdminGuard';
 import { getBoolSetting } from '../../utils/systemSettings';
 
+function isUserNameConstraintError(error) {
+  return error?.code === 'SQLITE_CONSTRAINT_UNIQUE' &&
+    String(error.message).includes('users.name');
+}
+
 // /api/users
 //   GET  — list users for the login screen. Public.
 //   POST — create a new account. Public so the signup screen works; the
@@ -137,6 +142,9 @@ export default defineEventHandler(async (event) => {
       `).get(userId);
       return newUser;
     } catch (error) {
+      if (isUserNameConstraintError(error)) {
+        return createError({ statusCode: 409, statusMessage: 'A user with this name already exists' });
+      }
       console.error('Error creating user:', error);
       return createError({ statusCode: 500, statusMessage: 'Failed to create user' });
     }
@@ -322,6 +330,9 @@ export default defineEventHandler(async (event) => {
       // requireSelfOrAdmin / ensureNotLastAdmin throw h3 errors that we let
       // propagate as-is. Anything else gets a generic 500.
       if (error?.statusCode) throw error;
+      if (isUserNameConstraintError(error)) {
+        return createError({ statusCode: 409, statusMessage: 'A user with this name already exists' });
+      }
       console.error('Error updating user:', error);
       return createError({
         statusCode: 500,

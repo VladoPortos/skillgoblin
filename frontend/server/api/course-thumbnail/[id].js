@@ -1,8 +1,10 @@
 import { getDb } from '../../utils/db';
 import { defineEventHandler, createError, setResponseHeader } from 'h3';
 import { loadThumbnail } from '../../utils/thumbnailUtils';
+import { requireAuth } from '../../utils/authz';
 
 export default defineEventHandler(async (event) => {
+  requireAuth(event);
   try {
     // Get course ID from the URL
     const courseId = event.context.params.id;
@@ -21,12 +23,12 @@ export default defineEventHandler(async (event) => {
 
     // Add cache control headers
     if (cacheBuster) {
-      setResponseHeader(event, 'Cache-Control', 'public, max-age=31536000'); // Cache for a year
+      setResponseHeader(event, 'Cache-Control', 'private, max-age=31536000'); // Cache for a year
       setResponseHeader(event, 'ETag', `"${cacheBuster}"`);
     } else if (isPlaceholder) {
-      setResponseHeader(event, 'Cache-Control', 'no-cache');
+      setResponseHeader(event, 'Cache-Control', 'private, no-cache, must-revalidate');
     } else {
-      setResponseHeader(event, 'Cache-Control', 'public, max-age=3600'); // 1 hour
+      setResponseHeader(event, 'Cache-Control', 'private, max-age=3600'); // 1 hour
     }
 
     // Return the thumbnail data

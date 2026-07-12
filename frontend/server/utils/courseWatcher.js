@@ -3,7 +3,7 @@ import path from 'path';
 import chokidar from 'chokidar';
 import { getContentDir, generateCourseId } from './courseHelpers';
 import { generateCourseJson } from './courseGenerator';
-import { saveCourseToDb, removeCourseFromDb, getCoursesWithDirectories, getCourseCountFromDb } from './courseDatabase';
+import { saveCourseToDb, removeCourseFromDb, getCoursesWithDirectories } from './courseDatabase';
 import { getDb } from './db';
 import {
   readAndProcessThumbnail,
@@ -39,6 +39,15 @@ export const initialScanStatus = {
   error: null,
   preserveMetadata: true
 };
+
+export function topLevelCoursePath(contentDir, changedPath) {
+  const root = path.resolve(contentDir);
+  const candidate = path.resolve(changedPath);
+  const relative = path.relative(root, candidate);
+  if (!relative || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  const firstSegment = relative.split(path.sep)[0];
+  return firstSegment ? path.join(root, firstSegment) : null;
+}
 
 // Resolve the absolute path of a course's first video by walking the lesson
 // tree the generator produced. Used by the frame-extract thumbnail fallback
@@ -277,26 +286,6 @@ export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata
       return;
     }
 
-    // --- BEGIN MODIFICATION: Skip scan if DB is populated and not a forced rescan ---
-    if (!forceRescan) {
-      const courseCount = getCourseCountFromDb();
-      if (courseCount > 0) {
-        console.log(`Initial scan skipped; database already populated with ${courseCount} courses.`);
-        // Update initialScanStatus to reflect a completed (skipped) scan
-        initialScanStatus.inProgress = false;
-        initialScanStatus.complete = true;
-        initialScanStatus.startTime = initialScanStatus.startTime || Date.now(); // Keep existing start time if scan was previously attempted
-        initialScanStatus.endTime = Date.now();
-        initialScanStatus.totalCourses = courseCount;
-        initialScanStatus.processedCourses = courseCount; // All existing courses are considered 'processed'
-        initialScanStatus.error = null;
-        // initialScanStatus.preserveMetadata is not explicitly set here as it's a parameter for an active scan.
-        // Its existing value in initialScanStatus will persist, which is fine.
-        return true; // Indicate successful (skipped) scan
-      }
-    }
-    // --- END MODIFICATION ---
-
     // Set initial scan status for a full scan
     initialScanStatus.inProgress = true;
     initialScanStatus.complete = false;
@@ -372,10 +361,21 @@ const cleanupRemovedCourses = (existingCourseDirs) => {
   try {
     // Get all courses from the database with their directory names
     const coursesWithDirs = getCoursesWithDirectories();
+    const onDiskIds = new Set(existingCourseDirs.map(generateCourseId));
     
     // Check each course in the database
     for (const course of coursesWithDirs) {
       if (!existingCourseDirs.includes(course.folder_name)) {
+        // A different folder generating the same ID was rejected earlier in
+        // this scan. Keep the existing row and its progress until the
+        // operator resolves the ambiguous folder names; cleanup must not turn
+        // a safely rejected collision into data loss.
+        if (onDiskIds.has(course.id)) {
+          console.warn(
+            `Keeping missing course folder "${course.folder_name}" because an on-disk folder collides with ID "${course.id}".`
+          );
+          continue;
+        }
         console.log(`Removing deleted course from database: ${course.folder_name}`);
         removeCourseFromDb(course.folder_name);
       }
@@ -397,40 +397,46 @@ export const setupFileWatcher = (pollingInterval = 60000) => {
     const contentDir = getContentDir();
     console.log(`Setting up course watcher on: ${contentDir}`);
 
-    // Only watch for directory additions and removals at the top level
+    // Watch nested course changes and debounce them by top-level course.
     const watcher = chokidar.watch(contentDir, {
       ignored: /(^|[\/\\])\../, // Ignore dotfiles
       persistent: true,
-      depth: 0, // Only watch top-level directories
       ignoreInitial: true,
       usePolling: true, // Enable polling for reliability in Docker
       interval: pollingInterval // Use configured interval
     });
 
-    // Handle directory additions
-    watcher.on('addDir', dirPath => {
-      // Only process top-level directories in the content folder
-      if (dirPath !== contentDir && path.dirname(dirPath) === contentDir) {
-        console.log(`New course directory detected: ${dirPath}`);
-        clearTimeout(pendingAddDirTimers.get(dirPath));
-        pendingAddDirTimers.set(dirPath, setTimeout(() => {
-          pendingAddDirTimers.delete(dirPath);
-          processCourseDirectory(dirPath).catch(error => {
-            console.error(`Error processing course directory ${dirPath}:`, error);
+    const scheduleRescan = (changedPath) => {
+      const coursePath = topLevelCoursePath(contentDir, changedPath);
+      if (!coursePath) return;
+      clearTimeout(pendingAddDirTimers.get(coursePath));
+      pendingAddDirTimers.set(coursePath, setTimeout(() => {
+        pendingAddDirTimers.delete(coursePath);
+        fs.promises.access(coursePath)
+          .then(async () => {
+            const courseId = generateCourseId(path.basename(coursePath));
+            const existing = getDb().prepare(`
+              SELECT id, title, description, category, release_date, folder_name, thumbnail_data
+              FROM courses WHERE id = ?
+            `).all(courseId);
+            if (existing.length > 0) {
+              await processCourseDirWithMetadataPreservation(coursePath, existing);
+            } else {
+              await processCourseDirectory(coursePath);
+            }
+          })
+          .catch(error => {
+            if (error?.code === 'ENOENT') handleCourseDirectoryRemoval(coursePath);
+            else console.error(`Error processing course directory ${coursePath}:`, error);
           });
-        }, ADD_DIR_DEBOUNCE_MS));
-      }
-    });
+      }, ADD_DIR_DEBOUNCE_MS));
+    };
 
-    // Handle directory removals
-    watcher.on('unlinkDir', dirPath => {
-      if (dirPath !== contentDir && path.dirname(dirPath) === contentDir) {
-        console.log(`Course directory removed: ${dirPath}`);
-        clearTimeout(pendingAddDirTimers.get(dirPath));
-        pendingAddDirTimers.delete(dirPath);
-        handleCourseDirectoryRemoval(dirPath);
-      }
-    });
+    watcher.on('add', scheduleRescan);
+    watcher.on('change', scheduleRescan);
+    watcher.on('unlink', scheduleRescan);
+    watcher.on('addDir', scheduleRescan);
+    watcher.on('unlinkDir', scheduleRescan);
 
     // Handle errors
     watcher.on('error', error => {

@@ -7,8 +7,10 @@ import fs from 'fs';
 import { generateCourseId, getContentDir } from '../../utils/courseHelpers';
 import { generateCourseJson } from '../../utils/courseGenerator';
 import { saveCourseToDb } from '../../utils/courseDatabase';
+import { requireAuth } from '../../utils/authz';
 
 export default defineEventHandler(async (event) => {
+  requireAuth(event);
   const method = getMethod(event);
   const courseId = event.context.params.id;
   const contentDir = getContentDir();

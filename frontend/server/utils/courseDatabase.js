@@ -2,12 +2,18 @@ import { getDb } from './db';
 
 // Function to save course data to the database (called during scan/generation)
 // This should only update metadata, not thumbnail blob data.
-export const saveCourseToDb = (courseData, folderName) => {
+export const saveCourseToDb = (courseData, folderName, dbInstance = null) => {
   try {
-    const db = getDb();
+    const db = dbInstance || getDb();
 
     // Check if course already exists in database
-    const existingCourse = db.prepare('SELECT id FROM courses WHERE id = ?').get(courseData.id); // Only need ID to check existence
+    const existingCourse = db.prepare('SELECT id, folder_name FROM courses WHERE id = ?').get(courseData.id);
+
+    if (existingCourse && existingCourse.folder_name !== folderName) {
+      return {
+        error: `Course ID collision: "${folderName}" and "${existingCourse.folder_name}" both map to "${courseData.id}"`
+      };
+    }
 
     if (existingCourse) {
       // Update existing course metadata (DO NOT TOUCH thumbnail_data here)

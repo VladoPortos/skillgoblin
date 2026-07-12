@@ -5,11 +5,9 @@ import zlib from 'zlib';
 import { getDb } from '../../utils/db'; // Added for database access
 import { getContentDir, generateCourseId, resolveCourseById, resolveCourseDir, resolvePathInCourse, VIDEO_EXTENSIONS } from '../../utils/courseHelpers';
 import { loadThumbnail } from '../../utils/thumbnailUtils';
+import { parseSingleByteRange } from '../../utils/httpRange.js';
+import { requireAuth } from '../../utils/authz.js';
 
-// Cache to store open file handles and their last access time
-const fileHandleCache = new Map();
-const FILE_CACHE_TTL = 60 * 1000; // 1 minute TTL for file handles
-const MAX_CACHED_FILES = 30; // Increased from 20 to 30
 const MAX_CHUNK_SIZE = 2 * 1024 * 1024; // 2MB maximum chunk size
 
 // Content chunk cache for faster delivery of frequently accessed chunks
@@ -27,14 +25,6 @@ const MAX_CACHED_THUMBNAILS = 50; // Maximum number of thumbnails to keep in cac
 setInterval(() => {
   const now = Date.now();
   
-  // Clean file handles
-  for (const [filePath, { handle, lastAccessed }] of fileHandleCache.entries()) {
-    if (now - lastAccessed > FILE_CACHE_TTL) {
-      handle.close();
-      fileHandleCache.delete(filePath);
-    }
-  }
-  
   // Clean content chunks
   for (const [chunkKey, { lastAccessed }] of contentChunkCache.entries()) {
     if (now - lastAccessed > CHUNK_CACHE_TTL) {
@@ -49,39 +39,6 @@ setInterval(() => {
     }
   }
 }, 30 * 1000).unref(); // Check every 30 seconds
-
-// Get a file handle from cache or create a new one
-const getFileHandle = async (filePath) => {
-  if (fileHandleCache.has(filePath)) {
-    const cache = fileHandleCache.get(filePath);
-    cache.lastAccessed = Date.now();
-    return cache.handle;
-  }
-
-  // If we've reached the max cached files, remove the oldest one
-  if (fileHandleCache.size >= MAX_CACHED_FILES) {
-    let oldestPath = null;
-    let oldestTime = Infinity;
-    
-    for (const [path, { lastAccessed }] of fileHandleCache.entries()) {
-      if (lastAccessed < oldestTime) {
-        oldestTime = lastAccessed;
-        oldestPath = path;
-      }
-    }
-    
-    if (oldestPath) {
-      const { handle } = fileHandleCache.get(oldestPath);
-      handle.close();
-      fileHandleCache.delete(oldestPath);
-    }
-  }
-
-  // Open a new file handle
-  const handle = await fs.promises.open(filePath, 'r');
-  fileHandleCache.set(filePath, { handle, lastAccessed: Date.now() });
-  return handle;
-};
 
 // Get content chunk from cache or read from file
 const getContentChunk = async (filePath, start, end) => {
@@ -115,9 +72,15 @@ const getContentChunk = async (filePath, start, end) => {
   }
   
   // Read the content chunk
-  const handle = await getFileHandle(filePath);
-  const buffer = Buffer.alloc(chunkSize);
-  await handle.read(buffer, 0, chunkSize, start);
+  const handle = await fs.promises.open(filePath, 'r');
+  let buffer;
+  try {
+    buffer = Buffer.alloc(chunkSize);
+    const { bytesRead } = await handle.read(buffer, 0, chunkSize, start);
+    buffer = buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
   
   // Store in cache if not too large
   if (chunkSize <= MAX_CACHED_CHUNK_SIZE) {
@@ -170,6 +133,7 @@ const shouldCompress = (req, contentType) => {
 };
 
 export default defineEventHandler(async (event) => {
+  requireAuth(event);
   let fileStream = null;
   const db = getDb(); // Get DB connection instance
   
@@ -202,7 +166,7 @@ export default defineEventHandler(async (event) => {
         setResponseHeader(event, 'Content-Type', 'image/png');
         setResponseHeader(event, 'Content-Length', cachedThumbnail.data.length);
         // Use no-cache for thumbnails to ensure revalidation
-        setResponseHeader(event, 'Cache-Control', 'no-cache, must-revalidate');
+        setResponseHeader(event, 'Cache-Control', 'private, no-cache, must-revalidate');
         setResponseHeader(event, 'Pragma', 'no-cache');
         setResponseHeader(event, 'Expires', '0');
         setResponseHeader(event, 'X-Content-Source', 'Cache');
@@ -233,7 +197,7 @@ export default defineEventHandler(async (event) => {
       setResponseHeader(event, 'Content-Type', 'image/png');
       setResponseHeader(event, 'Content-Length', dataToServe.length);
       // Use no-cache for thumbnails to ensure revalidation
-      setResponseHeader(event, 'Cache-Control', 'no-cache, must-revalidate');
+      setResponseHeader(event, 'Cache-Control', 'private, no-cache, must-revalidate');
       setResponseHeader(event, 'Pragma', 'no-cache');
       setResponseHeader(event, 'Expires', '0');
       setResponseHeader(event, 'X-Content-Source', isPlaceholder ? 'Placeholder' : 'Database');
@@ -303,7 +267,7 @@ export default defineEventHandler(async (event) => {
         const vttBuffer = await convertSrtFileToVtt(srtCandidate, fs);
         setResponseHeader(event, 'Content-Type', 'text/vtt; charset=utf-8');
         setResponseHeader(event, 'Content-Length', vttBuffer.length);
-        setResponseHeader(event, 'Cache-Control', 'public, max-age=600');
+        setResponseHeader(event, 'Cache-Control', 'private, max-age=600');
         return vttBuffer;
       } catch (err) {
         if (err && err.code === 'ENOENT') {
@@ -365,19 +329,18 @@ export default defineEventHandler(async (event) => {
       setResponseHeader(event, 'Accept-Ranges', 'bytes');
       
       // Add caching headers for videos
-      setResponseHeader(event, 'Cache-Control', 'public, max-age=3600'); // 1 hour cache
+      setResponseHeader(event, 'Cache-Control', 'private, max-age=3600'); // 1 hour cache
       
       const range = getRequestHeaders(event).range;
       
       // If range header exists
       if (range) {
-        const parts = range.replace(/bytes=/, '').split('-');
-        const start = parseInt(parts[0], 10);
-        
-        // Calculate end position with chunk size limitation
-        const requestedEnd = parts[1] ? parseInt(parts[1], 10) : stats.size - 1;
-        const maxEnd = Math.min(start + MAX_CHUNK_SIZE - 1, stats.size - 1);
-        const end = Math.min(requestedEnd, maxEnd);
+        const parsedRange = parseSingleByteRange(range, stats.size, MAX_CHUNK_SIZE);
+        if (!parsedRange) {
+          setResponseHeader(event, 'Content-Range', `bytes */${stats.size}`);
+          throw createError({ statusCode: 416, statusMessage: 'Range Not Satisfiable' });
+        }
+        const { start, end } = parsedRange;
         
         const chunkSize = (end - start) + 1;
 
@@ -427,15 +390,15 @@ export default defineEventHandler(async (event) => {
         // Check if this is a thumbnail.png file - if so, prevent caching
         if (path.basename(filePath) === 'thumbnail.png') {
           // No caching for thumbnails
-          setResponseHeader(event, 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+          setResponseHeader(event, 'Cache-Control', 'private, no-store, no-cache, must-revalidate, max-age=0');
           setResponseHeader(event, 'Pragma', 'no-cache');
           setResponseHeader(event, 'Expires', '0');
         } else {
           // Regular caching for other images
-          setResponseHeader(event, 'Cache-Control', 'public, max-age=86400'); // 24 hours
+          setResponseHeader(event, 'Cache-Control', 'private, max-age=86400'); // 24 hours
         }
       } else if (['.js', '.css'].includes(ext)) {
-        setResponseHeader(event, 'Cache-Control', 'public, max-age=3600'); // 1 hour
+        setResponseHeader(event, 'Cache-Control', 'private, max-age=3600'); // 1 hour
       }
       
       // Apply compression if appropriate

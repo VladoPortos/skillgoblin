@@ -43,6 +43,7 @@ test.describe('recently-added discovery', () => {
   });
 
   test('the API returns isNew booleans on every item', async ({ request }) => {
+    await loginAdmin(request);
     const r = await request.get('/api/courses?limit=20');
     expect(r.ok()).toBeTruthy();
     const body = await r.json();
@@ -54,6 +55,7 @@ test.describe('recently-added discovery', () => {
   });
 
   test('newly-scanned fixture course is flagged isNew', async ({ request }) => {
+    await loginAdmin(request);
     const r = await request.get('/api/courses?limit=20');
     const body = await r.json();
     // The fixture was just scanned, so its created_at is "now-ish" and the

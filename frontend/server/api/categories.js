@@ -1,7 +1,9 @@
 import { defineEventHandler, createError } from 'h3';
 import { getDb } from '../utils/db';
+import { requireAuth } from '../utils/authz.js';
 
 export default defineEventHandler(async (event) => {
+  requireAuth(event);
   const db = getDb();
   
   // Get all courses

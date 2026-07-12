@@ -112,7 +112,7 @@ test.describe('bootstrap-credentials (legacy no-creds users)', () => {
     await ctx.dispose();
   });
 
-  test('refuses if the account is inactive (admin must approve first)', async () => {
+  test('already-credentialed inactive account is rejected before the activation check', async () => {
     const ctx = await freshContext();
     const create = await ctx.post('/api/users', {
       data: { name: `inactive-${Date.now()}`, password: 'realpass1234' }

@@ -11,6 +11,8 @@ services:
     environment:
       - HOST=0.0.0.0
       - PORT=3000
+      - ADMIN_NAME=${ADMIN_NAME:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - CHOKIDAR_POLLING_INTERVAL=60000 # Default polling interval in ms (60 seconds)
     ports:
       - "3000:3000"

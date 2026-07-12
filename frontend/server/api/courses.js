@@ -1,11 +1,13 @@
 import { defineEventHandler, getMethod, createError } from 'h3';
 import { getAllCoursesWithMeta } from '../utils/courseDatabase';
 import { parseNewBadgeDays, isWithinNewWindow } from '../utils/recencyHelpers.js';
+import { requireAuth } from '../utils/authz.js';
 
 const MAX_PAGE_SIZE = 100;
 
 // Main API handler
 export default defineEventHandler(async (event) => {
+  requireAuth(event);
   const method = getMethod(event);
 
   // GET - Retrieve all courses

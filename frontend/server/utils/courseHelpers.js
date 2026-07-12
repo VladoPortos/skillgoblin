@@ -2,7 +2,9 @@ import path from 'path';
 import { createError } from 'h3';
 
 // Content directory path
-export const getContentDir = () => path.resolve(process.env.CONTENT_PATH || '/app/data/content');
+export const getContentDir = () => path.resolve(
+  process.env.CONTENT_DIR || process.env.CONTENT_PATH || '/app/data/content'
+);
 
 // Video extensions surfaced as lessons. Each entry has been empirically
 // verified to play in mainstream desktop browsers (Chrome/Edge) when served
