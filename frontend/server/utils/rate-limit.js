@@ -11,10 +11,17 @@
 // Single-process by design. The app runs as one Nitro process per
 // container; there's no cluster mode to worry about.
 
-const FAIL_THRESHOLD = 5;          // first lockout after this many fails in a row
+export const FAIL_THRESHOLD = 5;          // first lockout after this many fails in a row
 const BASE_LOCKOUT_MS = 30 * 1000; // 30 seconds
 const MAX_LOCKOUT_MS = 30 * 60 * 1000; // cap at 30 minutes
 const STALE_AFTER_MS = 24 * 60 * 60 * 1000; // GC entries that haven't been touched in 24h
+
+// Account-wide threshold (see auth handler). Deliberately higher than the
+// per-(user,ip) threshold: it aggregates every IP hitting one account, so it
+// must tolerate a few devices fat-fingering a PIN before it engages, while
+// still bounding a distributed / IP-rotating brute-force that slips past the
+// per-IP bucket.
+export const ACCOUNT_FAIL_THRESHOLD = 20;
 
 const buckets = new Map();
 let lastGcAt = 0;
@@ -28,9 +35,9 @@ function gcIfDue(now) {
   }
 }
 
-function lockoutDuration(failCount) {
-  if (failCount < FAIL_THRESHOLD) return 0;
-  const exp = failCount - FAIL_THRESHOLD;
+function lockoutDuration(failCount, threshold) {
+  if (failCount < threshold) return 0;
+  const exp = failCount - threshold;
   const dur = BASE_LOCKOUT_MS * Math.pow(2, exp);
   return Math.min(dur, MAX_LOCKOUT_MS);
 }
@@ -52,13 +59,15 @@ export function checkRateLimit(key, { now = Date.now() } = {}) {
   return { allowed: true };
 }
 
-// Call after a failed login attempt.
-export function recordFailure(key, { now = Date.now() } = {}) {
+// Call after a failed login attempt. `threshold` lets a caller run a second
+// bucket (e.g. account-wide) with a laxer lockout point than the default
+// per-(user,ip) bucket.
+export function recordFailure(key, { now = Date.now(), threshold = FAIL_THRESHOLD } = {}) {
   gcIfDue(now);
   const b = buckets.get(key) || { failCount: 0, lockedUntil: 0, lastSeen: now };
   b.failCount += 1;
   b.lastSeen = now;
-  const dur = lockoutDuration(b.failCount);
+  const dur = lockoutDuration(b.failCount, threshold);
   if (dur > 0) b.lockedUntil = now + dur;
   buckets.set(key, b);
 }

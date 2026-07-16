@@ -3,6 +3,7 @@ import busboy from 'busboy';
 import fs from 'fs';
 import path from 'path';
 import { getCourseRootPath, processThumbnailBuffer } from '../../utils/thumbnailUtils';
+import { writeFileNoFollow } from '../../utils/courseHelpers';
 import { requireAdmin } from '../../utils/authz';
 
 export default defineEventHandler(async (event) => {
@@ -167,7 +168,7 @@ export default defineEventHandler(async (event) => {
         const localThumbnailPath = path.join(courseRoot, thumbnailFilename);
         try {
           fs.mkdirSync(courseRoot, { recursive: true });
-          fs.writeFileSync(localThumbnailPath, thumbnailBuffer);
+          writeFileNoFollow(localThumbnailPath, thumbnailBuffer);
         } catch (error) {
           console.error('Error saving thumbnail to filesystem:', error);
         }

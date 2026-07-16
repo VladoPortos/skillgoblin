@@ -26,6 +26,13 @@ export default defineEventHandler(async (event) => {
     if (!user) {
       return createError({ statusCode: 404, statusMessage: 'User not found' });
     }
+    // Anonymous callers (the pre-login credential-routing fetch) get name,
+    // avatar and credential-presence flags but NOT isAdmin — don't reveal which
+    // account is the administrator to an unauthenticated visitor.
+    if (!event.context.user) {
+      const { isAdmin, ...safe } = user;
+      return safe;
+    }
     return user;
   } catch (error) {
     console.error('Error fetching user:', error);

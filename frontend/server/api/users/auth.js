@@ -1,9 +1,10 @@
-import { defineEventHandler, readBody, createError, setCookie, getRequestIP } from 'h3';
+import { defineEventHandler, readBody, createError, setCookie } from 'h3';
 import { getDb } from '../../utils/db';
 import { verifyCredential, hashCredential } from '../../utils/credentials';
 import { createSession } from '../../utils/sessions';
 import { sessionCookieOpts, SESSION_COOKIE } from '../../middleware/session';
-import { checkRateLimit, recordFailure, recordSuccess } from '../../utils/rate-limit';
+import { checkRateLimit, recordFailure, recordSuccess, ACCOUNT_FAIL_THRESHOLD } from '../../utils/rate-limit';
+import { getClientIp } from '../../utils/requestIp';
 import { getBoolSetting } from '../../utils/systemSettings';
 
 // A hash to verify-against when the user/credential lookup misses, so the
@@ -38,18 +39,35 @@ export default defineEventHandler(async (event) => {
       return createError({ statusCode: 400, statusMessage: 'User ID is required' });
     }
 
-    // Rate limit per (userId, ip). The bucket is shared across password
-    // and PIN attempts — five wrong attempts in any combination locks the
-    // pair out for a while.
-    const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
-    const rlKey = `auth:${userId}:${ip}`;
-    const rl = checkRateLimit(rlKey);
-    if (!rl.allowed) {
+    // Rate limit on two buckets:
+    //   - per (userId, ip): five wrong attempts (password/PIN combined) lock
+    //     the pair out, exponential backoff.
+    //   - per userId (account-wide): survives IP rotation, so an attacker who
+    //     spoofs a fresh X-Forwarded-For each request (or comes from a botnet)
+    //     still trips a lockout after ACCOUNT_FAIL_THRESHOLD total failures.
+    // The IP itself comes from getClientIp(), which does NOT trust
+    // client-supplied X-Forwarded-For unless the operator opts in via
+    // TRUST_PROXY_HOPS — closing the header-spoof bypass.
+    const ip = getClientIp(event);
+    const ipKey = `auth:${userId}:${ip}`;
+    const acctKey = `auth-acct:${userId}`;
+    const rlIp = checkRateLimit(ipKey);
+    const rlAcct = checkRateLimit(acctKey);
+    if (!rlIp.allowed || !rlAcct.allowed) {
+      const retryAfterSeconds = Math.max(rlIp.retryAfterSeconds || 0, rlAcct.retryAfterSeconds || 0);
       return createError({
         statusCode: 429,
-        statusMessage: `Too many failed attempts. Try again in ${rl.retryAfterSeconds}s.`
+        statusMessage: `Too many failed attempts. Try again in ${retryAfterSeconds}s.`
       });
     }
+    const recordAuthFailure = () => {
+      recordFailure(ipKey);
+      recordFailure(acctKey, { threshold: ACCOUNT_FAIL_THRESHOLD });
+    };
+    const recordAuthSuccess = () => {
+      recordSuccess(ipKey);
+      recordSuccess(acctKey);
+    };
 
     const db = getDb();
     const user = db
@@ -64,7 +82,7 @@ export default defineEventHandler(async (event) => {
       // Mirror the response shape AND timing of the "wrong password" path so
       // we don't leak user existence via response shape OR response time.
       await verifyCredential(password || pin || 'x', await getDummyHash());
-      recordFailure(rlKey);
+      recordAuthFailure();
       return { success: false, message: 'Invalid credentials' };
     }
 
@@ -79,7 +97,7 @@ export default defineEventHandler(async (event) => {
     }
 
     if (!password && !pin) {
-      recordFailure(rlKey);
+      recordAuthFailure();
       return { success: false, message: 'Invalid credentials' };
     }
 
@@ -113,19 +131,34 @@ export default defineEventHandler(async (event) => {
     }
 
     if (!matched) {
-      recordFailure(rlKey);
+      recordAuthFailure();
       return { success: false, message: 'Invalid credentials' };
     }
 
     // Best-effort inline migration: if the value matched but is still
-    // plaintext, rewrite it as an argon2 hash. Failure here must NOT
-    // block login — it just means the next login will retry.
+    // plaintext, rewrite it as an argon2 hash. Failure to *hash* must NOT
+    // block login — the next login will retry. But the write is a
+    // compare-and-swap against the exact legacy value we verified: if an
+    // admin reset the credential while we were hashing, the swap affects zero
+    // rows, meaning the credential we authenticated with is no longer current.
+    // In that case we refuse to issue a session rather than clobber the reset
+    // and hand out access after the admin's session revocation.
     if (needsRehash) {
+      const column = matched === 'password' ? 'password' : 'pin';
+      const verifiedValue = matched === 'password' ? user.password : user.pin;
       try {
         const fresh = await hashCredential(matched === 'password' ? password : pin);
-        const column = matched === 'password' ? 'password' : 'pin';
-        db.prepare(`UPDATE users SET ${column} = ? WHERE id = ?`).run(fresh, userId);
+        const res = db
+          .prepare(`UPDATE users SET ${column} = ? WHERE id = ? AND ${column} = ?`)
+          .run(fresh, userId, verifiedValue);
+        if (res.changes !== 1) {
+          console.warn(`[auth] credential changed mid-login for ${userId}; refusing session`);
+          recordAuthFailure();
+          return { success: false, message: 'Invalid credentials' };
+        }
       } catch (err) {
+        // Hashing/storage itself failed — nothing was overwritten, so the
+        // reset race does not apply; let the login proceed and retry later.
         console.warn(`[auth] inline rehash failed for ${userId}:`, err.message);
       }
     }
@@ -134,7 +167,7 @@ export default defineEventHandler(async (event) => {
     const userAgent = event.node.req.headers['user-agent'] || null;
     const { token, expiresAt } = createSession(db, userId, { userAgent });
     setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
-    recordSuccess(rlKey);
+    recordAuthSuccess();
 
     // Surface "you should add a password" prompts to the client. We do NOT
     // refuse the login — the user gets in but the UI walks them through

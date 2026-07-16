@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { getDb } from '../../../utils/db';
-import { resolveCourseById, resolvePathInCourse } from '../../../utils/courseHelpers';
+import { resolveCourseById, resolvePathInCourse, assertResolvedInside } from '../../../utils/courseHelpers';
 import { requireAuth } from '../../../utils/authz';
 import { sendStream } from 'h3';
 
@@ -30,6 +30,10 @@ export default defineEventHandler(async (event) => {
   if (!fs.existsSync(absoluteFilePath)) {
     throw createError({ statusCode: 404, statusMessage: 'File not found.' });
   }
+
+  // Symlink-safe: reject a file that resolves outside the course root even
+  // though its lexical path is inside (a symlinked component).
+  assertResolvedInside(courseBasePath, absoluteFilePath);
 
   const stat = fs.statSync(absoluteFilePath);
   if (!stat.isFile()) {

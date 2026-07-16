@@ -37,12 +37,37 @@ Out of scope (or addressed by deployment, not the app):
 
 ### Legacy credential-less accounts
 
-Upgraded installations can contain active accounts created by older releases
-without a password or PIN. Their first visitor may set a credential and claim
-the account because no prior secret exists to verify ownership. This recovery
-flow is retained for trusted-LAN deployments. If the wrong person claims an
-account, an administrator can reset its password or PIN from the Admin Panel.
-Do not rely on this flow on an untrusted network.
+Upgraded installations can contain active **non-admin** accounts created by
+older releases without a password or PIN. Their first visitor may set a
+credential and claim the account because no prior secret exists to verify
+ownership. This recovery flow is retained for trusted-LAN deployments and is
+hardened as follows:
+
+- **Admin accounts are never claimable this way.** A credential-less admin
+  (possible after upgrading from a pre-auth-hardening release) is refused by
+  the self-claim endpoint; only another administrator can set its credentials
+  from the Admin Panel. This closes the unauthenticated admin-takeover path.
+- **Claiming is atomic.** A compare-and-swap ensures only one racing request
+  can ever claim a given account; the loser gets a 409 and no session.
+
+If the wrong person claims a *non-admin* account, an administrator can reset
+its password or PIN from the Admin Panel. Do not rely on this flow on an
+untrusted network.
+
+## Deployment hardening
+
+The defaults suit a plain-HTTP trusted LAN. When exposing the service through
+a reverse proxy (or to a less-trusted network), set these so the app's
+defenses line up with your topology:
+
+| Env var | Default | When to set |
+|---------|---------|-------------|
+| `TRUST_PROXY_HOPS` | `0` (ignore `X-Forwarded-For`) | Set to the number of **trusted** reverse proxies in front of the app so login rate-limiting keys on the real client IP instead of a spoofable header. With `0`, a client-supplied `X-Forwarded-For` is ignored and the transport peer is used — safe, but every request behind a proxy shares one IP bucket. |
+| `COOKIE_SECURE` | auto-detect | Set to `true` when TLS is terminated by a proxy that does **not** forward `X-Forwarded-Proto=https` (otherwise the session cookie may be issued without the `Secure` flag). `false` forces it off for an intentional plain-HTTP LAN. |
+
+The app also caps request bodies (256 KiB for JSON APIs) to blunt memory-
+exhaustion attempts. As defense in depth, configure a body-size limit at your
+reverse proxy too (e.g. nginx `client_max_body_size`).
 
 ## Hall of fame
 

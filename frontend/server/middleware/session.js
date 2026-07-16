@@ -79,6 +79,16 @@ export function sessionCookieOpts(event, expiresAtMs) {
 }
 
 function isSecureRequest(event) {
+  // Explicit operator override. A reverse proxy that terminates TLS but does
+  // NOT forward X-Forwarded-Proto would otherwise leave the 30-day session
+  // cookie without the Secure attribute (eligible to leak over plaintext).
+  // COOKIE_SECURE=true forces Secure on; COOKIE_SECURE=false is the escape
+  // hatch for an intentional plain-HTTP LAN deployment. Unset/auto keeps the
+  // request-scheme detection below so HTTP-LAN logins are not broken by default.
+  const override = (process.env.COOKIE_SECURE || '').trim().toLowerCase();
+  if (override === 'true') return true;
+  if (override === 'false') return false;
+
   // Direct TLS termination → req.encrypted is true on the underlying socket.
   if (event.node.req.socket?.encrypted) return true;
   // Behind a reverse proxy: trust the standard forwarded header.

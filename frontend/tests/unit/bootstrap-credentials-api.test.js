@@ -23,13 +23,13 @@ afterAll(async () => {
   await new Promise(resolve => server.close(resolve));
 });
 
-function insertLegacyUser({ active }) {
+function insertLegacyUser({ active, admin = false }) {
   const id = uuidv4();
   createdIds.push(id);
   getDb().prepare(`
     INSERT INTO users (id, name, password, pin, isAdmin, is_active)
-    VALUES (?, ?, NULL, NULL, 0, ?)
-  `).run(id, `legacy-${id}`, active ? 1 : 0);
+    VALUES (?, ?, NULL, NULL, ?, ?)
+  `).run(id, `legacy-${id}`, admin ? 1 : 0, active ? 1 : 0);
   return id;
 }
 
@@ -56,5 +56,15 @@ describe('legacy credential first claim', () => {
   it('refuses an inactive credential-less user', async () => {
     const userId = insertLegacyUser({ active: false });
     expect((await claim(userId)).status).toBe(403);
+  });
+
+  it('refuses to claim a credential-less ADMIN account (no unauth admin takeover)', async () => {
+    const adminId = insertLegacyUser({ active: true, admin: true });
+    const res = await claim(adminId);
+    expect(res.status).toBe(403);
+    // The account must remain credential-less: the claim must not have written.
+    const row = getDb().prepare('SELECT password, pin FROM users WHERE id = ?').get(adminId);
+    expect(row.password).toBeNull();
+    expect(row.pin).toBeNull();
   });
 });
