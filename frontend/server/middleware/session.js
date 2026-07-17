@@ -25,22 +25,30 @@ import {
 // refresh on the same response would mix Set-Cookie with a publicly-cacheable
 // payload — unsafe behind any shared cache/CDN that could serve another
 // user's cookie. Skipping the middleware keeps those responses cookie-free.
-const SKIP_PATH_PREFIXES = [
+// Public API endpoints — matched EXACTLY (a trailing query string is allowed).
+// Using exact match, not startsWith, so a future route such as
+// /api/logo-uploader can never silently inherit this auth-skip.
+const SKIP_EXACT = new Set([
   '/api/random-banner',
   '/api/logo',
   '/api/login-banner',
-  '/api/webmanifest',
+  '/api/webmanifest'
+]);
+
+// Static asset directories — genuine prefixes (they name a path segment).
+const SKIP_PREFIXES = [
   '/_nuxt/',
-  '/favicon',
   '/banners/',
   '/images/',
-  '/logos/'
+  '/logos/',
+  '/favicon'
 ];
 
 export default defineEventHandler(async (event) => {
-  const url = event.node.req.url || '';
-  for (const prefix of SKIP_PATH_PREFIXES) {
-    if (url.startsWith(prefix)) return;
+  const pathname = (event.node.req.url || '').split('?')[0];
+  if (SKIP_EXACT.has(pathname)) return;
+  for (const prefix of SKIP_PREFIXES) {
+    if (pathname.startsWith(prefix)) return;
   }
 
   const token = getCookie(event, SESSION_COOKIE);

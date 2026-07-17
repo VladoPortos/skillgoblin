@@ -34,12 +34,14 @@ export default defineEventHandler(async (event) => {
         FROM users
         ORDER BY created_at DESC
       `).all();
-      // The login picker (unauthenticated) only needs id/name/avatar; it fetches
-      // credential state per-user on selection. Do NOT hand anonymous callers
-      // the isAdmin flag — it tells an attacker exactly which account to target
-      // for takeover. Authenticated callers (admin panel) still get it.
+      // The login picker (unauthenticated) needs isAdmin (to detect first-run /
+      // draw the admin badge) and id/name/avatar. It does NOT read the
+      // credential-presence flags from this list — those are fetched per-user on
+      // selection. So don't bulk-expose has_password / has_pin to anonymous
+      // callers: that map of "which accounts have weak/no credentials" is pure
+      // reconnaissance. Authenticated callers (admin panel) still get everything.
       const authed = !!event.context.user;
-      return authed ? rows : rows.map(({ isAdmin, ...rest }) => rest);
+      return authed ? rows : rows.map(({ has_password, has_pin, ...rest }) => rest);
     } catch (error) {
       console.error('Error fetching users:', error);
       return createError({ statusCode: 500, statusMessage: 'Failed to fetch users' });
