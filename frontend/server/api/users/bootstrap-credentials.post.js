@@ -68,24 +68,28 @@ export default defineEventHandler(async (event) => {
     recordClaimFailure();
     return createError({ statusCode: 404, statusMessage: 'User not found' });
   }
-  // SECURITY: never let this unauthenticated self-claim path grant an admin
-  // account. A legacy admin can survive the auth-hardening upgrade with no
-  // password and no PIN (is_active defaults to 1); without this guard an
-  // anonymous caller who reads the admin's id from the public user list could
-  // set a password and seize administrator access. Admin credentials must be
-  // (re)set by another admin via the user-management panel.
-  if (user.isAdmin) {
-    recordClaimFailure();
-    return createError({
-      statusCode: 403,
-      statusMessage: 'This account cannot set credentials here; ask an administrator to reset it.'
-    });
-  }
+  // An account that already has any credential is handled by the normal
+  // sign-in screen — check this first so an admin who already has a password
+  // gets the informative 409 rather than the admin-block 403 below.
   if (user.password || user.pin) {
     recordClaimFailure();
     return createError({
       statusCode: 409,
       statusMessage: 'This account already has credentials. Use the normal sign-in screen.'
+    });
+  }
+  // SECURITY: never let this unauthenticated self-claim path grant an admin
+  // account. A legacy admin can survive the auth-hardening upgrade with no
+  // password and no PIN (is_active defaults to 1); without this guard an
+  // anonymous caller who reads the admin's id from the public user list could
+  // set a password and seize administrator access. Admin credentials must be
+  // (re)set by another admin via the user-management panel. (Reached only for
+  // a credential-less admin — the has-credentials case returned 409 above.)
+  if (user.isAdmin) {
+    recordClaimFailure();
+    return createError({
+      statusCode: 403,
+      statusMessage: 'This account cannot set credentials here; ask an administrator to reset it.'
     });
   }
   if (!user.is_active) {

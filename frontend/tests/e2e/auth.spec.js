@@ -20,7 +20,11 @@ test.describe('auth', () => {
     expect(admin, `expected admin "${ADMIN_NAME}" in /api/users response`).toBeTruthy();
     expect(admin.isAdmin).toBe(1);
     expect(admin.is_active).toBe(1);
-    expect(admin.has_password).toBe(1);
+    // The anonymous list no longer bulk-exposes credential-presence flags.
+    // The per-user endpoint (used by the login screen) still reports them.
+    expect('has_password' in admin).toBe(false);
+    const adminDetail = await (await request.get(`/api/users/${admin.id}`)).json();
+    expect(adminDetail.has_password).toBe(1);
     // Sanity: the deleted use_auth column should not surface anywhere.
     expect('use_auth' in admin).toBe(false);
   });
