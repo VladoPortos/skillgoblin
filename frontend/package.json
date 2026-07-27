@@ -16,22 +16,22 @@
   },
   "dependencies": {
     "@tailwindcss/forms": "^0.5.7",
-    "@tailwindcss/vite": "^4.3.0",
-    "argon2": "^0.44.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "argon2": "^0.45.1",
     "beanheads-vue": "1.2.1",
     "better-sqlite3": "^12.10.0",
     "busboy": "^1.6.0",
     "chokidar": "^5.0.0",
-    "lru-cache": "^11.5.0",
-    "nuxt": "^4.4.7",
-    "sharp": "^0.34.5",
+    "lru-cache": "^11.5.2",
+    "nuxt": "^4.5.0",
+    "sharp": "^0.35.3",
     "tailwindcss": "^4.2.4",
-    "uuid": "^14.0.0"
+    "uuid": "^14.0.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.60.0",
+    "@playwright/test": "1.62.0",
     "jsdom": "^29.1.1",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "glob": "^10.3.10",
