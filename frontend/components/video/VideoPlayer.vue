@@ -5,12 +5,21 @@
         v-if="src"
         ref="player"
         class="w-full h-full"
-        controls
+        :controls="nativeControlsVisible"
         crossorigin="anonymous"
+        playsinline
         @timeupdate="$emit('timeupdate', $event)"
-        @ended="$emit('ended')"
-        @pause="$emit('pause')"
+        @ended="onEnded"
+        @play="onPlay"
+        @pause="onPause"
         @seeked="$emit('seeked')"
+        @pointermove="showNativeControlsTemporarily"
+        @pointerleave="hideNativeControlsIfPlaying"
+        @pointerdown="holdNativeControls"
+        @pointerup="showNativeControlsTemporarily"
+        @click="onVideoClick"
+        @keydown.space.prevent="togglePlayback"
+        @keydown.k.prevent="togglePlayback"
         @waiting="onWaiting"
         @playing="onPlaying"
         @canplay="onCanPlay"
@@ -35,8 +44,8 @@
       </div>
 
       <!-- Buffering spinner: visible only when the player is stalled waiting
-           for data AND there's no terminal error. The native browser
-           controls already show a tiny spinner in some implementations, but
+           for data AND there's no terminal error. Browser media controls
+           show a tiny spinner in some implementations, but
            it's inconsistent and easy to miss against a dark frame; this
            overlay is the explicit "we're loading, don't worry" signal. -->
       <div
@@ -187,6 +196,13 @@ const isBuffering = ref(false);
 const errorState = ref(null);
 const isPipActive = ref(false);
 const pipSupported = ref(false);
+// Safari's media chrome may remain over the course content while the pointer
+// is idle. Temporarily remove the native `controls` attribute during active
+// playback, then restore it immediately on pointer/keyboard interaction.
+// Paused and ended videos always retain their controls.
+const nativeControlsVisible = ref(true);
+const CONTROLS_IDLE_MS = 1600;
+let controlsHideTimer = null;
 // Track which textTracks list we've registered the addtrack listener on,
 // so we attach exactly once and detach the same instance on unmount even
 // if the underlying <video> remounts.
@@ -290,6 +306,7 @@ function onWaiting() {
 function onPlaying() {
   isBuffering.value = false;
   errorState.value = null;
+  scheduleNativeControlsHide();
 }
 function onCanPlay() {
   isBuffering.value = false;
@@ -313,6 +330,71 @@ function retryLoad() {
   // which is enough to recover from a transient network blip. For a truly
   // missing file the error event fires again and the overlay reappears.
   try { player.value.load(); } catch {}
+}
+
+function clearControlsHideTimer() {
+  if (controlsHideTimer !== null) {
+    clearTimeout(controlsHideTimer);
+    controlsHideTimer = null;
+  }
+}
+
+function scheduleNativeControlsHide() {
+  clearControlsHideTimer();
+  if (!player.value || player.value.paused || player.value.ended) return;
+  controlsHideTimer = setTimeout(() => {
+    nativeControlsVisible.value = false;
+    controlsHideTimer = null;
+  }, CONTROLS_IDLE_MS);
+}
+
+function showNativeControlsTemporarily() {
+  nativeControlsVisible.value = true;
+  scheduleNativeControlsHide();
+}
+
+function holdNativeControls() {
+  nativeControlsVisible.value = true;
+  clearControlsHideTimer();
+}
+
+function hideNativeControlsIfPlaying() {
+  clearControlsHideTimer();
+  if (player.value && !player.value.paused && !player.value.ended) {
+    nativeControlsVisible.value = false;
+  }
+}
+
+function onPlay() {
+  scheduleNativeControlsHide();
+}
+
+function onPause(event) {
+  clearControlsHideTimer();
+  nativeControlsVisible.value = true;
+  emit('pause', event);
+}
+
+function onEnded(event) {
+  clearControlsHideTimer();
+  nativeControlsVisible.value = true;
+  emit('ended', event);
+}
+
+function togglePlayback() {
+  if (!player.value) return;
+  nativeControlsVisible.value = true;
+  try {
+    if (player.value.paused || player.value.ended) player.value.play();
+    else player.value.pause();
+  } catch {}
+}
+
+function onVideoClick() {
+  // With native chrome visible, the browser owns clicks on its shadow-DOM
+  // controls. Once hidden, a click still needs to provide the familiar
+  // play/pause action and reveal the controls again.
+  if (!nativeControlsVisible.value) togglePlayback();
 }
 
 // Picture-in-Picture wiring. The button is hidden entirely when the
@@ -436,6 +518,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  clearControlsHideTimer();
   detachTrackListener();
   detachPipListeners();
 });
