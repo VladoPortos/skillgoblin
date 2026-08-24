@@ -31,6 +31,23 @@ describe('text track selection', () => {
     expect(list.map((track) => track.mode)).toEqual(['hidden', 'showing']);
   });
 
+  it('collapses duplicate browser entries for the same language', () => {
+    const list = tracks(
+      { language: 'en', label: '', kind: 'subtitles', mode: 'showing' },
+      { language: 'en', label: 'English', kind: 'captions', mode: 'showing' },
+      { language: 'ru', label: 'Русский', mode: 'showing' },
+    );
+    const options = listTextTrackOptions(list, 'en');
+    expect(options.map(({ label, language }) => ({ label, language }))).toEqual([
+      { label: 'English', language: 'en' },
+      { label: 'Русский', language: 'ru' },
+    ]);
+    expect(options[0].indices).toEqual([0, 1]);
+
+    applyTextTrackSelection(list, options[0].id);
+    expect(list.map((track) => track.mode)).toEqual(['showing', 'hidden', 'hidden']);
+  });
+
   it('hides every track when the selection is empty', () => {
     const list = tracks(
       { language: 'en', label: 'English', mode: 'showing' },

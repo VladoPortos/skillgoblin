@@ -25,7 +25,9 @@ function languageDisplayName(language, locale) {
 }
 
 export function listTextTrackOptions(textTracks, locale) {
-  return readTrackList(textTracks).map((track, index) => {
+  const options = [];
+  const byLanguage = new Map();
+  readTrackList(textTracks).forEach((track, index) => {
     const language = normalize(track?.language).toLowerCase();
     const rawLabel = normalize(track?.label);
     const generatedLabel = languageDisplayName(language, locale);
@@ -33,32 +35,51 @@ export function listTextTrackOptions(textTracks, locale) {
       ? rawLabel
       : generatedLabel || rawLabel || language.toUpperCase() || `Track ${index + 1}`;
     const preference = textTrackPreference(track);
-    return {
+    // Browsers can expose one embedded stream more than once (for example as
+    // both captions and subtitles). Present one choice per declared language,
+    // while keeping untagged tracks distinct by label/kind.
+    const groupKey = language
+      ? `language:${language}`
+      : `untagged:${rawLabel.toLowerCase()}:${normalize(track?.kind).toLowerCase()}`;
+    const existing = byLanguage.get(groupKey);
+    if (existing) {
+      existing.indices.push(index);
+      existing.preferences.push(preference);
+      return;
+    }
+    const option = {
       id: `${index}:${preference}`,
       index,
+      indices: [index],
       label,
       language,
       preference,
+      preferences: [preference],
     };
+    byLanguage.set(groupKey, option);
+    options.push(option);
   });
+  return options;
 }
 
 export function chooseTextTrack(options, preferred, fallbackIndex = -1) {
   if (!Array.isArray(options) || options.length === 0) return '';
   const preferredOption = preferred
-    ? options.find((option) => option.preference === preferred)
+    ? options.find((option) => option.preferences.includes(preferred))
     : null;
   if (preferredOption) return preferredOption.id;
-  const fallback = options.find((option) => option.index === fallbackIndex);
+  const fallback = options.find((option) => option.indices.includes(fallbackIndex));
   return (fallback || options[0]).id;
 }
 
 export function applyTextTrackSelection(textTracks, selectedId) {
   const options = listTextTrackOptions(textTracks);
-  for (const option of options) {
-    const desiredMode = option.id === selectedId ? 'showing' : 'hidden';
-    if (textTracks[option.index].mode !== desiredMode) {
-      textTracks[option.index].mode = desiredMode;
+  const selected = options.find((option) => option.id === selectedId);
+  const selectedIndex = selected?.index ?? -1;
+  for (let index = 0; index < textTracks.length; index += 1) {
+    const desiredMode = index === selectedIndex ? 'showing' : 'hidden';
+    if (textTracks[index].mode !== desiredMode) {
+      textTracks[index].mode = desiredMode;
     }
   }
 }
