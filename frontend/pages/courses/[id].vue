@@ -66,6 +66,8 @@
         :autoplay="false"
         :current-time="currentTimeForPlayer"
         :subtitle-src="subtitleSrc"
+        :subtitle-language="currentVideo?.subtitleLanguage || 'en'"
+        :subtitle-label="currentVideo?.subtitleLabel || currentVideo?.subtitleLanguage || 'en'"
         @timeupdate="updateProgress"
         @ended="markAsCompleted"
         @pause="flushProgressSave"
