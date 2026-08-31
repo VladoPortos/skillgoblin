@@ -26,6 +26,9 @@ export default defineEventHandler(async (event) => {
     if (!user) {
       return createError({ statusCode: 404, statusMessage: 'User not found' });
     }
+    // Per-user fetch used by the login screen to route password vs PIN input,
+    // so it must return has_password / has_pin. This is a single-record lookup
+    // (not the bulk roster), so it isn't the enumeration surface the list is.
     return user;
   } catch (error) {
     console.error('Error fetching user:', error);

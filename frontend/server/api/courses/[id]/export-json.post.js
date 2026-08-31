@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { defineEventHandler, createError } from 'h3';
 import { getDb } from '../../../utils/db';
-import { resolveCourseById } from '../../../utils/courseHelpers';
+import { resolveCourseById, writeFileNoFollow } from '../../../utils/courseHelpers';
 import { buildCourseJsonPayload } from '../../../utils/courseJsonOverride.js';
 import { requireAdmin } from '../../../utils/authz';
 
@@ -24,7 +24,9 @@ export default defineEventHandler((event) => {
 
   const payload = buildCourseJsonPayload(row);
   const filePath = path.join(courseDir, 'course.json');
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+  // No-follow write: if course.json is a planted symlink (e.g. -> the DB file)
+  // this replaces the link atomically instead of writing through it.
+  writeFileNoFollow(filePath, JSON.stringify(payload, null, 2) + '\n');
 
   return { success: true, path: 'course.json', fields: payload };
 });

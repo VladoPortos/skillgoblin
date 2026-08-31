@@ -107,8 +107,11 @@ test.describe('Signup — Both option', () => {
     const users = await (await ctx.get('/api/users')).json();
     const created = users.find(u => u.name === name);
     expect(created).toBeTruthy();
-    expect(created.has_password).toBe(1);
-    expect(created.has_pin).toBe(1);
+    // Credential-presence flags come from the per-user endpoint now, not the
+    // anonymous list (which no longer bulk-exposes them).
+    const detail = await (await ctx.get(`/api/users/${created.id}`)).json();
+    expect(detail.has_password).toBe(1);
+    expect(detail.has_pin).toBe(1);
 
     await activate(created.id, name);
 

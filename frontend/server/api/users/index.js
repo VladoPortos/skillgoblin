@@ -27,14 +27,21 @@ export default defineEventHandler(async (event) => {
   if (method === 'GET') {
     try {
       const db = getDb();
-      const users = db.prepare(`
+      const rows = db.prepare(`
         SELECT id, name, avatar, isAdmin, is_active, created_at,
                CASE WHEN password IS NOT NULL AND password != '' THEN 1 ELSE 0 END AS has_password,
                CASE WHEN pin      IS NOT NULL AND pin      != '' THEN 1 ELSE 0 END AS has_pin
         FROM users
         ORDER BY created_at DESC
       `).all();
-      return users || [];
+      // The login picker (unauthenticated) needs isAdmin (to detect first-run /
+      // draw the admin badge) and id/name/avatar. It does NOT read the
+      // credential-presence flags from this list — those are fetched per-user on
+      // selection. So don't bulk-expose has_password / has_pin to anonymous
+      // callers: that map of "which accounts have weak/no credentials" is pure
+      // reconnaissance. Authenticated callers (admin panel) still get everything.
+      const authed = !!event.context.user;
+      return authed ? rows : rows.map(({ has_password, has_pin, ...rest }) => rest);
     } catch (error) {
       console.error('Error fetching users:', error);
       return createError({ statusCode: 500, statusMessage: 'Failed to fetch users' });
@@ -111,28 +118,42 @@ export default defineEventHandler(async (event) => {
         });
       }
 
-      // Admin-create is an explicit, knowing action — it bypasses the
-      // global auto-approve setting and lands the user as is_active=1.
-      // Anonymous self-signup honors the setting as before.
-      let isActive;
-      if (isAdminCaller) {
-        isActive = 1;
-      } else {
-        isActive = getBoolSetting(db, 'auto_approve_new_users', false) ? 1 : 0;
-      }
-
       const userId = uuidv4();
       const hashedPassword = password ? await hashCredential(password) : null;
       const hashedPin = effectivePin ? await hashCredential(effectivePin) : null;
 
-      const result = db.prepare(`
-        INSERT INTO users (id, name, avatar, password, pin, theme, isAdmin, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(userId, name, avatar, hashedPassword, hashedPin, 'dark', 0, isActive);
-
-      if (result.changes !== 1) {
-        return createError({ statusCode: 500, statusMessage: 'Failed to create user' });
-      }
+      // Commit the policy re-check and the insert atomically. The gate and the
+      // auto-approve value were sampled earlier, but body parsing and argon2
+      // hashing are async — an admin could have flipped
+      // allow_user_registration / auto_approve_new_users in that window. We
+      // re-read both inside a synchronous transaction with no await before the
+      // INSERT, so a now-disallowed signup can't slip through and two
+      // concurrent signups can't both pass the name check.
+      //
+      // Admin-create is an explicit, knowing action — it bypasses the global
+      // auto-approve setting and lands the user as is_active=1. Anonymous
+      // self-signup honors the settings as they stand at insert time.
+      const createInTxn = db.transaction(() => {
+        const allowNow = getBoolSetting(db, 'allow_user_registration', true);
+        if (!allowNow && !isAdminCaller) {
+          throw createError({ statusCode: 403, statusMessage: 'Registration is disabled on this instance' });
+        }
+        const dup = db.prepare('SELECT id FROM users WHERE name = ? COLLATE NOCASE').get(name);
+        if (dup) {
+          throw createError({ statusCode: 409, statusMessage: 'A user with this name already exists' });
+        }
+        const isActive = isAdminCaller
+          ? 1
+          : (getBoolSetting(db, 'auto_approve_new_users', false) ? 1 : 0);
+        const result = db.prepare(`
+          INSERT INTO users (id, name, avatar, password, pin, theme, isAdmin, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(userId, name, avatar, hashedPassword, hashedPin, 'dark', 0, isActive);
+        if (result.changes !== 1) {
+          throw createError({ statusCode: 500, statusMessage: 'Failed to create user' });
+        }
+      });
+      createInTxn();
 
       const newUser = db.prepare(`
         SELECT id, name, avatar, isAdmin, is_active,
@@ -142,6 +163,10 @@ export default defineEventHandler(async (event) => {
       `).get(userId);
       return newUser;
     } catch (error) {
+      // Typed errors thrown from the create transaction (403 disabled, 409
+      // duplicate, ...) carry their intended status — surface it rather than
+      // masking it as a generic 500.
+      if (error?.statusCode) return error;
       if (isUserNameConstraintError(error)) {
         return createError({ statusCode: 409, statusMessage: 'A user with this name already exists' });
       }

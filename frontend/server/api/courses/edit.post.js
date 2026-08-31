@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { createError } from 'h3';
 import { getCourseRootPath, processThumbnailBuffer } from '../../utils/thumbnailUtils';
+import { writeFileNoFollow } from '../../utils/courseHelpers';
 import { requireAdmin } from '../../utils/authz';
 
 const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
@@ -185,7 +186,7 @@ export default defineEventHandler(async (event) => {
         const localThumbnailPath = path.join(courseRoot, thumbnailFilename);
         try {
           fs.mkdirSync(courseRoot, { recursive: true });
-          fs.writeFileSync(localThumbnailPath, thumbnailBuffer);
+          writeFileNoFollow(localThumbnailPath, thumbnailBuffer);
         } catch (error) {
           console.error('Error saving thumbnail to filesystem:', error);
         }

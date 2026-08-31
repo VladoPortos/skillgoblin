@@ -20,13 +20,30 @@ export function hasCourseJson(courseFolderPath) {
   }
 }
 
+// course.json holds four short string fields; a sane file is well under a
+// kilobyte. Cap the read so a hostile/accidental multi-gigabyte course.json
+// can't be slurped into memory and wedge the scan.
+const MAX_COURSE_JSON_BYTES = 1 * 1024 * 1024; // 1 MiB
+
 // Read and parse course.json from a course folder. Strips a leading BOM and
 // validates that the top level is a plain object. Returns null on any
-// failure (missing file, bad JSON, wrong shape) after logging a warning so
-// an operator can debug without crashing the scan.
+// failure (missing file, bad JSON, wrong shape, oversized) after logging a
+// warning so an operator can debug without crashing the scan.
 export function readCourseJson(courseFolderPath) {
   const filePath = path.join(courseFolderPath, 'course.json');
   let raw;
+  try {
+    const st = fs.statSync(filePath);
+    if (st.size > MAX_COURSE_JSON_BYTES) {
+      console.warn(`[courseJsonOverride] ${filePath} is ${st.size} bytes; exceeds ${MAX_COURSE_JSON_BYTES}-byte cap, ignoring.`);
+      return null;
+    }
+  } catch (err) {
+    if (err.code !== 'ENOENT') {
+      console.warn(`[courseJsonOverride] cannot stat ${filePath}: ${err.message}`);
+    }
+    return null;
+  }
   try {
     raw = fs.readFileSync(filePath, 'utf8');
   } catch (err) {

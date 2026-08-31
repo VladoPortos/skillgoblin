@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import crypto from 'node:crypto';
 import { createError } from 'h3';
@@ -56,6 +57,54 @@ export function resolvePathInCourse(courseDir, ...segments) {
     throw createError({ statusCode: 400, statusMessage: 'Invalid path' });
   }
   return candidate;
+}
+
+// Lexical containment (resolvePathInCourse) proves only that the *pathname*
+// sits under the course root; a symlink component can still point outside.
+// This re-checks an already-resolved path AFTER symlink resolution, right
+// before a read, so a course containing e.g. `jump -> /etc` can't exfiltrate
+// files outside the content tree.
+//
+// Returns the real path on success, null if the path doesn't exist (callers do
+// their own existence check), and throws 400 on an out-of-root escape.
+export function assertResolvedInside(root, candidatePath) {
+  let realRoot;
+  try {
+    realRoot = fs.realpathSync(path.resolve(root));
+  } catch {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid path' });
+  }
+  let realCandidate;
+  try {
+    realCandidate = fs.realpathSync(candidatePath);
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw createError({ statusCode: 400, statusMessage: 'Invalid path' });
+  }
+  const rootWithSep = realRoot.endsWith(path.sep) ? realRoot : realRoot + path.sep;
+  if (realCandidate !== realRoot && !realCandidate.startsWith(rootWithSep)) {
+    throw createError({ statusCode: 400, statusMessage: 'Invalid path' });
+  }
+  return realCandidate;
+}
+
+// Write a file without following a symlink at the destination. If an attacker
+// (or a malicious course bundle) planted `course.json -> /app/data/database/
+// database.sqlite`, a plain writeFileSync would follow the link and truncate
+// the DB. We write a fresh temp file with O_EXCL ('wx', so we never write
+// THROUGH a planted link) and atomically rename it over the target — rename
+// replaces the directory entry itself, swapping out any symlink rather than
+// following it.
+export function writeFileNoFollow(targetPath, data) {
+  const dir = path.dirname(targetPath);
+  const tmp = path.join(dir, `.${path.basename(targetPath)}.tmp-${process.pid}-${Date.now()}`);
+  fs.writeFileSync(tmp, data, { flag: 'wx' });
+  try {
+    fs.renameSync(tmp, targetPath);
+  } catch (err) {
+    try { fs.unlinkSync(tmp); } catch { /* best effort */ }
+    throw err;
+  }
 }
 
 export const generateLegacyId = (title) => {

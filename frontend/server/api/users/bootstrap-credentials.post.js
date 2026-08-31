@@ -1,9 +1,10 @@
-import { defineEventHandler, readBody, createError, setCookie, getRequestIP } from 'h3';
+import { defineEventHandler, readBody, createError, setCookie } from 'h3';
 import { getDb } from '../../utils/db';
 import { hashCredential } from '../../utils/credentials';
 import { createSession } from '../../utils/sessions';
 import { sessionCookieOpts, SESSION_COOKIE } from '../../middleware/session';
-import { checkRateLimit, recordFailure, recordSuccess } from '../../utils/rate-limit';
+import { checkRateLimit, recordFailure, recordSuccess, ACCOUNT_FAIL_THRESHOLD } from '../../utils/rate-limit';
+import { getClientIp } from '../../utils/requestIp';
 import { getBoolSetting } from '../../utils/systemSettings';
 
 // POST /api/users/bootstrap-credentials  Body: { userId, password?, pin? }
@@ -38,35 +39,61 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  // Rate limit per (userId, ip) like /api/users/auth — this endpoint is
-  // unauthenticated and lets a caller claim a credential-less account.
-  const ip = getRequestIP(event, { xForwardedFor: true }) || 'unknown';
-  const rlKey = `bootstrap:${userId}:${ip}`;
-  const rl = checkRateLimit(rlKey);
-  if (!rl.allowed) {
+  // Rate limit like /api/users/auth — this endpoint is unauthenticated and
+  // lets a caller claim a credential-less account. Two buckets (per-ip and
+  // account-wide) so header-spoofed source addresses can't reset the counter;
+  // getClientIp() does not trust X-Forwarded-For unless TRUST_PROXY_HOPS is set.
+  const ip = getClientIp(event);
+  const ipKey = `bootstrap:${userId}:${ip}`;
+  const acctKey = `bootstrap-acct:${userId}`;
+  const rlIp = checkRateLimit(ipKey);
+  const rlAcct = checkRateLimit(acctKey);
+  if (!rlIp.allowed || !rlAcct.allowed) {
+    const retryAfterSeconds = Math.max(rlIp.retryAfterSeconds || 0, rlAcct.retryAfterSeconds || 0);
     return createError({
       statusCode: 429,
-      statusMessage: `Too many attempts. Try again in ${rl.retryAfterSeconds}s.`
+      statusMessage: `Too many attempts. Try again in ${retryAfterSeconds}s.`
     });
   }
+  const recordClaimFailure = () => {
+    recordFailure(ipKey);
+    recordFailure(acctKey, { threshold: ACCOUNT_FAIL_THRESHOLD });
+  };
 
   const db = getDb();
   const user = db
-    .prepare('SELECT id, password, pin, is_active FROM users WHERE id = ?')
+    .prepare('SELECT id, password, pin, is_active, isAdmin FROM users WHERE id = ?')
     .get(userId);
   if (!user) {
-    recordFailure(rlKey);
+    recordClaimFailure();
     return createError({ statusCode: 404, statusMessage: 'User not found' });
   }
+  // An account that already has any credential is handled by the normal
+  // sign-in screen — check this first so an admin who already has a password
+  // gets the informative 409 rather than the admin-block 403 below.
   if (user.password || user.pin) {
-    recordFailure(rlKey);
+    recordClaimFailure();
     return createError({
       statusCode: 409,
       statusMessage: 'This account already has credentials. Use the normal sign-in screen.'
     });
   }
+  // SECURITY: never let this unauthenticated self-claim path grant an admin
+  // account. A legacy admin can survive the auth-hardening upgrade with no
+  // password and no PIN (is_active defaults to 1); without this guard an
+  // anonymous caller who reads the admin's id from the public user list could
+  // set a password and seize administrator access. Admin credentials must be
+  // (re)set by another admin via the user-management panel. (Reached only for
+  // a credential-less admin — the has-credentials case returned 409 above.)
+  if (user.isAdmin) {
+    recordClaimFailure();
+    return createError({
+      statusCode: 403,
+      statusMessage: 'This account cannot set credentials here; ask an administrator to reset it.'
+    });
+  }
   if (!user.is_active) {
-    recordFailure(rlKey);
+    recordClaimFailure();
     return createError({
       statusCode: 403,
       statusMessage: 'This account is awaiting administrator approval'
@@ -85,13 +112,31 @@ export default defineEventHandler(async (event) => {
   const hashedPassword = password ? await hashCredential(password) : null;
   const hashedPin = pin && allowPin ? await hashCredential(pin) : null;
 
-  db.prepare(`UPDATE users SET password = ?, pin = ? WHERE id = ?`)
+  // Atomic claim: only write if the row is STILL credential-less. Two racing
+  // requests both pass the checks above and await argon2; the compare-and-swap
+  // guarantees exactly one wins. The loser gets 409 and no session, so a
+  // credential-less account can never be claimed twice.
+  const claim = db
+    .prepare(`
+      UPDATE users SET password = ?, pin = ?
+      WHERE id = ?
+        AND (password IS NULL OR password = '')
+        AND (pin IS NULL OR pin = '')
+    `)
     .run(hashedPassword, hashedPin, userId);
+  if (claim.changes !== 1) {
+    recordClaimFailure();
+    return createError({
+      statusCode: 409,
+      statusMessage: 'This account already has credentials. Use the normal sign-in screen.'
+    });
+  }
 
   const userAgent = event.node.req.headers['user-agent'] || null;
   const { token, expiresAt } = createSession(db, userId, { userAgent });
   setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
-  recordSuccess(rlKey);
+  recordSuccess(ipKey);
+  recordSuccess(acctKey);
 
   const refreshed = db
     .prepare('SELECT id, name, avatar, isAdmin, is_active FROM users WHERE id = ?')

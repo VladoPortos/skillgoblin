@@ -1,8 +1,14 @@
 import { LRUCache } from 'lru-cache';
 
 // Memoize conversions keyed by source-file path + mtime so a re-edited .srt
-// invalidates automatically. Buffers are small (a few KB each).
-const cache = new LRUCache({ max: 64 });
+// invalidates automatically. Bounded by TOTAL bytes, not entry count: a
+// handful of very large subtitles must not be able to pin gigabytes in memory.
+const MAX_SRT_BYTES = 2 * 1024 * 1024;      // reject subtitles larger than 2 MiB
+const MAX_SRT_CACHE_BYTES = 8 * 1024 * 1024; // total conversion-cache budget
+const cache = new LRUCache({
+  maxSize: MAX_SRT_CACHE_BYTES,
+  sizeCalculation: (buf) => buf.length || 1,
+});
 
 const TIMESTAMP_RE = /^(\d\d:\d\d:\d\d),(\d{3}) --> (\d\d:\d\d:\d\d),(\d{3})$/;
 
@@ -29,6 +35,11 @@ export function srtToVtt(srtBody) {
 // the caller can map it to a 404 / 500.
 export async function convertSrtFileToVtt(srtFilePath, fs) {
   const stat = await fs.promises.stat(srtFilePath);
+  if (stat.size > MAX_SRT_BYTES) {
+    const err = new Error(`SRT file exceeds ${MAX_SRT_BYTES}-byte cap: ${stat.size} bytes`);
+    err.code = 'ESRTTOOLARGE';
+    throw err;
+  }
   const key = `${srtFilePath}:${stat.mtimeMs}`;
   const cached = cache.get(key);
   if (cached) return cached;

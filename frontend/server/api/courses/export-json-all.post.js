@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { defineEventHandler } from 'h3';
 import { getDb } from '../../utils/db';
-import { resolveCourseDir } from '../../utils/courseHelpers';
+import { resolveCourseDir, writeFileNoFollow } from '../../utils/courseHelpers';
 import { buildCourseJsonPayload } from '../../utils/courseJsonOverride.js';
 import { requireAdmin } from '../../utils/authz';
 
@@ -36,7 +36,7 @@ export default defineEventHandler((event) => {
     const payload = buildCourseJsonPayload(row);
 
     try {
-      fs.writeFileSync(path.join(dir, 'course.json'), JSON.stringify(payload, null, 2) + '\n', 'utf8');
+      writeFileNoFollow(path.join(dir, 'course.json'), JSON.stringify(payload, null, 2) + '\n');
       written.push(row.id);
     } catch (err) {
       console.error(`[export-json-all] write failed for ${row.id}:`, err);
