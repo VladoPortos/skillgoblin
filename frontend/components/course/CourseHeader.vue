@@ -1,8 +1,8 @@
 <template>
   <header class="bg-white dark:bg-gray-800 shadow-sm">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-      <div class="flex items-center">
-        <button @click="navigateBack" class="mr-4 shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-wrap sm:flex-nowrap gap-3 justify-between items-center">
+      <div class="flex items-center min-w-0 flex-1">
+        <button type="button" aria-label="Back to courses" @click="navigateBack" class="mr-3 sm:mr-4 shrink-0 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M12.707 5.293a1 1 0 010 1.414L9.414 10l3.293 3.293a1 1 0 01-1.414 1.414l-4-4a1 1 0 010-1.414l4-4a1 1 0 011.414 0z" clip-rule="evenodd" />
           </svg>
@@ -11,9 +11,9 @@
           <img :src="'/api/logo'" :alt="`${branding.name} Logo`" class="w-6 h-6 mr-2" />
           <span class="text-sm font-medium text-gray-900 dark:text-white">{{ branding.name }}</span>
         </NuxtLink>
-        <h1 class="text-xl font-bold text-gray-900 dark:text-white truncate max-w-[140px] sm:max-w-xs md:max-w-md">{{ course?.title || 'Loading...' }}</h1>
+        <h1 class="text-xl font-bold text-gray-900 dark:text-white truncate max-w-[100px] sm:max-w-xs md:max-w-md">{{ course?.title || 'Loading...' }}</h1>
         <!-- Course Progress Indicator -->
-        <div v-if="course && totalVideos > 0" class="ml-4 flex items-center">
+        <div v-if="course && totalVideos > 0" class="ml-2 sm:ml-4 flex items-center">
           <div class="relative h-10 w-10 shrink-0">
             <!-- Background circle -->
             <svg class="h-10 w-10" viewBox="0 0 36 36">
@@ -40,33 +40,39 @@
               <span class="text-xs font-medium text-gray-900 dark:text-white">{{ Math.round(courseCompletionPercentage) }}%</span>
             </div>
           </div>
-          <span class="ml-2 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">{{ completedVideosCount }} / {{ totalVideos }}</span>
+          <span class="hidden md:inline ml-2 text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap">{{ completedVideosCount }} / {{ totalVideos }}</span>
         </div>
       </div>
-      <div class="flex items-center space-x-4">
+      <div class="flex items-center justify-between sm:justify-end gap-2 sm:gap-4 w-full sm:w-auto">
         <button 
+          type="button"
           @click="$emit('toggle-favorite')"
           class="p-1 rounded-full text-gray-400 hover:text-yellow-500"
           :class="{ 'text-yellow-500': isFavorite }"
           title="Add to favorites"
+          :aria-label="isFavorite ? 'Remove from favorites' : 'Add to favorites'"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
             <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
           </svg>
         </button>
         <button 
+          type="button"
           @click="$emit('mark-completed')"
           class="p-1 rounded-full text-gray-400 hover:text-green-500"
           title="Mark course as completed"
+          aria-label="Mark course as completed"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
           </svg>
         </button>
         <button 
+          type="button"
           @click="$emit('reset-progress')"
           class="p-1 rounded-full text-gray-400 hover:text-red-500"
           title="Reset course progress"
+          aria-label="Reset course progress"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd" />

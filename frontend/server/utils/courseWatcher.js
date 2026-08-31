@@ -180,6 +180,10 @@ const processCourseDirectory = async (courseDirPath) => {
 
     // Only scan directory structure to get basic course info
     const courseData = await generateCourseJson(courseDir, courseDirPath);
+    const existingByFolder = getDb()
+      .prepare('SELECT id FROM courses WHERE folder_name = ?')
+      .get(courseDir);
+    if (courseData && existingByFolder?.id) courseData.id = existingByFolder.id;
 
     if (courseData) {
       const result = saveCourseToDb(courseData, courseDir);
@@ -206,8 +210,13 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
     const courseDir = path.basename(courseDirPath);
     const courseId = generateCourseId(courseDir);
 
-    const existingCourseResult = existingCourses.find(c => c.id === courseId);
+    const existingCourseResult = existingCourses.find(c => c.folder_name === courseDir)
+      || existingCourses.find(c => c.id === courseId);
     const courseData = await generateCourseJson(courseDir, courseDirPath);
+
+    if (existingCourseResult && courseData) {
+      courseData.id = existingCourseResult.id;
+    }
 
     if (existingCourseResult && courseData) {
       // course.json (already applied inside generateCourseJson) is the source of
@@ -219,16 +228,16 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
         ...courseData,
         title: jsonPinned.has('title')
           ? courseData.title
-          : (existingCourseResult.title || courseData.title),
+          : (existingCourseResult.title ?? courseData.title),
         description: jsonPinned.has('description')
           ? courseData.description
-          : (existingCourseResult.description || courseData.description),
+          : (existingCourseResult.description ?? courseData.description),
         category: jsonPinned.has('category')
           ? courseData.category
-          : (existingCourseResult.category || courseData.category),
+          : (existingCourseResult.category ?? courseData.category),
         releaseDate: jsonPinned.has('releaseDate')
           ? courseData.releaseDate
-          : (existingCourseResult.release_date || courseData.releaseDate),
+          : (existingCourseResult.release_date ?? courseData.releaseDate),
       };
 
       // saveCourseToDb does not accept a third "preserveMetadata" arg —
@@ -414,11 +423,14 @@ export const setupFileWatcher = (pollingInterval = 60000) => {
         pendingAddDirTimers.delete(coursePath);
         fs.promises.access(coursePath)
           .then(async () => {
-            const courseId = generateCourseId(path.basename(coursePath));
+            const folderName = path.basename(coursePath);
+            const courseId = generateCourseId(folderName);
             const existing = getDb().prepare(`
               SELECT id, title, description, category, release_date, folder_name, thumbnail_data
-              FROM courses WHERE id = ?
-            `).all(courseId);
+              FROM courses WHERE folder_name = ? OR id = ?
+              ORDER BY CASE WHEN folder_name = ? THEN 0 ELSE 1 END
+              LIMIT 1
+            `).all(folderName, courseId, folderName);
             if (existing.length > 0) {
               await processCourseDirWithMetadataPreservation(coursePath, existing);
             } else {

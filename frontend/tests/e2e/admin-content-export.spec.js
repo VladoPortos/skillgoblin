@@ -90,39 +90,13 @@ test.describe('admin content export — UI surface', () => {
     await page.context().addCookies(cookies.cookies);
 
     await page.goto('/courses');
-    // Open the Admin Panel from the user profile menu. Try a few common
-    // selectors so the test isn't brittle.
-    const candidates = [
-      page.getByRole('button', { name: /admin/i }),
-      page.locator('[data-testid=open-admin-panel]'),
-      page.locator('text=Admin Panel'),
-    ];
-    let opened = false;
-    for (const c of candidates) {
-      if ((await c.count()) > 0) {
-        try {
-          await c.first().click({ timeout: 2_000 });
-          opened = true;
-          break;
-        } catch {}
-      }
-    }
-
-    if (!opened) {
-      // The Admin-Panel trigger lives behind a UserProfile dropdown.
-      // Click the user avatar/profile area to expand it, then look again.
-      const avatarLikely = page.locator('header button, header img').first();
-      await avatarLikely.click({ timeout: 2_000 }).catch(() => {});
-      const adminButton = page.locator('text=/admin/i').first();
-      await adminButton.click({ timeout: 2_000 }).catch(() => {});
-    }
+    await page.getByTestId('user-profile-trigger').click();
+    await page.getByRole('button', { name: /admin panel/i }).click();
 
     // Now click the Content tab — its data-testid is admin-tab-content
     // because the existing v-for binds testid from each tab's id.
     const contentTab = page.locator('[data-testid=admin-tab-content]');
-    if ((await contentTab.count()) === 0) {
-      test.skip(true, 'Admin Panel did not open from this UI path; the API-level tests above still cover the endpoint.');
-    }
+    await expect(contentTab).toBeVisible();
     await contentTab.click();
     await expect(page.locator('[data-testid=admin-export-all-json]')).toBeVisible();
   });

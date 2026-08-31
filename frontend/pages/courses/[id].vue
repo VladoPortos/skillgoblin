@@ -58,8 +58,37 @@
     />
     
     <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+      <div
+        v-if="courseLoadError"
+        role="alert"
+        class="mb-4 mx-4 sm:mx-0 rounded-md border border-red-400/60 bg-red-50 dark:bg-red-950/40 p-4 text-sm text-red-900 dark:text-red-100"
+      >
+        <p>Could not load this course. Check the server connection and try again.</p>
+        <button
+          type="button"
+          data-testid="retry-course-load"
+          class="mt-2 font-semibold underline rounded focus:outline-none focus:ring-2 focus:ring-red-500"
+          @click="loadCourse"
+        >Retry</button>
+      </div>
+
+      <div
+        v-if="!courseLoadError && progressLoadError"
+        role="alert"
+        class="mb-4 mx-4 sm:mx-0 rounded-md border border-amber-400/60 bg-amber-50 dark:bg-amber-950/40 p-4 text-sm text-amber-900 dark:text-amber-100"
+      >
+        <p>Your saved progress could not be loaded. Playback changes will not be saved until it is available.</p>
+        <button
+          type="button"
+          class="mt-2 font-semibold underline focus:outline-none focus:ring-2 focus:ring-amber-500 rounded"
+          data-testid="retry-progress-load"
+          @click="retryProgressLoad"
+        >Retry</button>
+      </div>
+
       <!-- Video Player -->
       <VideoPlayer
+        v-if="!courseLoadError"
         ref="videoPlayer"
         class="mb-4"
         :src="currentVideoUrl"
@@ -113,8 +142,11 @@
           No lessons match &ldquo;{{ lessonSearchQuery }}&rdquo;.
         </div>
         <div v-for="lesson in filteredLessons" :key="lesson.id" class="border-b last:border-b-0">
-          <div
-            class="p-4 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700"
+          <button
+            type="button"
+            class="w-full p-4 flex justify-between items-center text-left hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+            :data-testid="`lesson-toggle-${lesson.id}`"
+            :aria-expanded="String(expandedLessons[lesson.id] || isLessonSearchActive)"
             :class="isLessonSearchActive ? 'cursor-default' : 'cursor-pointer'"
             @click="toggleLesson(lesson.id)"
           >
@@ -130,18 +162,21 @@
             >
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
             </svg>
-          </div>
+          </button>
 
           <!-- Video List -->
           <div v-if="expandedLessons[lesson.id] || isLessonSearchActive" class="bg-gray-50 dark:bg-gray-700 p-4">
             <div
               v-for="(video, index) in lesson.videos"
               :key="`${lesson.id}-${index}`"
-              :data-testid="`lesson-video-${lesson.id}-${index}`"
-              class="py-2 px-4 hover:bg-gray-100 dark:hover:bg-gray-600 rounded mb-2 cursor-pointer"
-              @click="playVideo(lesson, video, index)"
+              class="flex items-center hover:bg-gray-100 dark:hover:bg-gray-600 rounded mb-2"
             >
-              <div class="flex items-center">
+              <button
+                type="button"
+                :data-testid="`lesson-video-${lesson.id}-${index}`"
+                class="flex min-w-0 flex-1 items-center py-2 px-4 text-left cursor-pointer rounded focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+                @click="playVideo(lesson, video, index)"
+              >
                 <div class="mr-3 shrink-0">
                   <div v-if="completedVideos[`${lesson.id}-${index}`]" class="w-5 h-5 bg-green-500 dark:bg-green-400 rounded-full flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -155,15 +190,14 @@
                   </div>
                   <div v-else class="w-5 h-5 rounded-full border-2 border-gray-400 dark:border-gray-500"></div>
                 </div>
-                <div class="flex-grow" v-html="highlightMatch(video.title)"></div>
-                <!-- Action buttons must not bubble into the row's playVideo handler. -->
-                <div @click.stop>
-                  <VideoControlButtons
-                    :is-completed="completedVideos[`${lesson.id}-${index}`]"
-                    @toggle-completion="toggleVideoCompletionById(`${lesson.id}-${index}`)"
-                    @reset-progress="resetVideoProgressById(`${lesson.id}-${index}`)"
-                  />
-                </div>
+                <span class="flex-grow" v-html="highlightMatch(video.title)"></span>
+              </button>
+              <div class="shrink-0 pr-2">
+                <VideoControlButtons
+                  :is-completed="completedVideos[`${lesson.id}-${index}`]"
+                  @toggle-completion="toggleVideoCompletionById(`${lesson.id}-${index}`)"
+                  @reset-progress="resetVideoProgressById(`${lesson.id}-${index}`)"
+                />
               </div>
             </div>
           </div>
@@ -302,6 +336,9 @@ const showFilesModal = ref(false);
 // progress and the early-exit-on-currentVideo guard prevents the later
 // progress-loaded trigger from correcting it.
 const progressReady = ref(false);
+const progressHydrated = ref(false);
+const progressLoadError = ref('');
+const courseLoadError = ref('');
 // Scoped one-shot flag: when set to a videoId, the next handleVideoLoaded
 // for THAT video id forces seek to 0, bypassing any saved partial progress.
 // Holding the flag against a specific videoId (instead of a global boolean)
@@ -327,6 +364,55 @@ const transitioning = ref(false);
 // element duration.
 const expectedSrc = ref(null);
 
+async function loadUserProgress() {
+  if (!userId.value) {
+    progressReady.value = true;
+    return;
+  }
+  progressLoadError.value = '';
+  try {
+    const progressData = await $fetch(`/api/user-progress/${userId.value}`);
+    const stored = progressData?.progress?.[course.value.id] || {};
+    courseProgress.value = stored;
+    completedVideos.value = stored.completed || {};
+    videoProgress.value = stored.progress || {};
+    isFavorite.value = stored.favorite || false;
+    progressHydrated.value = true;
+  } catch (err) {
+    progressHydrated.value = false;
+    progressLoadError.value = 'Saved progress is temporarily unavailable.';
+    console.error('Error loading user progress:', err);
+  } finally {
+    progressReady.value = true;
+  }
+}
+
+async function retryProgressLoad() {
+  progressReady.value = false;
+  await loadUserProgress();
+}
+
+async function loadCourse() {
+  courseLoadError.value = '';
+  progressReady.value = false;
+  try {
+    const data = await $fetch(`/api/courses/${route.params.id}`);
+    course.value = data;
+    expandedLessons.value = {};
+
+    if (course.value.lessons?.length) {
+      expandedLessons.value[course.value.lessons[0].id] = true;
+    }
+
+    await loadUserProgress();
+  } catch (error) {
+    courseLoadError.value = 'Could not load this course.';
+    progressHydrated.value = false;
+    progressReady.value = true;
+    console.error('Error loading course:', error);
+  }
+}
+
 // Fetch course data and user progress
 onMounted(async () => {
   // Register the pagehide listener up-front, BEFORE the awaited fetches.
@@ -338,48 +424,7 @@ onMounted(async () => {
     window.addEventListener('pagehide', saveProgressOnHide);
   }
 
-  try {
-    // Fetch course data
-    const data = await $fetch(`/api/courses/${route.params.id}`);
-    course.value = data;
-
-    // Auto-expand first lesson
-    if (course.value.lessons && course.value.lessons.length > 0) {
-      expandedLessons.value[course.value.lessons[0].id] = true;
-    }
-
-    // Load user progress from the database
-    if (userId.value) {
-      try {
-        const progressData = await $fetch(`/api/user-progress/${userId.value}`);
-
-        if (progressData && progressData.progress) {
-          const userProgress = progressData.progress;
-
-          if (userProgress[course.value.id]) {
-            courseProgress.value = userProgress[course.value.id];
-            if (courseProgress.value.completed) {
-              completedVideos.value = courseProgress.value.completed;
-            }
-            if (courseProgress.value.progress) {
-              videoProgress.value = courseProgress.value.progress;
-            }
-            isFavorite.value = courseProgress.value.favorite || false;
-          }
-        }
-      } catch (err) {
-        console.error('Error loading user progress:', err);
-      }
-    }
-
-  } catch (error) {
-    console.error('Error loading course:', error);
-  } finally {
-    // Always mark progress as ready, even on failure — without this signal
-    // the smart-open watcher would never pick anything and the page would
-    // stay stuck on the placeholder.
-    progressReady.value = true;
-  }
+  await loadCourse();
 });
 
 onBeforeUnmount(() => {
@@ -395,7 +440,7 @@ onBeforeUnmount(() => {
     window.removeEventListener('pagehide', saveProgressOnHide);
   }
   // Final flush in case the user navigates within the SPA (no pagehide fires).
-  if (userId.value && course.value?.id) {
+  if (progressHydrated.value && userId.value && course.value?.id) {
     saveProgress();
   }
 });
@@ -807,7 +852,7 @@ function buildProgressBody() {
 // immediately, subsequent calls in the same window are coalesced and the
 // trailing edge fires SAVE_INTERVAL_MS after the leading save.
 function scheduleProgressSave() {
-  if (!userId.value || !course.value?.id) return;
+  if (!progressHydrated.value || !userId.value || !course.value?.id) return;
   const now = Date.now();
   const elapsed = now - lastProgressSaveAt;
   if (elapsed >= SAVE_INTERVAL_MS) {
@@ -830,7 +875,7 @@ function scheduleProgressSave() {
 // Returns the in-flight save promise so callers (logout, in particular)
 // can await the persisted write before the session is torn down.
 function flushProgressSave() {
-  if (!userId.value || !course.value?.id) return Promise.resolve();
+  if (!progressHydrated.value || !userId.value || !course.value?.id) return Promise.resolve();
   if (trailingSaveTimer) {
     clearTimeout(trailingSaveTimer);
     trailingSaveTimer = null;
@@ -842,7 +887,7 @@ function flushProgressSave() {
 // Immediate write. Used directly by completion / favorite / reset handlers
 // where the user expects their action to land before a possible reload.
 async function saveProgress() {
-  if (!userId.value || !course.value?.id) return;
+  if (!progressHydrated.value || !userId.value || !course.value?.id) return;
   try {
     await $fetch(`/api/user-progress/${userId.value}`, {
       method: 'POST',
@@ -858,7 +903,7 @@ async function saveProgress() {
 // out" and queues the request even after the page is gone. Falls back to
 // a sync flush if the API isn't available.
 function saveProgressOnHide() {
-  if (!userId.value || !course.value?.id) return;
+  if (!progressHydrated.value || !userId.value || !course.value?.id) return;
   if (trailingSaveTimer) {
     clearTimeout(trailingSaveTimer);
     trailingSaveTimer = null;

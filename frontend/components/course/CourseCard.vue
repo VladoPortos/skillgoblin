@@ -2,16 +2,22 @@
   <div 
     class="bg-white dark:bg-gray-800 shadow-sm rounded-lg overflow-hidden transition-shadow hover:shadow-md relative"
   >
-    <div class="relative h-40 overflow-hidden" @click="navigateToCourse">
-      <img 
-        v-if="thumbnailUrl" 
-        :src="thumbnailUrl"
-        :alt="course.title" 
-        class="w-full h-full object-cover"
-      />
-      <div v-else class="w-full h-full flex items-center justify-center bg-primary-100 dark:bg-primary-900">
-        <span class="text-primary-600 dark:text-primary-200 text-xl">{{ course.title.charAt(0) }}</span>
-      </div>
+    <div class="relative h-40 overflow-hidden">
+      <NuxtLink
+        :to="`/courses/${course.id}`"
+        :aria-label="`Open course ${course.title}`"
+        class="block w-full h-full focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500"
+      >
+        <img
+          v-if="thumbnailUrl"
+          :src="thumbnailUrl"
+          :alt="course.title"
+          class="w-full h-full object-cover"
+        />
+        <div v-else class="w-full h-full flex items-center justify-center bg-primary-100 dark:bg-primary-900">
+          <span class="text-primary-600 dark:text-primary-200 text-xl">{{ course.title.charAt(0) }}</span>
+        </div>
+      </NuxtLink>
 
       <!-- NEW badge -->
       <div
@@ -26,9 +32,11 @@
       <!-- Admin Edit Button -->
       <div v-if="isAdmin" class="absolute top-2 right-2">
         <button 
+          type="button"
           @click.stop="$emit('edit-course', course)"
           class="p-1.5 rounded-full bg-white dark:bg-gray-800 shadow-md hover:bg-gray-100 dark:hover:bg-gray-700"
           title="Edit course"
+          aria-label="Edit course"
         >
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-gray-600 dark:text-gray-300" viewBox="0 0 20 20" fill="currentColor">
             <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
@@ -45,7 +53,11 @@
       </div>
     </div>
     
-    <div class="p-4" @click="navigateToCourse">
+    <NuxtLink
+      :to="`/courses/${course.id}`"
+      :aria-label="`Open course ${course.title}`"
+      class="block p-4 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-500"
+    >
       <h3 class="text-lg font-medium text-gray-900 dark:text-white truncate">{{ course.title }}</h3>
       <p class="mt-1 text-sm text-gray-500 dark:text-gray-400 line-clamp-2">{{ course.description }}</p>
       
@@ -70,13 +82,15 @@
           {{ Math.round(progress) }}% complete
         </div>
       </div>
-    </div>
+    </NuxtLink>
     
     <!-- Read More button in bottom right corner -->
     <button 
+      type="button"
       @click.stop="showDetails = true"
       class="absolute bottom-3 right-3 p-3 rounded-full bg-primary-100 dark:bg-primary-900 hover:bg-primary-200 dark:hover:bg-primary-800 transition-colors shadow-xs"
       title="Read more"
+      :aria-label="`Read more about ${course.title}`"
     >
       <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-primary-600 dark:text-primary-300" viewBox="0 0 20 20" fill="currentColor">
         <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
@@ -103,8 +117,10 @@
           
           <!-- Close button -->
           <button 
+            type="button"
             @click="showDetails = false"
             class="absolute top-2 right-2 p-1.5 rounded-full bg-white dark:bg-gray-800 shadow-md hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label="Close course details"
           >
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-600 dark:text-gray-300" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -134,6 +150,7 @@
           
           <div class="flex justify-end">
             <button 
+              type="button"
               @click="navigateAndClose" 
               class="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 transition-colors"
             >

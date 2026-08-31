@@ -1,4 +1,5 @@
 import path from 'path';
+import crypto from 'node:crypto';
 import { createError } from 'h3';
 
 // Content directory path
@@ -57,13 +58,37 @@ export function resolvePathInCourse(courseDir, ...segments) {
   return candidate;
 }
 
-// Function to generate a course ID from a title
-export const generateCourseId = (title) => {
-  return title
+export const generateLegacyId = (title) => {
+  return String(title || '')
     .toLowerCase()
     .replace(/[^a-z0-9\s-]/g, '') // Remove special characters
     .replace(/\s+/g, '-') // Replace spaces with hyphens
     .replace(/-+/g, '-'); // Replace multiple hyphens with a single one
+};
+
+export const shortStableHash = (value) => crypto
+  .createHash('sha256')
+  .update(String(value || '').normalize('NFKC'), 'utf8')
+  .digest('hex')
+  .slice(0, 8);
+
+// Preserve every legacy ID whose input was already in the old safe alphabet.
+// Lossy or empty legacy slugs receive a readable Unicode base plus a stable
+// hash, preventing C++/C# and non-Latin collisions without renaming existing
+// ordinary ASCII libraries.
+export const generateCourseId = (title) => {
+  const source = String(title || '').normalize('NFKC').trim();
+  const legacyId = generateLegacyId(source);
+  if (legacyId && /^[a-z0-9\s-]+$/i.test(source)) return legacyId;
+
+  const unicodeBase = source
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'course';
+  return `${unicodeBase}-${shortStableHash(source)}`;
 };
 
  // Natural sort function for video/lesson sorting

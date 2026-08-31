@@ -1,19 +1,26 @@
 <template>
-  <div class="user-profile flex items-center space-x-2 cursor-pointer" @click="toggleMenu">
-    <!-- Super obvious gold ring around admin avatar -->
-    <div class="inline-block">
-      <!-- Direct styling with class binding for admin avatar -->
-      <div 
-        class="avatar-container h-10 w-10 rounded-full overflow-hidden flex items-center justify-center bg-gray-700"
-        :class="{ 'admin-avatar': isUserAdmin }"
-      >
-        <Beanhead v-if="user && user.avatar && isValidAvatarJson(user.avatar)" v-bind="parseAvatar(user.avatar)" width="40" />
-        <span v-else class="text-white text-lg">{{ user && user.name ? user.name.charAt(0).toUpperCase() : '?' }}</span>
+  <div class="user-profile">
+    <button
+      ref="menuTrigger"
+      type="button"
+      data-testid="user-profile-trigger"
+      class="flex items-center space-x-2 rounded focus:outline-none focus:ring-2 focus:ring-primary-500"
+      aria-haspopup="menu"
+      aria-controls="user-profile-menu"
+      :aria-expanded="String(showUserMenu)"
+      @click="toggleMenu"
+      @keydown.esc="closeMenu"
+    >
+      <div class="inline-block">
+        <div
+          class="avatar-container h-10 w-10 rounded-full overflow-hidden flex items-center justify-center bg-gray-700"
+          :class="{ 'admin-avatar': isUserAdmin }"
+        >
+          <Beanhead v-if="user && user.avatar && isValidAvatarJson(user.avatar)" v-bind="parseAvatar(user.avatar)" width="40" />
+          <span v-else class="text-white text-lg">{{ user && user.name ? user.name.charAt(0).toUpperCase() : '?' }}</span>
+        </div>
       </div>
-    </div>
-    
-    <!-- User name and dropdown toggle -->
-    <div class="relative">
+
       <div class="flex items-center space-x-1 text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white">
         <span class="hidden sm:inline truncate max-w-[100px]" :title="user ? user.name : ''">
           {{ user && user.name ? user.name : 'User' }}
@@ -23,12 +30,20 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
         </svg>
       </div>
-      
-      <!-- User dropdown menu -->
-      <div v-if="showUserMenu" ref="dropdownMenu" class="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-10">
+    </button>
+
+      <div
+        v-if="showUserMenu"
+        id="user-profile-menu"
+        ref="dropdownMenu"
+        role="menu"
+        class="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-700 rounded-md shadow-lg py-1 z-10"
+        @keydown.esc="closeMenu"
+      >
         <!-- Admin-only options -->
         <template v-if="isUserAdmin">
           <button
+            type="button"
             @click="openAdminPanel"
             class="block w-full text-left px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-gray-100 dark:hover:bg-gray-600"
           >
@@ -41,6 +56,7 @@
             </span>
           </button>
           <button
+            type="button"
             @click="rescanDatabase"
             class="block w-full text-left px-4 py-2 text-sm text-indigo-600 dark:text-indigo-400 hover:bg-gray-100 dark:hover:bg-gray-600"
           >
@@ -56,6 +72,7 @@
         
         <!-- My Profile (personal: name, avatar, password, PIN) -->
         <button 
+          type="button"
           @click="manageUser" 
           class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
         >
@@ -68,6 +85,7 @@
         </button>
         
         <button
+          type="button"
           @click="logout"
           class="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-600"
         >
@@ -79,6 +97,7 @@
           </span>
         </button>
         <button
+          type="button"
           @click="confirmDelete"
           class="block w-full text-left px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-600"
         >
@@ -90,7 +109,6 @@
           </span>
         </button>
       </div>
-    </div>
   </div>
 </template>
 
@@ -120,9 +138,15 @@ const emit = defineEmits(['logout', 'delete', 'rescan', 'manage', 'admin']);
 
 const showUserMenu = ref(false);
 const dropdownMenu = ref(null);
+const menuTrigger = ref(null);
 
 function toggleMenu() {
   showUserMenu.value = !showUserMenu.value;
+}
+
+function closeMenu() {
+  showUserMenu.value = false;
+  menuTrigger.value?.focus();
 }
 
 function logout() {

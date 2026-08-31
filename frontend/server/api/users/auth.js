@@ -1,8 +1,13 @@
-import { defineEventHandler, readBody, createError, setCookie, getRequestIP } from 'h3';
+import { defineEventHandler, readBody, createError, setCookie, deleteCookie, getRequestIP } from 'h3';
 import { getDb } from '../../utils/db';
 import { verifyCredential, hashCredential } from '../../utils/credentials';
-import { createSession } from '../../utils/sessions';
-import { sessionCookieOpts, SESSION_COOKIE } from '../../middleware/session';
+import { createSession, createCredentialUpgrade, deleteSessionByToken } from '../../utils/sessions';
+import {
+  sessionCookieOpts,
+  upgradeCookieOpts,
+  SESSION_COOKIE,
+  UPGRADE_COOKIE
+} from '../../middleware/session';
 import { checkRateLimit, recordFailure, recordSuccess } from '../../utils/rate-limit';
 import { getBoolSetting } from '../../utils/systemSettings';
 
@@ -130,28 +135,28 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    // Issue session.
+    const needsPinUpgrade = matched === 'pin' && !user.password && !allowPin;
     const userAgent = event.node.req.headers['user-agent'] || null;
-    const { token, expiresAt } = createSession(db, userId, { userAgent });
-    setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
-    recordSuccess(rlKey);
 
-    // Surface "you should add a password" prompts to the client. We do NOT
-    // refuse the login — the user gets in but the UI walks them through
-    // the upgrade flow on the next screen.
-    //   - 'pin_disabled' → the user only has a PIN, but the admin globally
-    //     disabled PINs. They must add a password before continuing.
-    //   - The 'no_creds' case is handled by the bootstrap-credentials
-    //     endpoint instead, since /api/users/auth itself rejects callers
-    //     with neither stored credential earlier.
-    let needsCredentialUpdate = null;
-    if (matched === 'pin' && !user.password && !allowPin) {
-      needsCredentialUpdate = 'pin_disabled';
+    if (needsPinUpgrade) {
+      // A pre-existing normal cookie would defeat the upgrade boundary, so
+      // revoke it before issuing the path-scoped bridge credential.
+      if (event.context.sessionToken) {
+        deleteSessionByToken(db, event.context.sessionToken);
+      }
+      deleteCookie(event, SESSION_COOKIE, { path: '/' });
+      const { token, expiresAt } = createCredentialUpgrade(db, userId);
+      setCookie(event, UPGRADE_COOKIE, token, upgradeCookieOpts(event, expiresAt));
+    } else {
+      const { token, expiresAt } = createSession(db, userId, { userAgent });
+      setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
+      deleteCookie(event, UPGRADE_COOKIE, { path: '/api/users/complete-pin-upgrade' });
     }
+    recordSuccess(rlKey);
 
     return {
       success: true,
-      needsCredentialUpdate,
+      needsCredentialUpdate: needsPinUpgrade ? 'pin_disabled' : null,
       user: {
         id: user.id,
         name: user.name,

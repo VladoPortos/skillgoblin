@@ -89,6 +89,37 @@ test.describe('PIN-only user when admin disabled PINs — picker routing', () =>
     // Verify-password input is present in post-login mode.
     await expect(page.getByTestId('set-creds-password-verify')).toBeVisible();
   });
+
+  test('PIN bridge issues only an upgrade credential until a password is saved', async () => {
+    const user = await createPinOnlyUserWithPinsDisabled(`pin-bridge-scope-${Date.now()}`, '8642');
+    const ctx = await freshContext();
+
+    const bridge = await ctx.post('/api/users/auth', {
+      data: { userId: user.id, pin: user.pin }
+    });
+    expect(bridge.ok()).toBeTruthy();
+    expect(await bridge.json()).toMatchObject({
+      success: true,
+      needsCredentialUpdate: 'pin_disabled'
+    });
+
+    const bridgeCookies = (await ctx.storageState()).cookies;
+    expect(bridgeCookies.some(cookie => cookie.name === 'sg_upgrade')).toBe(true);
+    expect(bridgeCookies.some(cookie => cookie.name === 'sg_session')).toBe(false);
+    expect((await ctx.get('/api/courses')).status()).toBe(401);
+
+    const complete = await ctx.post('/api/users/complete-pin-upgrade', {
+      data: { password: 'BridgeScope123' }
+    });
+    expect(complete.ok()).toBeTruthy();
+    expect(await complete.json()).toMatchObject({ success: true, user: { id: user.id } });
+
+    const fullCookies = (await ctx.storageState()).cookies;
+    expect(fullCookies.some(cookie => cookie.name === 'sg_upgrade')).toBe(false);
+    expect(fullCookies.some(cookie => cookie.name === 'sg_session')).toBe(true);
+    expect((await ctx.get('/api/courses')).status()).toBe(200);
+    await ctx.dispose();
+  });
 });
 
 test.describe('Post-login modal — password + verify behavior', () => {
@@ -158,7 +189,7 @@ test.describe('Post-login modal — password + verify behavior', () => {
 });
 
 test.describe('Post-login modal — dismissibility', () => {
-  test('the X button closes the modal and lets the user reach /courses (already authenticated)', async ({ page }) => {
+  test('the X button returns to the picker without granting course access', async ({ page }) => {
     const user = await createPinOnlyUserWithPinsDisabled(`pin-bridge-x-${Date.now()}`, '4444');
 
     await page.goto('/');
@@ -170,12 +201,13 @@ test.describe('Post-login modal — dismissibility', () => {
     await expect(page.getByTestId('set-creds-title')).toBeVisible();
     await page.getByTestId('set-creds-close').click();
 
-    // Modal gone, routed to /courses.
+    // Modal gone, but the bridge never granted a normal session.
     await expect(page.getByTestId('set-creds-title')).toHaveCount(0);
-    await page.waitForURL(/\/courses/);
+    await expect(page).toHaveURL(/\/$/);
+    expect((await page.request.get('/api/courses')).status()).toBe(401);
   });
 
-  test('clicking the backdrop dismisses the modal too', async ({ page }) => {
+  test('clicking the backdrop returns to the picker without granting course access', async ({ page }) => {
     const user = await createPinOnlyUserWithPinsDisabled(`pin-bridge-bg-${Date.now()}`, '5555');
 
     await page.goto('/');
@@ -189,6 +221,7 @@ test.describe('Post-login modal — dismissibility', () => {
     await page.mouse.click(5, 5);
 
     await expect(page.getByTestId('set-creds-title')).toHaveCount(0);
-    await page.waitForURL(/\/courses/);
+    await expect(page).toHaveURL(/\/$/);
+    expect((await page.request.get('/api/courses')).status()).toBe(401);
   });
 });
