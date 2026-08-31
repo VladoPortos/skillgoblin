@@ -29,7 +29,9 @@ async function findSubtitleSibling(videoFilePath) {
   const candidate = path.join(dir, srtName);
   try {
     await fs.promises.access(candidate);
-    return vttName;
+    const language = String(process.env.SUBTITLE_LANGUAGE || 'en').trim() || 'en';
+    const label = String(process.env.SUBTITLE_LABEL || language).trim() || language;
+    return { file: vttName, language, label };
   } catch {
     return null;
   }
@@ -55,7 +57,11 @@ export const generateLessonsFromFolder = async (coursePath) => {
         title: stripVideoExt(video.name).replace(/_/g, ' '),
         file: video.name,
       };
-      if (subtitle) entry.subtitle = subtitle;
+      if (subtitle) {
+        entry.subtitle = subtitle.file;
+        entry.subtitleLanguage = subtitle.language;
+        entry.subtitleLabel = subtitle.label;
+      }
       return entry;
     }));
 
@@ -84,7 +90,11 @@ export const generateLessonsFromFolder = async (coursePath) => {
             title: stripVideoExt(video.name).replace(/_/g, ' '),
             file: video.name,
           };
-          if (subtitle) entry.subtitle = subtitle;
+          if (subtitle) {
+            entry.subtitle = subtitle.file;
+            entry.subtitleLanguage = subtitle.language;
+            entry.subtitleLabel = subtitle.label;
+          }
           return entry;
         }),
     );

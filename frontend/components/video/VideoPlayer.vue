@@ -5,12 +5,21 @@
         v-if="src"
         ref="player"
         class="w-full h-full"
-        controls
+        :controls="nativeControlsVisible"
         crossorigin="anonymous"
+        playsinline
         @timeupdate="$emit('timeupdate', $event)"
-        @ended="$emit('ended')"
-        @pause="$emit('pause')"
+        @ended="onEnded"
+        @play="onPlay"
+        @pause="onPause"
         @seeked="$emit('seeked')"
+        @pointermove="showNativeControlsTemporarily"
+        @pointerleave="hideNativeControlsIfPlaying"
+        @pointerdown="holdNativeControls"
+        @pointerup="showNativeControlsTemporarily"
+        @click="onVideoClick"
+        @keydown.space.prevent="togglePlayback"
+        @keydown.k.prevent="togglePlayback"
         @waiting="onWaiting"
         @playing="onPlaying"
         @canplay="onCanPlay"
@@ -21,11 +30,12 @@
         <source :key="src" :src="src" type="video/mp4">
         <track
           v-if="subtitleSrc"
+          ref="subtitleTrack"
           :key="subtitleSrc"
           kind="subtitles"
           :src="subtitleSrc"
-          srclang="en"
-          label="English"
+          :srclang="subtitleLanguage"
+          :label="subtitleLabel || subtitleLanguage"
         >
         Your browser does not support the video tag.
       </video>
@@ -34,8 +44,8 @@
       </div>
 
       <!-- Buffering spinner: visible only when the player is stalled waiting
-           for data AND there's no terminal error. The native browser
-           controls already show a tiny spinner in some implementations, but
+           for data AND there's no terminal error. Browser media controls
+           show a tiny spinner in some implementations, but
            it's inconsistent and easy to miss against a dark frame; this
            overlay is the explicit "we're loading, don't worry" signal. -->
       <div
@@ -74,17 +84,27 @@
       class="flex flex-wrap items-center gap-3 px-3 py-2 bg-gray-800 text-gray-200 text-sm"
       data-testid="player-controls"
     >
-      <button
-        v-if="subtitleSrc"
-        type="button"
-        data-testid="player-cc-toggle"
-        class="px-2 py-1 rounded border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
-        :class="ccOn ? 'border-primary-400 bg-primary-700/30' : 'border-gray-600 hover:border-gray-400'"
-        :aria-pressed="ccOn"
-        @click="toggleCc"
+      <div
+        v-if="trackOptions.length"
+        class="flex flex-wrap items-center gap-1"
+        data-testid="player-subtitle-selector"
       >
-        CC
-      </button>
+        <span class="mr-1 text-xs uppercase tracking-wide text-gray-400">Subtitles</span>
+        <button
+          v-for="option in trackOptions"
+          :key="option.id"
+          type="button"
+          data-testid="player-subtitle-track"
+          :data-language="option.language"
+          class="px-2 py-1 rounded border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-400"
+          :class="selectedTrackId === option.id ? 'border-primary-400 bg-primary-700/30' : 'border-gray-600 hover:border-gray-400'"
+          :aria-pressed="selectedTrackId === option.id"
+          :title="selectedTrackId === option.id ? `Turn off ${option.label} subtitles` : `Show ${option.label} subtitles`"
+          @click="selectSubtitleTrack(option)"
+        >
+          {{ option.label }}
+        </button>
+      </div>
       <label class="flex items-center gap-1">
         <span class="text-xs uppercase tracking-wide text-gray-400">Speed</span>
         <select
@@ -133,28 +153,40 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue';
 import {
   ALLOWED_RATES,
   getCcDefault,
   setCcDefault,
+  getSubtitleTrackPreference,
+  setSubtitleTrackPreference,
   getPlaybackRate,
   setPlaybackRate,
 } from '../../utils/playerPreferences.js';
+import {
+  applyTextTrackSelection,
+  chooseTextTrack,
+  listTextTrackOptions,
+} from '../../utils/textTracks.js';
 
 const props = defineProps({
   src: { type: String, default: '' },
   autoplay: { type: Boolean, default: false },
   currentTime: { type: Number, default: 0 },
   subtitleSrc: { type: String, default: '' },
+  subtitleLanguage: { type: String, default: 'en' },
+  subtitleLabel: { type: String, default: '' },
   placeholderText: { type: String, default: 'Select a video to start' },
 });
 
 const emit = defineEmits(['timeupdate', 'ended', 'pause', 'seeked', 'loadedmetadata', 'start-from-beginning']);
 
 const player = ref(null);
+const subtitleTrack = ref(null);
 const playbackRate = ref(1);
-const ccOn = ref(false);
+const subtitlesEnabled = ref(false);
+const trackOptions = ref([]);
+const selectedTrackId = ref('');
 // Buffering / error / PiP state. All client-side; survives only as long as
 // the player is mounted. The buffering flag turns off on `playing`/`canplay`
 // (the standard recovery signals) and the error flag turns off on a
@@ -164,27 +196,45 @@ const isBuffering = ref(false);
 const errorState = ref(null);
 const isPipActive = ref(false);
 const pipSupported = ref(false);
+// Safari's media chrome may remain over the course content while the pointer
+// is idle. Temporarily remove the native `controls` attribute during active
+// playback, then restore it immediately on pointer/keyboard interaction.
+// Paused and ended videos always retain their controls.
+const nativeControlsVisible = ref(true);
+const CONTROLS_IDLE_MS = 1600;
+let controlsHideTimer = null;
 // Track which textTracks list we've registered the addtrack listener on,
 // so we attach exactly once and detach the same instance on unmount even
 // if the underlying <video> remounts.
 let attachedTextTracks = null;
+let applyingTrackModes = false;
 
 function attachTrackListener(videoEl) {
   if (!videoEl || !videoEl.textTracks) return;
   if (attachedTextTracks === videoEl.textTracks) return;
   // Detach any previous binding before re-attaching to a new <video>.
   if (attachedTextTracks && typeof attachedTextTracks.removeEventListener === 'function') {
-    try { attachedTextTracks.removeEventListener('addtrack', onTrackAdded); } catch {}
+    try {
+      attachedTextTracks.removeEventListener('addtrack', onTrackListChanged);
+      attachedTextTracks.removeEventListener('removetrack', onTrackListChanged);
+      attachedTextTracks.removeEventListener('change', onTrackListChanged);
+    } catch {}
   }
   if (typeof videoEl.textTracks.addEventListener === 'function') {
-    videoEl.textTracks.addEventListener('addtrack', onTrackAdded);
+    videoEl.textTracks.addEventListener('addtrack', onTrackListChanged);
+    videoEl.textTracks.addEventListener('removetrack', onTrackListChanged);
+    videoEl.textTracks.addEventListener('change', onTrackListChanged);
     attachedTextTracks = videoEl.textTracks;
   }
 }
 
 function detachTrackListener() {
   if (attachedTextTracks && typeof attachedTextTracks.removeEventListener === 'function') {
-    try { attachedTextTracks.removeEventListener('addtrack', onTrackAdded); } catch {}
+    try {
+      attachedTextTracks.removeEventListener('addtrack', onTrackListChanged);
+      attachedTextTracks.removeEventListener('removetrack', onTrackListChanged);
+      attachedTextTracks.removeEventListener('change', onTrackListChanged);
+    } catch {}
   }
   attachedTextTracks = null;
 }
@@ -204,6 +254,8 @@ watch(() => props.src, (newSrc, oldSrc) => {
   // overlay or stale spinner doesn't bleed into the new lesson.
   errorState.value = null;
   isBuffering.value = false;
+  trackOptions.value = [];
+  selectedTrackId.value = '';
   player.value.pause();
   player.value.load();
 }, { immediate: true });
@@ -216,9 +268,9 @@ watch(player, (newPlayer) => {
   if (newPlayer) {
     attachTrackListener(newPlayer);
     attachPipListeners(newPlayer);
-    // Re-apply current CC mode in case tracks were already attached
+    // Re-apply the selected subtitle in case tracks were already attached
     // synchronously (e.g. when src + subtitleSrc both render in the same tick).
-    applyCcMode();
+    refreshTrackOptions();
   } else {
     detachTrackListener();
     detachPipListeners();
@@ -228,12 +280,11 @@ watch(player, (newPlayer) => {
 
 watch(() => props.currentTime, () => applySeek());
 
-// When subtitleSrc changes (different video, different track), re-apply CC
-// mode. Also wire the textTracks `addtrack` event so we don't race the
-// track-element registration: when the new <track> registers asynchronously,
-// onTrackAdded re-applies the user's stored preference.
-watch(() => props.subtitleSrc, () => {
-  applyCcMode();
+// The authored <track> registers asynchronously. Refresh after Vue has
+// replaced the element so it can be preferred over a default embedded track.
+watch(() => props.subtitleSrc, async () => {
+  await nextTick();
+  refreshTrackOptions();
 });
 
 function onLoadedMetadata(event) {
@@ -241,7 +292,7 @@ function onLoadedMetadata(event) {
   if (player.value) {
     player.value.playbackRate = playbackRate.value;
   }
-  applyCcMode();
+  refreshTrackOptions();
   if (props.autoplay && player.value) {
     try { player.value.play(); } catch {}
   }
@@ -255,6 +306,7 @@ function onWaiting() {
 function onPlaying() {
   isBuffering.value = false;
   errorState.value = null;
+  scheduleNativeControlsHide();
 }
 function onCanPlay() {
   isBuffering.value = false;
@@ -278,6 +330,71 @@ function retryLoad() {
   // which is enough to recover from a transient network blip. For a truly
   // missing file the error event fires again and the overlay reappears.
   try { player.value.load(); } catch {}
+}
+
+function clearControlsHideTimer() {
+  if (controlsHideTimer !== null) {
+    clearTimeout(controlsHideTimer);
+    controlsHideTimer = null;
+  }
+}
+
+function scheduleNativeControlsHide() {
+  clearControlsHideTimer();
+  if (!player.value || player.value.paused || player.value.ended) return;
+  controlsHideTimer = setTimeout(() => {
+    nativeControlsVisible.value = false;
+    controlsHideTimer = null;
+  }, CONTROLS_IDLE_MS);
+}
+
+function showNativeControlsTemporarily() {
+  nativeControlsVisible.value = true;
+  scheduleNativeControlsHide();
+}
+
+function holdNativeControls() {
+  nativeControlsVisible.value = true;
+  clearControlsHideTimer();
+}
+
+function hideNativeControlsIfPlaying() {
+  clearControlsHideTimer();
+  if (player.value && !player.value.paused && !player.value.ended) {
+    nativeControlsVisible.value = false;
+  }
+}
+
+function onPlay() {
+  scheduleNativeControlsHide();
+}
+
+function onPause(event) {
+  clearControlsHideTimer();
+  nativeControlsVisible.value = true;
+  emit('pause', event);
+}
+
+function onEnded(event) {
+  clearControlsHideTimer();
+  nativeControlsVisible.value = true;
+  emit('ended', event);
+}
+
+function togglePlayback() {
+  if (!player.value) return;
+  nativeControlsVisible.value = true;
+  try {
+    if (player.value.paused || player.value.ended) player.value.play();
+    else player.value.pause();
+  } catch {}
+}
+
+function onVideoClick() {
+  // With native chrome visible, the browser owns clicks on its shadow-DOM
+  // controls. Once hidden, a click still needs to provide the familiar
+  // play/pause action and reveal the controls again.
+  if (!nativeControlsVisible.value) togglePlayback();
 }
 
 // Picture-in-Picture wiring. The button is hidden entirely when the
@@ -323,23 +440,57 @@ async function togglePip() {
   }
 }
 
-function onTrackAdded() {
-  applyCcMode();
+function authoredTrackIndex(tracks) {
+  const authored = subtitleTrack.value?.track;
+  if (!authored || !tracks) return -1;
+  for (let index = 0; index < tracks.length; index += 1) {
+    if (tracks[index] === authored) return index;
+  }
+  return -1;
 }
 
-function applyCcMode() {
+function applySelectedTrack() {
   if (!player.value) return;
   const tracks = player.value.textTracks;
   if (!tracks) return;
-  for (let i = 0; i < tracks.length; i += 1) {
-    tracks[i].mode = ccOn.value ? 'showing' : 'hidden';
-  }
+  applyingTrackModes = true;
+  applyTextTrackSelection(tracks, selectedTrackId.value);
+  queueMicrotask(() => { applyingTrackModes = false; });
 }
 
-function toggleCc() {
-  ccOn.value = !ccOn.value;
-  setCcDefault(ccOn.value);
-  applyCcMode();
+function refreshTrackOptions() {
+  if (!player.value?.textTracks) return;
+  const tracks = player.value.textTracks;
+  const authoredIndex = authoredTrackIndex(tracks);
+  const options = listTextTrackOptions(
+    tracks,
+    typeof navigator !== 'undefined' ? navigator.language : 'en',
+    authoredIndex,
+  );
+  trackOptions.value = options;
+  if (!subtitlesEnabled.value) {
+    selectedTrackId.value = '';
+  } else {
+    selectedTrackId.value = chooseTextTrack(
+      options,
+      getSubtitleTrackPreference(),
+      authoredIndex,
+    );
+  }
+  applySelectedTrack();
+}
+
+function onTrackListChanged() {
+  if (!applyingTrackModes) refreshTrackOptions();
+}
+
+function selectSubtitleTrack(option) {
+  const turnOff = selectedTrackId.value === option.id;
+  subtitlesEnabled.value = !turnOff;
+  selectedTrackId.value = turnOff ? '' : option.id;
+  setCcDefault(!turnOff);
+  if (!turnOff) setSubtitleTrackPreference(option.preference);
+  applySelectedTrack();
 }
 
 function onRateChange(event) {
@@ -351,7 +502,7 @@ function onRateChange(event) {
 }
 
 onMounted(() => {
-  ccOn.value = getCcDefault();
+  subtitlesEnabled.value = getCcDefault();
   playbackRate.value = getPlaybackRate();
   // Feature-detect PiP up front. Hiding the button entirely on unsupported
   // browsers is friendlier than showing one that fails when clicked.
@@ -364,10 +515,12 @@ onMounted(() => {
   // this hook on the course-detail page where src starts empty).
   if (player.value) {
     player.value.playbackRate = playbackRate.value;
+    refreshTrackOptions();
   }
 });
 
 onBeforeUnmount(() => {
+  clearControlsHideTimer();
   detachTrackListener();
   detachPipListeners();
 });

@@ -43,6 +43,11 @@ services:
       # - APP_THEME_COLOR=#1f2937
       # - APP_BACKGROUND_COLOR=#111827
 
+      # Metadata for same-basename .srt sidecars. The player also discovers
+      # text tracks embedded in the video and builds its selector dynamically.
+      # - SUBTITLE_LANGUAGE=en
+      # - SUBTITLE_LABEL=English
+
       # File-watcher polling interval, milliseconds. Set to 0 to disable
       # polling entirely (e.g. on Unraid where you don't want drives spun
       # up by the watcher); rescans then only run on startup or via the

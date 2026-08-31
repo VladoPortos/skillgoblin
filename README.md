@@ -260,9 +260,16 @@ you know your edits will be reverted on the next rescan unless you re-export.
 Drop a sidecar `.srt` next to a video (same basename, e.g. `01-intro.mp4`
 and `01-intro.srt`). The server detects it at scan time, exposes a
 `subtitle` field on the video payload, and serves the matching `.vtt` URL
-via on-the-fly SRT-to-VTT conversion. The player UI to actually attach the
-WebVTT track and toggle CC ships in a follow-up PR (`feat/player-correctness`);
-this PR sets up the server side so the follow-up just wires the `<track>`.
+via on-the-fly SRT-to-VTT conversion. The player lists every text track the
+browser exposes, including subtitles embedded in the video container and the
+sidecar track. Selecting a language hides every other track; selecting the
+active language again turns subtitles off. The preference is restored for the
+next lesson when a matching track is available.
+
+Sidecars default to language code `en`. Set `SUBTITLE_LANGUAGE` to another
+BCP 47 language code and optionally set `SUBTITLE_LABEL` to the label you want
+shown in the player. The selector itself is language-agnostic and derives its
+buttons from the browser's `TextTrackList`.
 
 ### File monitoring
 

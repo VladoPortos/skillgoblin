@@ -14,6 +14,8 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-cg-'));
 });
 afterEach(() => {
+  delete process.env.SUBTITLE_LANGUAGE;
+  delete process.env.SUBTITLE_LABEL;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -91,6 +93,21 @@ describe('generateLessonsFromFolder', () => {
       title: '01-intro',
       file: '01-intro.mkv',
       subtitle: '01-intro.vtt',
+      subtitleLanguage: 'en',
+      subtitleLabel: 'en',
+    });
+  });
+
+  it('uses configured subtitle language metadata', async () => {
+    process.env.SUBTITLE_LANGUAGE = 'ru';
+    process.env.SUBTITLE_LABEL = 'Русский';
+    touch('Lesson 1/01-intro.mp4');
+    touch('Lesson 1/01-intro.srt');
+    const lessons = await generateLessonsFromFolder(tmpDir);
+    expect(lessons[0].videos[0]).toMatchObject({
+      subtitle: '01-intro.vtt',
+      subtitleLanguage: 'ru',
+      subtitleLabel: 'Русский',
     });
   });
 

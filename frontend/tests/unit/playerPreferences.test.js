@@ -2,15 +2,42 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   CC_KEY,
+  SUBTITLE_TRACK_KEY,
   RATE_KEY,
   getCcDefault,
   setCcDefault,
+  getSubtitleTrackPreference,
+  setSubtitleTrackPreference,
   getPlaybackRate,
   setPlaybackRate,
 } from '../../utils/playerPreferences.js';
 
 beforeEach(() => {
+  const values = new Map();
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: {
+      clear: () => values.clear(),
+      getItem: (key) => values.has(key) ? values.get(key) : null,
+      removeItem: (key) => values.delete(key),
+      setItem: (key, value) => values.set(key, String(value)),
+    },
+  });
   window.localStorage.clear();
+});
+
+describe('preferred subtitle track', () => {
+  it('round-trips a language-agnostic track signature', () => {
+    setSubtitleTrackPreference('["fr","Français","subtitles"]');
+    expect(window.localStorage.getItem(SUBTITLE_TRACK_KEY)).toBe('["fr","Français","subtitles"]');
+    expect(getSubtitleTrackPreference()).toBe('["fr","Français","subtitles"]');
+  });
+
+  it('clears an empty preference', () => {
+    window.localStorage.setItem(SUBTITLE_TRACK_KEY, 'old');
+    setSubtitleTrackPreference('');
+    expect(getSubtitleTrackPreference()).toBe('');
+  });
 });
 
 describe('CC default', () => {

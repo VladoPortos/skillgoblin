@@ -61,17 +61,17 @@ async function openCourseDetail(page, courseId) {
   await page.waitForSelector('[data-testid=player-speed]', { timeout: 5_000 });
 }
 
-test.describe('player CC toggle', () => {
+test.describe('player subtitle selector', () => {
   test.beforeAll(async ({ request }) => {
     await loginAdmin(request);
     await rescanAndWait(request);
   });
 
-  test('CC button is hidden when the selected video has no subtitle sidecar', async ({ page, request }) => {
+  test('subtitle selector is hidden when the selected video has no text tracks', async ({ page, request }) => {
     await loginAdmin(request);
     await attachAuthCookie(page, request);
     const courseId = await findCourseWithoutSubtitle(request);
     await openCourseDetail(page, courseId);
-    await expect(page.locator('[data-testid=player-cc-toggle]')).toHaveCount(0);
+    await expect(page.locator('[data-testid=player-subtitle-selector]')).toHaveCount(0);
   });
 });

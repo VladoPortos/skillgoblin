@@ -1,4 +1,5 @@
 export const CC_KEY = 'skillgoblin:cc:default';
+export const SUBTITLE_TRACK_KEY = 'skillgoblin:subtitleTrack:preferred';
 export const RATE_KEY = 'skillgoblin:playbackRate';
 
 export const ALLOWED_RATES = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -23,6 +24,20 @@ export function setCcDefault(value) {
   const s = safeStorage();
   if (!s) return;
   s.setItem(CC_KEY, value ? '1' : '0');
+}
+
+export function getSubtitleTrackPreference() {
+  const s = safeStorage();
+  if (!s) return '';
+  return s.getItem(SUBTITLE_TRACK_KEY) || '';
+}
+
+export function setSubtitleTrackPreference(value) {
+  const s = safeStorage();
+  if (!s) return;
+  const normalized = String(value || '').trim();
+  if (normalized) s.setItem(SUBTITLE_TRACK_KEY, normalized);
+  else s.removeItem(SUBTITLE_TRACK_KEY);
 }
 
 export function getPlaybackRate() {
