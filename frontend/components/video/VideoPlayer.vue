@@ -461,9 +461,11 @@ function applySelectedTrack() {
 function refreshTrackOptions() {
   if (!player.value?.textTracks) return;
   const tracks = player.value.textTracks;
+  const authoredIndex = authoredTrackIndex(tracks);
   const options = listTextTrackOptions(
     tracks,
     typeof navigator !== 'undefined' ? navigator.language : 'en',
+    authoredIndex,
   );
   trackOptions.value = options;
   if (!subtitlesEnabled.value) {
@@ -472,7 +474,7 @@ function refreshTrackOptions() {
     selectedTrackId.value = chooseTextTrack(
       options,
       getSubtitleTrackPreference(),
-      authoredTrackIndex(tracks),
+      authoredIndex,
     );
   }
   applySelectedTrack();

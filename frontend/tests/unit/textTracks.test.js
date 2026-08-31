@@ -48,6 +48,56 @@ describe('text track selection', () => {
     expect(list.map((track) => track.mode)).toEqual(['showing', 'hidden', 'hidden']);
   });
 
+  it('does not offer chapter or metadata tracks as subtitle choices', () => {
+    const options = listTextTrackOptions(tracks(
+      { language: 'en', label: 'English', kind: 'subtitles' },
+      { language: 'en', label: 'Chapters', kind: 'chapters' },
+      { language: '', label: 'Telemetry', kind: 'metadata' },
+    ), 'en');
+
+    expect(options.map(({ label }) => label)).toEqual(['English']);
+  });
+
+  it('leaves non-subtitle track modes untouched when applying a selection', () => {
+    const list = tracks(
+      { language: 'en', label: 'English', kind: 'subtitles' },
+      { language: '', label: 'Telemetry', kind: 'metadata', mode: 'disabled' },
+    );
+    const options = listTextTrackOptions(list, 'en');
+
+    applyTextTrackSelection(list, options[0].id);
+
+    expect(list.map((track) => track.mode)).toEqual(['showing', 'disabled']);
+  });
+
+  it('prefers the authored sidecar inside a duplicate-language group', () => {
+    const list = tracks(
+      { language: 'en', label: 'Embedded English', kind: 'subtitles' },
+      { language: 'en', label: 'English sidecar', kind: 'subtitles' },
+    );
+    const authoredTrackIndex = 1;
+    const options = listTextTrackOptions(list, 'en', authoredTrackIndex);
+    const selectedId = chooseTextTrack(options, '', authoredTrackIndex);
+
+    applyTextTrackSelection(list, selectedId);
+
+    expect(list.map((track) => track.mode)).toEqual(['hidden', 'showing']);
+  });
+
+  it('restores the exact preferred track inside a duplicate-language group', () => {
+    const list = tracks(
+      { language: 'en', label: 'Embedded English', kind: 'subtitles' },
+      { language: 'en', label: 'English sidecar', kind: 'subtitles' },
+    );
+    const options = listTextTrackOptions(list, 'en');
+    const selectedId = chooseTextTrack(options, options[0].preferences[1]);
+
+    applyTextTrackSelection(list, selectedId);
+
+    expect(options[0].id).toBe(selectedId);
+    expect(list.map((track) => track.mode)).toEqual(['hidden', 'showing']);
+  });
+
   it('hides every track when the selection is empty', () => {
     const list = tracks(
       { language: 'en', label: 'English', mode: 'showing' },
