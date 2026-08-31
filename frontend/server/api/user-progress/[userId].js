@@ -39,9 +39,25 @@ export default defineEventHandler(async (event) => {
         return { progress };
       }
 
+      const folderNames = new Set(courseDirs.map((id, index) => id));
+      const existingCourseIds = new Set(
+        db.prepare('SELECT id, folder_name FROM courses').all()
+          .filter(row => {
+            try {
+              return fs.existsSync(`${contentDir}/${row.folder_name}`);
+            } catch {
+              return false;
+            }
+          })
+          .map(row => row.id)
+      );
+      // Retain generated IDs for a course that has not reached the DB yet,
+      // while preferring DB IDs for legacy lossy-name folders.
+      for (const id of folderNames) existingCourseIds.add(id);
+
       const cleaned = {};
       for (const courseId of Object.keys(progress)) {
-        if (courseDirs.includes(courseId)) cleaned[courseId] = progress[courseId];
+        if (existingCourseIds.has(courseId)) cleaned[courseId] = progress[courseId];
       }
       return { progress: cleaned };
     } catch (error) {

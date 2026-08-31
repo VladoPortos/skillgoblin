@@ -15,5 +15,5 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
       - CHOKIDAR_POLLING_INTERVAL=60000 # Default polling interval in ms (60 seconds)
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     restart: unless-stopped

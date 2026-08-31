@@ -10,6 +10,7 @@ afterEach(() => {
   if (tempDir) fs.rmSync(tempDir, { recursive: true, force: true });
   delete process.env.CONTENT_DIR;
   getDb().prepare("DELETE FROM courses WHERE id = 'c'").run();
+  getDb().prepare("DELETE FROM courses WHERE id = 'metadata-course'").run();
 });
 
 describe('course watcher routing', () => {
@@ -39,10 +40,10 @@ describe('course watcher routing', () => {
     expect(db.prepare('SELECT id FROM courses WHERE id = ?').get(id)).toBeUndefined();
   });
 
-  it('preserves a stale row and progress when an on-disk folder collides with its id', async () => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-watcher-collision-'));
+  it('preserves a legacy course id when the same lossy-name folder is rescanned', async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-watcher-legacy-id-'));
     process.env.CONTENT_DIR = tempDir;
-    fs.mkdirSync(path.join(tempDir, 'C#'));
+    fs.mkdirSync(path.join(tempDir, 'C++'));
     const db = getDb();
     db.prepare("DELETE FROM courses WHERE id = 'c'").run();
     db.prepare(`
@@ -54,5 +55,37 @@ describe('course watcher routing', () => {
 
     expect(db.prepare("SELECT title, folder_name FROM courses WHERE id = 'c'").get())
       .toEqual({ title: 'Original', folder_name: 'C++' });
+  });
+
+  it('preserves intentionally blank metadata during a normal rescan', async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-watcher-empty-metadata-'));
+    process.env.CONTENT_DIR = tempDir;
+    fs.mkdirSync(path.join(tempDir, 'Metadata Course'));
+    const db = getDb();
+    db.prepare(`
+      INSERT INTO courses (id, title, description, category, release_date, folder_name, data)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      'metadata-course',
+      'Metadata Course',
+      '',
+      '',
+      '',
+      'Metadata Course',
+      JSON.stringify({
+        id: 'metadata-course',
+        title: 'Metadata Course',
+        description: '',
+        category: '',
+        releaseDate: '',
+        lessons: []
+      })
+    );
+
+    await scanCoursesOnStartup(false, true);
+
+    expect(db.prepare(`
+      SELECT description, category, release_date FROM courses WHERE id = 'metadata-course'
+    `).get()).toEqual({ description: '', category: '', release_date: '' });
   });
 });

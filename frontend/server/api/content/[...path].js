@@ -41,8 +41,8 @@ setInterval(() => {
 }, 30 * 1000).unref(); // Check every 30 seconds
 
 // Get content chunk from cache or read from file
-const getContentChunk = async (filePath, start, end) => {
-  const chunkKey = `${filePath}:${start}-${end}`;
+const getContentChunk = async (filePath, fileVersion, start, end) => {
+  const chunkKey = `${filePath}:${fileVersion}:${start}-${end}`;
   const chunkSize = end - start + 1;
   
   // Only use the cache for chunks that aren't too large
@@ -94,7 +94,7 @@ const getContentChunk = async (filePath, start, end) => {
 };
 
 // Prefetch next chunk (called after serving a chunk)
-const prefetchNextChunk = (filePath, currentEnd, fileSize) => {
+const prefetchNextChunk = (filePath, fileVersion, currentEnd, fileSize) => {
   const prefetchStart = currentEnd + 1;
   const prefetchSize = Math.min(MAX_CHUNK_SIZE, fileSize - prefetchStart);
   
@@ -102,7 +102,7 @@ const prefetchNextChunk = (filePath, currentEnd, fileSize) => {
   if (prefetchSize < 64 * 1024) return;
   
   // Asynchronously prefetch without waiting
-  getContentChunk(filePath, prefetchStart, prefetchStart + prefetchSize - 1)
+  getContentChunk(filePath, fileVersion, prefetchStart, prefetchStart + prefetchSize - 1)
     .catch(err => {
       // Just log errors, don't disrupt the main flow
       console.error(`Prefetch error for ${filePath}: ${err.message}`);
@@ -326,6 +326,11 @@ export default defineEventHandler(async (event) => {
     
     // Handle video streaming with proper range support
     if (isVideo) {
+      // Cache identity must describe the current file, not just its path.
+      // Course managers commonly replace a video in place; without this
+      // version, an identical range request can return bytes cached from the
+      // previous file for up to five minutes.
+      const fileVersion = `${stats.dev}:${stats.ino}:${stats.size}:${stats.mtimeMs}:${stats.ctimeMs}`;
       setResponseHeader(event, 'Accept-Ranges', 'bytes');
       
       // Add caching headers for videos
@@ -351,10 +356,10 @@ export default defineEventHandler(async (event) => {
         
         try {
           // Get content chunk from cache or file
-          const buffer = await getContentChunk(filePath, start, end);
+          const buffer = await getContentChunk(filePath, fileVersion, start, end);
           
           // Prefetch next chunk asynchronously (don't await)
-          prefetchNextChunk(filePath, end, stats.size);
+          prefetchNextChunk(filePath, fileVersion, end, stats.size);
           
           // Send the buffer directly
           return buffer;

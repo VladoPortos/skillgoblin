@@ -3,6 +3,8 @@ import { getDb } from '../utils/db';
 import {
   SESSION_COOKIE,
   SESSION_LIFETIME_MS,
+  UPGRADE_COOKIE,
+  UPGRADE_LIFETIME_MS,
   findSessionUser,
   touchSession
 } from '../utils/sessions';
@@ -78,6 +80,13 @@ export function sessionCookieOpts(event, expiresAtMs) {
   };
 }
 
+export function upgradeCookieOpts(event, expiresAtMs) {
+  return {
+    ...sessionCookieOpts(event, expiresAtMs),
+    path: '/api/users/complete-pin-upgrade'
+  };
+}
+
 function isSecureRequest(event) {
   // Direct TLS termination → req.encrypted is true on the underlying socket.
   if (event.node.req.socket?.encrypted) return true;
@@ -88,4 +97,4 @@ function isSecureRequest(event) {
 }
 
 // Re-export the defaults that issuing endpoints will need.
-export { SESSION_COOKIE, SESSION_LIFETIME_MS };
+export { SESSION_COOKIE, SESSION_LIFETIME_MS, UPGRADE_COOKIE, UPGRADE_LIFETIME_MS };

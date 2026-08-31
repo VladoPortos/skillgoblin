@@ -190,7 +190,20 @@
           <div class="mt-6 px-4 py-6 sm:px-0">
             <!-- All Courses Tab -->
             <div v-if="activeTab === 'all'">
-              <div v-if="courses.length" class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div
+                v-if="courseLoadError"
+                role="alert"
+                class="mb-6 rounded-md border border-red-400/60 bg-red-50 dark:bg-red-950/40 p-4 text-sm text-red-900 dark:text-red-100"
+              >
+                <p>Could not load courses. Check the server connection and try again.</p>
+                <button
+                  type="button"
+                  data-testid="retry-course-list"
+                  class="mt-2 font-semibold underline rounded focus:outline-none focus:ring-2 focus:ring-red-500"
+                  @click="fetchCourses(true)"
+                >Retry</button>
+              </div>
+              <div v-else-if="courses.length" class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 <CourseCard
                   v-for="course in courses"
                   :key="course.id"
@@ -256,9 +269,9 @@
 
             <!-- In Progress Tab -->
             <div v-if="activeTab === 'inProgress'">
-              <div v-if="inProgressCourses.length" class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div v-if="filteredInProgressCourses.length" class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 <CourseCard
-                  v-for="course in inProgressCourses"
+                  v-for="course in filteredInProgressCourses"
                   :key="course.id"
                   :course="course"
                   :progress="courseProgress[course.id] || 0"
@@ -273,9 +286,9 @@
 
             <!-- Favorites Tab -->
             <div v-if="activeTab === 'favorites'">
-              <div v-if="favoriteCourses.length" class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+              <div v-if="filteredFavoriteCourses.length" class="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
                 <CourseCard
-                  v-for="course in favoriteCourses"
+                  v-for="course in filteredFavoriteCourses"
                   :key="course.id"
                   :course="course"
                   :progress="courseProgress[course.id] || 0"
@@ -304,6 +317,7 @@ import RescanConfirmModal from '../../components/RescanConfirmModal.vue';
 import CourseCard from '../../components/course/CourseCard.vue';
 import CategoryFilterBar from '../../components/filters/CategoryFilterBar.vue';
 import SearchBar from '../../components/ui/SearchBar.vue';
+import { filterAndSortCourses } from '~/utils/courseFilters.js';
 import TabNavigation from '../../components/ui/TabNavigation.vue';
 import ConfirmationModal from '../../components/ui/ConfirmationModal.vue';
 import { useRouter, useRoute } from 'vue-router';
@@ -337,6 +351,7 @@ const {
 
 // Course state
 const courses = ref([]);
+const courseLoadError = ref('');
 const searchQuery = ref('');
 const selectedCategory = ref('all');
 const sortMode = ref('title'); // 'title' | 'newest'
@@ -349,6 +364,17 @@ const activeTab = ref('all');
 const inProgressCourses = ref([]);
 const favoriteCourses = ref([]);
 const courseProgress = ref({});
+const activeFilters = computed(() => ({
+  search: searchQuery.value,
+  category: selectedCategory.value,
+  sort: sortMode.value
+}));
+const filteredInProgressCourses = computed(() =>
+  filterAndSortCourses(inProgressCourses.value, activeFilters.value)
+);
+const filteredFavoriteCourses = computed(() =>
+  filterAndSortCourses(favoriteCourses.value, activeFilters.value)
+);
 
 // Pagination state
 const currentPage = ref(1);
@@ -426,6 +452,7 @@ const fetchCourses = async (forceFresh = false) => {
   }
 
   const requestToken = ++fetchCoursesToken;
+  courseLoadError.value = '';
   try {
     // Build query parameters including category and search filters
     const queryParams = new URLSearchParams({
@@ -490,6 +517,7 @@ const fetchCourses = async (forceFresh = false) => {
     if (requestToken !== fetchCoursesToken) return;
     console.error('Failed to fetch courses:', error);
     courses.value = [];
+    courseLoadError.value = 'Could not load courses.';
   }
 };
 

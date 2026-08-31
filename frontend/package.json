@@ -23,12 +23,13 @@
     "busboy": "^1.6.0",
     "chokidar": "^5.0.0",
     "lru-cache": "^11.5.0",
-    "nuxt": "^4.4.7",
-    "sharp": "^0.34.5",
+    "nuxt": "^4.5.2",
+    "sharp": "^0.35.4",
     "tailwindcss": "^4.2.4",
     "uuid": "^14.0.0"
   },
   "devDependencies": {
+    "@nuxt/devtools": "^3.4.2",
     "@playwright/test": "1.60.0",
     "jsdom": "^29.1.1",
     "vitest": "^4.1.7"

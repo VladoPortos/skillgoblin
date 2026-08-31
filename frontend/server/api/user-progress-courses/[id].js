@@ -1,7 +1,11 @@
 import { defineEventHandler } from 'h3';
 import { getDb } from '../../utils/db';
 import { requireSelfOrAdmin } from '../../utils/authz';
-import { loadProgressData, fetchCoursesByIds } from '../../utils/userCourseProgress';
+import {
+  loadProgressData,
+  fetchCoursesByIds,
+  summarizeCourseProgress
+} from '../../utils/userCourseProgress';
 
 // API endpoint to get ALL in-progress courses for a user
 // This endpoint bypasses regular pagination and returns the complete list.
@@ -41,54 +45,13 @@ export default defineEventHandler(async (event) => {
       };
     }
 
-    // Extract course IDs with progress > 0% but not complete
-    const inProgressCourseIds = [];
-    const progressPercentages = {};
-
-    for (const courseId in progressData) {
-      if (progressData[courseId] && progressData[courseId].completed) {
-        let completedCount = 0;
-        const completedMap = progressData[courseId].completed;
-        for (const videoId in completedMap) {
-          if (completedMap[videoId]) {
-            completedCount++;
-          }
-        }
-
-        if (completedCount > 0) {
-          inProgressCourseIds.push(courseId);
-          progressPercentages[courseId] = { completedVideos: completedCount };
-        }
-      }
-    }
-
-    // Fetch complete course data for all in-progress courses and compute
-    // progress percentages
-    const inProgressCourses = fetchCoursesByIds(db, inProgressCourseIds).map(course => {
-      const courseData = course.data;
-
-      // Calculate overall progress percentage using the total videos count
-      if (progressPercentages[course.id]) {
-        let totalVideos = 0;
-
-        // Count all videos in the course
-        courseData.lessons?.forEach(lesson => {
-          if (lesson.videos) {
-            totalVideos += lesson.videos.length;
-          }
-        });
-
-        if (totalVideos > 0) {
-          const completedVideos = progressPercentages[course.id].completedVideos;
-          const progressPercent = Math.min(Math.round((completedVideos / totalVideos) * 100), 100);
-
-          // Add progress percentage to course data for the frontend
-          courseData.progressPercentage = progressPercent;
-        }
-      }
-
-      return courseData;
-    });
+    const inProgressCourses = fetchCoursesByIds(db, Object.keys(progressData))
+      .map(course => {
+        const summary = summarizeCourseProgress(course.data, progressData[course.id]);
+        if (!summary.started || summary.complete) return null;
+        return { ...course.data, progressPercentage: summary.percentage };
+      })
+      .filter(Boolean);
 
     return {
       success: true,
@@ -96,6 +59,7 @@ export default defineEventHandler(async (event) => {
     };
 
   } catch (error) {
+    if (error?.statusCode) throw error;
     console.error('Error in user-progress-courses API:', error);
     return {
       success: false,

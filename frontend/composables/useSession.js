@@ -66,10 +66,19 @@ export const useSession = () => {
       if (!result?.success) {
         return { success: false, message: result?.message || 'Authentication failed' };
       }
-      if (result.user) setUser(result.user);
+      // The PIN-disabled bridge proves identity only for password upgrade;
+      // it intentionally has no normal session and must not update the
+      // application's authenticated state yet.
+      if (result.user && result.needsCredentialUpdate !== 'pin_disabled') {
+        setUser(result.user);
+      }
       // Pass through the Phase 3 needsCredentialUpdate signal so callers
       // can route the user into the SetCredentialsModal post-login flow.
-      return { success: true, needsCredentialUpdate: result.needsCredentialUpdate || null };
+      return {
+        success: true,
+        needsCredentialUpdate: result.needsCredentialUpdate || null,
+        user: result.user || null
+      };
     } catch (error) {
       console.error('Login error:', error);
       return { success: false, message: extractApiError(error) };

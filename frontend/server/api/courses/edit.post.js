@@ -2,8 +2,11 @@ import { getDb } from '../../utils/db';
 import busboy from 'busboy';
 import fs from 'fs';
 import path from 'path';
+import { createError } from 'h3';
 import { getCourseRootPath, processThumbnailBuffer } from '../../utils/thumbnailUtils';
 import { requireAdmin } from '../../utils/authz';
+
+const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
 
 export default defineEventHandler(async (event) => {
   requireAdmin(event);
@@ -14,18 +17,23 @@ export default defineEventHandler(async (event) => {
     const { fields, files } = await new Promise((resolve, reject) => {
       const bb = busboy({ 
         headers: event.node.req.headers,
-        limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+        limits: { fileSize: MAX_THUMBNAIL_BYTES }
       });
       
       const formData = { fields: {}, files: {} };
       
       bb.on('file', (name, file, info) => {
         const chunks = [];
+        let truncated = false;
+        file.on('limit', () => {
+          truncated = true;
+        });
         file.on('data', (chunk) => chunks.push(chunk));
         file.on('end', () => {
           formData.files[name] = {
             buffer: Buffer.concat(chunks),
-            info
+            info,
+            truncated: truncated || file.truncated
           };
         });
       });
@@ -42,6 +50,13 @@ export default defineEventHandler(async (event) => {
 
     // Parse the course data from JSON
     const formCourseData = JSON.parse(fields.course);
+
+    if (files.thumbnail?.truncated) {
+      throw createError({
+        statusCode: 413,
+        statusMessage: 'Thumbnail exceeds the 10MB upload limit'
+      });
+    }
     
     // Validate required fields
     if (!formCourseData.id || !formCourseData.title) {
@@ -73,7 +88,10 @@ export default defineEventHandler(async (event) => {
         thumbnailBuffer = await processThumbnailBuffer(files.thumbnail.buffer);
       } catch (error) {
         console.error('Error processing thumbnail:', error);
-        thumbnailBuffer = existingCourse?.thumbnail_data;
+        throw createError({
+          statusCode: 422,
+          statusMessage: 'Thumbnail is not a valid image'
+        });
       }
     } else {
       thumbnailBuffer = existingCourse?.thumbnail_data;
@@ -184,6 +202,7 @@ export default defineEventHandler(async (event) => {
     };
   } catch (error) {
     console.error('Error saving course:', error);
+    if (error?.statusCode) throw error;
     return {
       success: false,
       message: error.message || 'Failed to save course'

@@ -59,6 +59,7 @@ export default defineEventHandler(async (event) => {
 
   } catch (error) {
     console.error('Error in user-favorites API:', error);
+    if (error?.statusCode) throw error;
     return {
       success: false,
       error: 'Failed to fetch favorite courses'

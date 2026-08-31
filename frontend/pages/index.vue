@@ -37,13 +37,29 @@
           <p>Loading users...</p>
         </div>
       </div>
+
+      <div
+        v-if="!isLoading && usersError"
+        role="alert"
+        class="w-full rounded-md border border-red-500/60 bg-red-950/40 p-4 text-center text-sm text-red-100"
+      >
+        <p>Could not load users. Check the server connection and try again.</p>
+        <button
+          type="button"
+          data-testid="retry-users"
+          class="mt-2 font-semibold underline rounded focus:outline-none focus:ring-2 focus:ring-red-400"
+          @click="fetchUsers"
+        >Retry</button>
+      </div>
       
       <!-- Users grid -->
-      <div v-if="!isLoading" :class="{ 'grid grid-cols-3 gap-2 sm:gap-3 md:gap-4 mt-2': users.length > 0, 'flex justify-center mt-2': users.length === 0 }">
+      <div v-if="!isLoading && !usersError" :class="{ 'grid grid-cols-3 gap-2 sm:gap-3 md:gap-4 mt-2': users.length > 0, 'flex justify-center mt-2': users.length === 0 }">
         <!-- Existing Users -->
-        <div 
+        <button
           v-for="user in users" 
           :key="user.id"
+          type="button"
+          :aria-label="`Select ${user.name}`"
           class="bg-gray-800 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-gray-700"
           @click="selectUser(user)"
         >
@@ -70,11 +86,12 @@
           </span>
           <!-- Every account has credentials, so the lock icon is universal. -->
           <span class="mt-1 text-xs text-gray-500">🔒</span>
-        </div>
+        </button>
         
         <!-- New User Button — hidden when self-registration is disabled. -->
-        <div
+        <button
           v-if="systemSettings.allow_user_registration"
+          type="button"
           class="bg-gray-800 rounded-lg p-4 flex flex-col items-center cursor-pointer hover:bg-gray-700"
           @click="openCreateUserModal"
         >
@@ -82,7 +99,7 @@
             +
           </div>
           <span class="text-white text-center">New User</span>
-        </div>
+        </button>
       </div>
     </div>
     
@@ -350,6 +367,7 @@ const { login } = useSession();
 const {
   users,
   isLoading,
+  error: usersError,
   hasAdmin,
   showCreateUser,
   newUser,
@@ -381,17 +399,11 @@ const passwordInput = ref(null);
 // a random avatar via its exposed randomize().
 const avatarSelectorRef = ref(null);
 
-// Dismiss handler for SetCredentialsModal. Bootstrap dismissals just close
-// the modal (the user has no session yet). Post-login dismissals close the
-// modal AND route to /courses — the PIN bridge already issued a session,
-// so they're authenticated; they just deferred the password setup.
+// Neither bootstrap nor the disabled-PIN bridge grants a normal session
+// before credentials are saved, so dismissal always returns to the picker.
 function dismissSetCredentials() {
-  const wasPostLogin = setCredentialsMode.value === 'post-login';
   showSetCredentialsModal.value = false;
   setCredentialsMode.value = null;
-  if (wasPostLogin) {
-    router.push('/courses');
-  }
 }
 
 // Reset the create-user PIN field whenever the auth-type tab switches to PIN

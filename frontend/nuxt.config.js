@@ -15,7 +15,7 @@
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineNuxtConfig({
-  devtools: { enabled: true },
+  devtools: { enabled: process.env.NODE_ENV !== 'production' },
   // Tailwind 4 uses the official @tailwindcss/vite plugin instead of the
   // (still-beta) @nuxtjs/tailwindcss v7. Custom config lives in
   // frontend/assets/css/tailwind.css as @theme / @plugin / @variant blocks.

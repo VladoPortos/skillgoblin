@@ -103,10 +103,10 @@ import { extractApiError } from '~/utils/apiError';
 //   mode="bootstrap"   — legacy account with neither password nor PIN.
 //                        Submits to /api/users/bootstrap-credentials, which
 //                        also issues a session.
-//   mode="post-login"  — user authenticated with their PIN as a one-time
-//                        bridge under allow_pin=false. They're already
-//                        logged in; the modal nudges them to set a password
-//                        so future logins work after the PIN bridge stops.
+//   mode="post-login"  — user proved identity with their PIN under
+//                        allow_pin=false. They hold only a path-scoped,
+//                        short-lived upgrade credential until this modal
+//                        successfully stores a password.
 //                        The existing PIN row is left in place so it would
 //                        work again if the operator re-enables PINs.
 const props = defineProps({
@@ -199,20 +199,11 @@ async function onSubmit() {
       if (res?.success) emit('success', res);
       else errorMessage.value = 'Could not save credentials. Please try again.';
     } else {
-      // post-login bridge: caller already has a session (PIN bridge auth
-      // succeeded). Set the password and intentionally do NOT touch the
-      // PIN row — leave the user's PIN in place. It can't be used while
-      // allow_pin=false (server rejects), but stays valid if the operator
-      // re-enables PINs later.
-      const res = await $fetch('/api/users', {
-        method: 'PUT',
-        body: {
-          id: props.user.id,
-          name: props.user.name,
-          password: password.value
-        }
+      const res = await $fetch('/api/users/complete-pin-upgrade', {
+        method: 'POST',
+        body: { password: password.value }
       });
-      if (res?.id) emit('success', res);
+      if (res?.success) emit('success', res);
       else errorMessage.value = 'Could not save credentials. Please try again.';
     }
   } catch (err) {

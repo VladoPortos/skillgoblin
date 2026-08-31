@@ -16,6 +16,8 @@ export const SESSION_COOKIE = 'sg_session';
 export const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 export const SESSION_TOUCH_DEBOUNCE_MS = 5 * 60 * 1000;     // 5 minutes
 export const SESSION_TOKEN_BYTES = 32;
+export const UPGRADE_COOKIE = 'sg_upgrade';
+export const UPGRADE_LIFETIME_MS = 10 * 60 * 1000;           // 10 minutes
 
 export function generateSessionToken() {
   return crypto.randomBytes(SESSION_TOKEN_BYTES).toString('base64url');
@@ -40,6 +42,38 @@ export function createSession(db, userId, { userAgent = null, now = Date.now() }
   `).run(tokenHash, userId, createdAt, expiresAt, createdAt, userAgent);
 
   return { token, expiresAt: now + SESSION_LIFETIME_MS };
+}
+
+// Creates a narrowly scoped credential-upgrade token. It deliberately lives
+// outside user_sessions so middleware can never mistake it for a normal
+// authenticated session.
+export function createCredentialUpgrade(db, userId, { now = Date.now() } = {}) {
+  const token = generateSessionToken();
+  const tokenHash = hashSessionToken(token);
+  const createdAt = new Date(now).toISOString();
+  const expiresAt = new Date(now + UPGRADE_LIFETIME_MS).toISOString();
+
+  const insert = db.transaction(() => {
+    db.prepare('DELETE FROM credential_upgrades WHERE user_id = ?').run(userId);
+    db.prepare(`
+      INSERT INTO credential_upgrades (token_hash, user_id, created_at, expires_at)
+      VALUES (?, ?, ?, ?)
+    `).run(tokenHash, userId, createdAt, expiresAt);
+  });
+  insert();
+  return { token, expiresAt: now + UPGRADE_LIFETIME_MS };
+}
+
+// Atomically consumes an unexpired upgrade token. A second request using the
+// same cookie receives null and cannot race a password change.
+export function consumeCredentialUpgrade(db, token, { now = Date.now() } = {}) {
+  if (typeof token !== 'string' || token.length === 0) return null;
+  const row = db.prepare(`
+    DELETE FROM credential_upgrades
+    WHERE token_hash = ? AND expires_at > ?
+    RETURNING user_id
+  `).get(hashSessionToken(token), new Date(now).toISOString());
+  return row?.user_id || null;
 }
 
 // Looks up a session by its plaintext token. Returns the (joined) user row
