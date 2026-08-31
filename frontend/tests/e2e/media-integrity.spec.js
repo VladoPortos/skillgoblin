@@ -44,28 +44,48 @@ function editMultipart(course, title, thumbnail) {
   };
 }
 
+function overwriteOpenFile(fileDescriptor, contents) {
+  fs.ftruncateSync(fileDescriptor, 0);
+  let offset = 0;
+  while (offset < contents.length) {
+    offset += fs.writeSync(
+      fileDescriptor,
+      contents,
+      offset,
+      contents.length - offset,
+      offset,
+    );
+  }
+  fs.fsyncSync(fileDescriptor);
+}
+
 test('a range cached at one path is refreshed when that file is replaced', async ({ request }) => {
   await loginAdmin(request);
   const course = await firstCourse(request);
-  const original = fs.readFileSync(VIDEO_PATH);
-  const originalStat = fs.statSync(VIDEO_PATH);
+  const videoFile = fs.openSync(VIDEO_PATH, 'r+');
+  const original = fs.readFileSync(videoFile);
+  const originalStat = fs.fstatSync(videoFile);
   const url = `/api/content/${encodeURIComponent(course.id)}/Lesson%201/01-intro.mp4`;
 
   try {
-    fs.writeFileSync(VIDEO_PATH, Buffer.from('AAAA'));
+    overwriteOpenFile(videoFile, Buffer.from('AAAA'));
     const first = await request.get(url, { headers: { range: 'bytes=0-3' } });
     expect(first.status()).toBe(206);
     expect((await first.body()).toString()).toBe('AAAA');
 
-    fs.writeFileSync(VIDEO_PATH, Buffer.from('BBBB'));
+    overwriteOpenFile(videoFile, Buffer.from('BBBB'));
     const replacementTime = new Date(Date.now() + 2_000);
-    fs.utimesSync(VIDEO_PATH, replacementTime, replacementTime);
+    fs.futimesSync(videoFile, replacementTime, replacementTime);
     const second = await request.get(url, { headers: { range: 'bytes=0-3' } });
     expect(second.status()).toBe(206);
     expect((await second.body()).toString()).toBe('BBBB');
   } finally {
-    fs.writeFileSync(VIDEO_PATH, original);
-    fs.utimesSync(VIDEO_PATH, originalStat.atime, originalStat.mtime);
+    try {
+      overwriteOpenFile(videoFile, original);
+      fs.futimesSync(videoFile, originalStat.atime, originalStat.mtime);
+    } finally {
+      fs.closeSync(videoFile);
+    }
   }
 });
 
