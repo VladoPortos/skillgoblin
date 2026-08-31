@@ -72,6 +72,41 @@ describe('applyCourseJsonOverride', () => {
     warn.mockRestore();
   });
 
+  it('reads the same course.json file that it size-checks when the path is swapped', () => {
+    const filePath = path.join(tmpDir, 'course.json');
+    const displacedPath = path.join(tmpDir, 'course-original.json');
+    const replacementPath = path.join(tmpDir, 'course-replacement.json');
+    fs.writeFileSync(filePath, JSON.stringify({ title: 'Checked file' }));
+    fs.writeFileSync(replacementPath, JSON.stringify({ title: 'Swapped file' }));
+
+    const realStatSync = fs.statSync.bind(fs);
+    const realFstatSync = fs.fstatSync.bind(fs);
+    let swapped = false;
+    const swapPath = () => {
+      if (swapped) return;
+      fs.renameSync(filePath, displacedPath);
+      fs.renameSync(replacementPath, filePath);
+      swapped = true;
+    };
+    const statSpy = vi.spyOn(fs, 'statSync').mockImplementation((...args) => {
+      const result = realStatSync(...args);
+      if (args[0] === filePath) swapPath();
+      return result;
+    });
+    const fstatSpy = vi.spyOn(fs, 'fstatSync').mockImplementation((...args) => {
+      const result = realFstatSync(...args);
+      swapPath();
+      return result;
+    });
+
+    try {
+      expect(applyCourseJsonOverride(tmpDir, baseAuto()).title).toBe('Checked file');
+    } finally {
+      statSpy.mockRestore();
+      fstatSpy.mockRestore();
+    }
+  });
+
   it('skips a field with the wrong type but applies the rest', () => {
     fs.writeFileSync(
       path.join(tmpDir, 'course.json'),
