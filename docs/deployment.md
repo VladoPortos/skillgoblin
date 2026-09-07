@@ -1,6 +1,6 @@
 # Deployment and release
 
-Use Node 24 (at least 24.11) for development and CI. The locked Nuxt version supports Node ^22.19, ^24.11, or >=26; Node 20 is unsupported. Install with `npm ci` in `frontend`. The production image pins the Node 24 Alpine base manifest and includes a native compiler toolchain only in its build stage. Each architecture builds on a native runner, including SQLite, Argon2, and image processing dependencies.
+Use Node 24.15 or newer within Node 24 for development and CI; jsdom 30 requires this minimum. The locked Nuxt version supports Node ^22.19, ^24.11, or >=26; Node 20 is unsupported. Install with `npm ci` in `frontend`. The production image pins the Node 24 Alpine base manifest and includes a native compiler toolchain only in its build stage. Each architecture builds on a native runner, including SQLite, Argon2, and image processing dependencies.
 
 ## Isolated tests
 
