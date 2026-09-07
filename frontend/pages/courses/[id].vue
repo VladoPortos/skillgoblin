@@ -86,10 +86,10 @@
         >Retry</button>
       </div>
 
-      <div v-if="progressHydrated" class="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-700 dark:text-gray-200" role="status" aria-live="polite" data-testid="progress-save-status">
-        <span>{{ saveState === 'error' ? 'Progress could not be saved. Retrying…' : saveState === 'saving' ? 'Saving progress…' : saveState === 'pending' ? 'Progress waiting to save' : 'Progress saved' }}</span>
-        <button v-if="saveState === 'error'" type="button" class="underline font-semibold rounded focus-visible:ring-2 focus-visible:ring-primary-500" @click="flushProgressSave">Retry now</button>
-        <span v-if="localSaveWarning" class="text-amber-800 dark:text-amber-200">Browser recovery storage is unavailable. Keep this tab open until progress is saved.</span>
+      <div v-if="progressHydrated && saveState === 'error'" class="mb-3 flex flex-wrap items-center gap-3 text-sm text-amber-800 dark:text-amber-200" role="status" aria-live="polite" data-testid="progress-save-status">
+        <span>Progress could not be saved. Retrying…</span>
+        <button type="button" class="underline font-semibold rounded focus-visible:ring-2 focus-visible:ring-primary-500" @click="flushProgressSave">Retry now</button>
+        <span v-if="localSaveWarning">Keep this tab open while retrying; unsaved progress cannot be backed up in this browser.</span>
       </div>
 
       <!-- Video Player -->
@@ -278,6 +278,7 @@ import VideoPlayer from '../../components/video/VideoPlayer.vue';
 import VideoInfo from '../../components/video/VideoInfo.vue';
 import { getVideoId } from '~/utils/videoIdentity.js';
 import { createProgressSync } from '~/utils/progressSync.js';
+import { openProgressRecovery } from '~/utils/browserRecovery.js';
 import { pickNextNotCompleted } from '~/utils/smartOpen.js';
 import VideoControlButtons from '../../components/video/VideoControlButtons.vue';
 import UserManagement from '../../components/UserManagement.vue';
@@ -362,13 +363,8 @@ function applySavedData(stored) {
 function setupProgressSync() {
   const owner = userId.value;
   const courseId = course.value.id;
-  let storage = null;
-  let tabId = 'default';
-  try {
-    storage = window.localStorage;
-    tabId = sessionStorage.getItem('sg-progress-tab') || crypto.randomUUID();
-    sessionStorage.setItem('sg-progress-tab',tabId);
-  } catch { localSaveWarning.value = true; }
+  const { storage, tabId, storageUnavailable } = openProgressRecovery(window);
+  localSaveWarning.value = storageUnavailable;
   progressSync?.dispose();
   progressSync = createProgressSync({
     key: 'sg-progress:' + owner + ':' + courseId + ':' + tabId,

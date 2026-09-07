@@ -31,6 +31,31 @@ function videoIds(course) {
 }
 
 test.describe('progress integrity', () => {
+  test('local HTTP saves silently and retains browser recovery without randomUUID', async ({ page, request }) => {
+    const admin = await loginAdmin(request);
+    const course = await firstCourse(request);
+    await postProgress(request, `/api/user-progress/${admin.id}`, {data:{courseId:course.id,data:{favorite:false,completed:{},progress:{}}}});
+    await page.context().addCookies((await request.storageState()).cookies);
+    await page.addInitScript(() => Object.defineProperty(window.crypto, 'randomUUID', { value: undefined, configurable: true }));
+    let release, writes = 0;
+    const gate = new Promise(resolve => { release = resolve; });
+    await page.route(`**/api/user-progress/${admin.id}`, async route => {
+      if (route.request().method() === 'POST') { writes++; await gate; }
+      await route.continue();
+    });
+    try {
+      await page.goto(`/courses/${course.id}`);
+      await expect(page.getByTestId('progress-save-status')).toBeHidden();
+      await page.getByRole('button',{name:'Add to favorites',exact:true}).click();
+      await expect.poll(() => writes).toBeGreaterThan(0);
+      await expect(page.getByTestId('progress-save-status')).toBeHidden();
+      expect(await page.evaluate(() => sessionStorage.getItem('sg-progress-tab'))).toBeTruthy();
+      expect(await page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith('sg-progress:')))).toBe(true);
+    } finally { release(); }
+    await expect.poll(async () => (await (await request.get(`/api/user-progress/${admin.id}`)).json()).progress[course.id].favorite).toBe(true);
+    await expect(page.getByTestId('progress-save-status')).toBeHidden();
+  });
+
   test('failed saves show retry and preserve remote completion when rebasing', async ({ page, request }) => {
     const admin = await loginAdmin(request);
     const course = await firstCourse(request);
@@ -45,11 +70,13 @@ test.describe('progress integrity', () => {
     await page.goto(`/courses/${course.id}`);
     await page.getByRole('button',{name:'Add to favorites',exact:true}).click();
     await expect(page.getByTestId('progress-save-status')).toContainText('could not be saved');
+    await expect(page.getByTestId('progress-save-status')).not.toContainText('cannot be backed up');
     // Another device completes a video while this browser has an unsaved favorite.
     await postProgress(request, `/api/user-progress/${admin.id}`, {data:{courseId:course.id,data:{completed:{[id]:true},progress:{},favorite:false}}});
     unavailable = false;
     await page.getByRole('button',{name:'Retry now',exact:true}).click();
-    await expect(page.getByTestId('progress-save-status')).toContainText('Progress saved');
+    await expect.poll(async () => (await (await request.get(`/api/user-progress/${admin.id}`)).json()).progress[course.id].favorite).toBe(true);
+    await expect(page.getByTestId('progress-save-status')).toBeHidden();
     const state = await (await request.get(`/api/user-progress/${admin.id}`)).json();
     expect(state.progress[course.id].favorite).toBe(true);
     expect(state.progress[course.id].completed[id]).toBe(true);

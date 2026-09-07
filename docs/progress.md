@@ -1,6 +1,6 @@
 # Progress saves and upgrades
 
-The player shows whether progress is saved, pending, saving, or could not be saved. Failed saves retry automatically; **Retry now** retries immediately. Pending edits are also stored in the current browser when local storage is available. If browser storage is unavailable, a separate warning explains that closing the page may lose unsaved work. Keep the page open until it reports **Progress saved**. Logout waits for a successful save.
+Progress saves silently during normal playback, including on ordinary HTTP LAN hosting. A notice appears only when a save fails; failed saves retry automatically and **Retry now** retries immediately. Pending edits are also stored in the current browser when local storage is available. If both server saving and browser recovery are unavailable, the notice asks you to keep the tab open while retrying. Routine saving and browser-storage limitations do not display a banner. Logout waits for a successful save.
 
 Each course has a progress revision. A stale device fetches the latest revision and reapplies only its changed completion, playback, favorite, and last-viewed fields. Unrelated changes from another device survive. When both devices change the same field, the retrying device's change wins. This is conflict handling, not a history or undo feature.
 
