@@ -19,7 +19,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "argon2": "^0.45.1",
     "beanheads-vue": "1.2.1",
-    "better-sqlite3": "^12.10.0",
+    "better-sqlite3": "^13.0.3",
     "busboy": "^1.6.0",
     "chokidar": "^5.0.0",
     "lru-cache": "^11.5.2",
