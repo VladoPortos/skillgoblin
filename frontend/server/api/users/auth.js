@@ -156,6 +156,7 @@ export default defineEventHandler(async (event) => {
         const res = db
           .prepare(`UPDATE users SET ${column} = ? WHERE id = ? AND ${column} = ?`)
           .run(fresh, userId, verifiedValue);
+        if (res.changes === 1) user[column] = fresh;
         if (res.changes !== 1) {
           console.warn(`[auth] credential changed mid-login for ${userId}; refusing session`);
           recordAuthFailure();
@@ -168,36 +169,45 @@ export default defineEventHandler(async (event) => {
       }
     }
 
-    const needsPinUpgrade = matched === 'pin' && !user.password && !allowPin;
-    const userAgent = event.node.req.headers['user-agent'] || null;
-
-    if (needsPinUpgrade) {
-      // A pre-existing normal cookie would defeat the upgrade boundary, so
-      // revoke it before issuing the path-scoped bridge credential.
-      if (event.context.sessionToken) {
-        deleteSessionByToken(db, event.context.sessionToken);
+    return db.transaction(() => {
+      const current = db.prepare('SELECT password, pin, is_active, isAdmin FROM users WHERE id = ?').get(userId);
+      if (!current || !current.is_active || current.password !== user.password ||
+          current.pin !== user.pin || current.isAdmin !== user.isAdmin ||
+          getBoolSetting(db, 'allow_pin', true) !== allowPin) {
+        recordAuthFailure();
+        return { success: false, message: 'Invalid credentials' };
       }
-      deleteCookie(event, SESSION_COOKIE, { path: '/' });
-      const { token, expiresAt } = createCredentialUpgrade(db, userId);
-      setCookie(event, UPGRADE_COOKIE, token, upgradeCookieOpts(event, expiresAt));
-    } else {
-      const { token, expiresAt } = createSession(db, userId, { userAgent });
-      setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
-      deleteCookie(event, UPGRADE_COOKIE, { path: '/api/users/complete-pin-upgrade' });
-    }
-    recordAuthSuccess();
+      const needsPinUpgrade = matched === 'pin' && !user.password && !allowPin;
+      const userAgent = event.node.req.headers['user-agent'] || null;
 
-    return {
-      success: true,
-      needsCredentialUpdate: needsPinUpgrade ? 'pin_disabled' : null,
-      user: {
-        id: user.id,
-        name: user.name,
-        avatar: user.avatar,
-        isAdmin: user.isAdmin,
-        is_active: user.is_active
+      if (needsPinUpgrade) {
+        // A pre-existing normal cookie would defeat the upgrade boundary, so
+        // revoke it before issuing the path-scoped bridge credential.
+        if (event.context.sessionToken) {
+          deleteSessionByToken(db, event.context.sessionToken);
+        }
+        deleteCookie(event, SESSION_COOKIE, { path: '/' });
+        const { token, expiresAt } = createCredentialUpgrade(db, userId);
+        setCookie(event, UPGRADE_COOKIE, token, upgradeCookieOpts(event, expiresAt));
+      } else {
+        const { token, expiresAt } = createSession(db, userId, { userAgent });
+        setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
+        deleteCookie(event, UPGRADE_COOKIE, { path: '/api/users/complete-pin-upgrade' });
       }
-    };
+      recordAuthSuccess();
+
+      return {
+        success: true,
+        needsCredentialUpdate: needsPinUpgrade ? 'pin_disabled' : null,
+        user: {
+          id: user.id,
+          name: user.name,
+          avatar: user.avatar,
+          isAdmin: user.isAdmin,
+          is_active: user.is_active
+        }
+      };
+    }).immediate();
   } catch (error) {
     console.error('Error authenticating user:', error);
     return createError({ statusCode: 500, statusMessage: 'Authentication failed' });

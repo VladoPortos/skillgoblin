@@ -8,10 +8,15 @@ import m003_allow_user_registration from './003_allow_user_registration.js';
 import m004UniqueUserNames from './004_unique_user_names.js';
 import m005CredentialUpgrades from './005_credential_upgrades.js';
 
+import m006StableProgress from './006_stable_progress.js';
+import m007LibraryAvailability from './007_library_availability.js';
+
 export default [
   m001_initial,
   m002_auth_hardening,
   m003_allow_user_registration,
   m004UniqueUserNames,
-  m005CredentialUpgrades
+  m005CredentialUpgrades,
+  m006StableProgress,
+  m007LibraryAvailability
 ];

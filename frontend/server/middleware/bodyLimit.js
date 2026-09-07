@@ -13,9 +13,8 @@ import { defineEventHandler, createError } from 'h3';
 // req.rawBody, which h3's readRawBody() reuses (see its _rawBody lookup) so the
 // downstream handler's readBody() does not re-read a now-consumed stream.
 //
-// Multipart uploads are intentionally skipped: the upload handler
-// (courses/edit.post.js) pipes the raw stream into busboy itself and enforces
-// its own per-file limit, so buffering here would starve it.
+// Only the course-edit multipart endpoint consumes its own stream with
+// total-byte, file, field and part limits. Other routes keep the JSON cap.
 const MAX_BODY_BYTES = 256 * 1024; // 256 KiB — JSON APIs here are tiny
 const BODY_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -25,7 +24,8 @@ export default defineEventHandler(async (event) => {
   if (!BODY_METHODS.has(method)) return;
 
   const contentType = req.headers['content-type'] || '';
-  if (contentType.startsWith('multipart/form-data')) return;
+  if (method === 'POST' && event.path.split('?')[0] === '/api/courses/edit' &&
+      /^multipart\/form-data(?:;|$)/i.test(contentType)) return;
 
   // Reject an oversized declared length before reading a single byte.
   const declared = Number.parseInt(req.headers['content-length'] || '', 10);

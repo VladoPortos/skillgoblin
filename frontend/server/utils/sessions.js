@@ -144,6 +144,7 @@ export function deleteSessionByToken(db, token) {
 // is given, that one stays — useful for "log out other devices but keep me
 // here".
 export function deleteUserSessions(db, userId, { exceptToken = null } = {}) {
+  db.prepare('DELETE FROM credential_upgrades WHERE user_id = ?').run(userId);
   if (exceptToken) {
     const exceptHash = hashSessionToken(exceptToken);
     return db.prepare(

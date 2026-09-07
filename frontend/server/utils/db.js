@@ -2,9 +2,10 @@ import BetterSqlite3 from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { runMigrations } from './migrations.js';
+import { resolveDatabasePath } from './databasePath.js';
 
 const config = useRuntimeConfig();
-const dbPath = config.databasePath;
+const dbPath = resolveDatabasePath(process.env, config.databasePath);
 
 const dbDir = path.dirname(dbPath);
 fs.mkdirSync(dbDir, { recursive: true });

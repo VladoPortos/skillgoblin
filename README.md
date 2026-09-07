@@ -41,7 +41,7 @@ SkillGoblin is a lightweight, self-contained learning platform designed for loca
 
 ## Technical stack
 
-- **Frontend**: Nuxt 3 with Nitro server
+- **Frontend**: Nuxt 4 with Nitro server (Node 24)
 - **Database**: SQLite (file-based) with a forward-only migration framework
 - **Auth**: argon2id-hashed credentials, opaque cookie sessions
 - **Containerization**: Docker for development and production
@@ -97,7 +97,7 @@ Available to admins from the avatar dropdown in the top-right. Provides:
 SkillGoblin is **homelab-grade**. Concretely:
 
 - **Not internet-facing.** Run it on a LAN, on a tailnet, or behind a VPN. Don't expose it directly.
-- **Trust assumptions.** `X-Forwarded-Proto` and `X-Forwarded-For` are trusted unconditionally. This is fine behind a real reverse proxy (Caddy, Nginx, Traefik) where those headers are set authoritatively, but means a directly-exposed instance with no proxy can be lied to by a client.
+- **Proxy configuration.** Rate limiting uses the transport peer by default. Set `TRUST_PROXY_HOPS` only for a known number of trusted proxies that sanitize forwarded headers. HTTPS cookie detection uses `X-Forwarded-Proto`; set `COOKIE_SECURE=true` behind an HTTPS proxy to force secure cookies.
 - **PIN brute-force surface.** A 4-digit PIN is 10,000 possibilities. Rate limiting helps but doesn't make PINs internet-grade. An admin who needs to expose a wider attack surface can disable PINs globally from the admin panel; existing PIN-only users are then prompted to set a password on next login.
 - **Credentials at rest.** Passwords and PINs are argon2id-hashed. Plaintext rows from older versions are detected on first login and rehashed inline.
 - **Sessions revoke server-side.** The cookie is opaque; revocation is a `DELETE` on the `user_sessions` row. "Log out all devices" and admin "kick sessions" both work this way.
@@ -119,7 +119,7 @@ The application reads the following environment variables:
 | `APP_THEME_COLOR` | No | `#111827` | Mobile browser chrome bar color and PWA manifest `theme_color`. Hex `#RRGGBB` or `#RGB`; invalid values fall back to default and log a startup warning. NOTE: This is the browser-chrome color, not the in-app dark/light theme. |
 | `APP_BACKGROUND_COLOR` | No | `#111827` | PWA splash screen background. Same hex format as `APP_THEME_COLOR`. |
 | `CONTENT_DIR` / `CONTENT_PATH` | No | `/app/data/content` | Directory inside the container where course folders live. `CONTENT_PATH` is retained as a compatibility alias. |
-| `DB_PATH` / `DATABASE_PATH` | No | `/app/data/database/database.sqlite` | Path to the SQLite database file. `DATABASE_PATH` takes precedence when both are set. |
+| `NUXT_DATABASE_PATH` / `DATABASE_PATH` / `DB_PATH` | No | `/app/data/database/database.sqlite` | Runtime SQLite path, in the listed precedence order. The server and operator CLI share this resolution. |
 | `CHOKIDAR_POLLING_INTERVAL` | No | `60000` | File watcher polling interval in milliseconds. Set to `0` to disable the watcher entirely (e.g. on Unraid, to stop drives spinning up). |
 | `HOST` | No | `0.0.0.0` | Bind address. |
 | `NEW_BADGE_DAYS` | No | `7` | How recent (in days) a course must be to render the `NEW` badge on its card. Set to `0` to disable the badge entirely. |
@@ -175,9 +175,18 @@ docker compose up
 
 ### Removing courses
 
-Delete the course folder from `data/content/`. The watcher removes the course and its progress rows.
+Delete the course folder from `data/content/`. The watcher marks it unavailable and hides it from the library, preserving metadata and progress. Restore the same folder and rescan to make it available again. An empty or disconnected media mount does not erase course history.
+
+## Recovery and diagnostics
+
+- [Backup, restore, and password recovery](docs/operations.md)
+- [Progress saves, conflict handling, and stable video IDs](docs/progress.md)
+- [Library and media diagnostics](docs/library-diagnostics.md) in Admin Panel → Diagnostics
+- [Node 24, AMD64/ARM64 images, tested publishing and digest promotion](docs/deployment.md)
 
 ## Upgrading from a previous version
+
+Back up the database before upgrading. New migrations preserve unavailable courses and translate old positional progress to stable video IDs before scanning. Reload open browser tabs after upgrading; the progress API now requires a revision with each write. See [progress migration details](docs/progress.md).
 
 Existing installations are migrated forward automatically. The migration framework records each applied migration in a `migrations` table; on boot, any new migrations run in numeric order inside a transaction. Migrations are forward-only — there is no rollback step.
 
@@ -190,7 +199,7 @@ The 002_auth_hardening migration (run on first boot of this version) does the fo
 What you'll see depending on the prior state of your install:
 
 - **Plaintext passwords / PINs.** Detected on each user's next successful login and rehashed inline (argon2id). Users do not need to do anything — they just log in normally.
-- **Users with no credentials.** Boot prints a warning listing them. On the trusted LAN, the first visitor who selects one of these legacy profiles can set its initial password or PIN and claim it. If the wrong person claims an account, an admin can reset its credentials from the Admin Panel. Do not use this recovery flow on an untrusted network; see [Security model](#security-model).
+- **Users with no credentials.** Boot prints a warning listing them. Legacy regular users can initialize credentials on the trusted LAN. Administrator accounts require the [operator recovery command](docs/operations.md#recover-a-forgotten-password-or-a-legacy-administrator-without-credentials); they cannot be claimed through the public API.
 - **No admin user exists.** The server refuses to boot until you set `ADMIN_NAME` / `ADMIN_PASSWORD` (see [First-run bootstrap](#first-run-bootstrap)).
 - **An admin already exists.** Bootstrap is skipped and the env vars are ignored. You log in with your existing admin credentials.
 
@@ -202,7 +211,7 @@ Recent versions run the app as the unprivileged `node` user (uid/gid `1000`) ins
 
 Operators who'd rather manage permissions themselves can opt out:
 - `user: "1000:1000"` in compose — entrypoint detects non-root start and skips the chown pass entirely.
-- `SKILLGOBLIN_SKIP_PERM_REPAIR=1` env — drops privileges to `node` but skips the chown pass. Useful when bind-mounting from tracked repo paths (the test compose sets this).
+- `SKILLGOBLIN_SKIP_PERM_REPAIR=1` env — drops privileges to `node` but skips the chown pass. Useful when the host already grants UID 1000 the required access.
 
 The Node process (the only thing on the network) never runs as root. The brief root window is bounded to the entrypoint's chown pass and `exec`-replaced into uid 1000 via `su-exec` before any TCP listener exists.
 
@@ -275,8 +284,8 @@ buttons from the browser's `TextTrackList`.
 
 - Real-time monitoring of the content directory
 - Automatic detection of new courses and course updates
-- Automatic removal of deleted courses from the database
-- Cleanup of user progress for deleted courses
+- Missing courses are marked unavailable and hidden from the library
+- Metadata and user progress are retained for unavailable courses
 
 ### Benefits
 
@@ -329,7 +338,7 @@ docker compose -f docker-compose.test.yml down -v
 docker compose -f docker-compose.test.yml run --rm --build tests
 ```
 
-This runs the Vitest unit suite (~75 tests) followed by the Playwright e2e suite (~58 tests) against an isolated app container. The compose file sets a known `ADMIN_NAME` / `ADMIN_PASSWORD` for the test container; don't change those without also updating the test fixtures.
+This runs the Vitest unit suite followed by the Playwright e2e suite against an isolated app container. Media fixtures are copied into disposable named volumes; tracked fixtures and normal application data are not modified. The compose file sets a known `ADMIN_NAME` / `ADMIN_PASSWORD` for the test container; don't change those without also updating the test fixtures.
 
 ## Troubleshooting
 
@@ -346,11 +355,18 @@ The bootstrap plugin found no admin row and the env vars aren't set. Add `ADMIN_
 
 ### Locked out of admin
 
-If you have any other admin user, log in as them and reset the locked-out admin's credentials from the admin panel. If you have no other admin and lost the bootstrap admin's credentials, stop the container, open `data/database/database.sqlite` with any SQLite browser, manually clear the admin row, and restart with `ADMIN_NAME` / `ADMIN_PASSWORD` set so the bootstrap re-creates a fresh admin.
+Use another administrator's Admin Panel, or run the included operator command in Docker. List users, then replace `USER_ID` with the account ID:
+
+```sh
+docker compose -f docker-compose.prod.yml exec --user 1000:1000 skillgoblin node /app/scripts/operator.js users
+docker compose -f docker-compose.prod.yml exec --user 1000:1000 skillgoblin node /app/scripts/operator.js reset-password --user-id USER_ID
+```
+
+The hidden prompt asks twice for a new password. Reset preserves the account and progress, clears its PIN, and revokes its sessions. See [operations](docs/operations.md) for stdin, stopped-container, backup, and restore instructions.
 
 ### Database issues
 
-If you need to reset the database, stop the container and delete `data/database/database.sqlite`. The application will recreate it on next startup. Note that this erases all users, progress, and session data.
+Use a consistent live backup and validated offline restore from the [operations guide](docs/operations.md). Restore makes a safety backup before replacing the database and revokes restored sessions. Back up media and branding separately.
 
 ## License
 

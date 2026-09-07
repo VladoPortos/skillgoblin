@@ -1,3 +1,4 @@
+import { getVideoId } from '../../utils/videoIdentity.js';
 // Shared plumbing for the user-favorites and user-progress-courses
 // endpoints: load + parse a user's progress JSON blob and fetch full course
 // rows for a set of course IDs.
@@ -18,7 +19,7 @@ export function fetchCoursesByIds(db, courseIds) {
   const placeholders = courseIds.map(() => '?').join(',');
   const rows = db.prepare(`
     SELECT id, data, created_at FROM courses
-    WHERE id IN (${placeholders})
+    WHERE available = 1 AND id IN (${placeholders})
   `).all(courseIds);
 
   return rows.map(row => {
@@ -39,7 +40,7 @@ export function getCourseVideoIds(course) {
   const ids = [];
   for (const lesson of course?.lessons || []) {
     for (let index = 0; index < (lesson.videos || []).length; index += 1) {
-      ids.push(`${lesson.id}-${index}`);
+      ids.push(getVideoId(lesson, index));
     }
   }
   return ids;

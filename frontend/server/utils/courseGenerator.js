@@ -1,3 +1,4 @@
+import { addVideoIds } from './videoIdentity.js';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -147,5 +148,5 @@ export const generateCourseJson = async (courseDir, coursePath) => {
   };
 
   const merged = applyCourseJsonOverride(coursePath, autoDetected);
-  return merged;
+  return addVideoIds(merged);
 };

@@ -1,4 +1,5 @@
 import fs from 'fs';
+import { recordScanError } from './scanDiagnostics.js';
 import path from 'path';
 import chokidar from 'chokidar';
 import { getContentDir, generateCourseId } from './courseHelpers';
@@ -69,7 +70,7 @@ function resolveFirstVideoPath(courseRoot, courseData) {
 // frame-extract from the first video when no operator-supplied cover art
 // exists. Callers that don't have courseData (e.g. a generic refresh path)
 // just lose the frame-extract fallback, which degrades to "no thumbnail."
-async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData = null) {
+export async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData = null) {
   if (!courseId || !courseFolderName) {
     console.error('synchronizeCourseThumbnail: courseId and courseFolderName are required.');
     return;
@@ -104,7 +105,7 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
     if (!dbThumbnailData && localFileBuffer) {
       const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath, localFileBuffer);
       if (processedLocalBuffer) {
-        db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(processedLocalBuffer, courseId);
+        db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ? AND thumbnail_data IS ?').run(processedLocalBuffer, courseId, dbThumbnailData);
       }
     }
     // Case 2: DB thumbnail_data is NULL and no local asset.
@@ -116,7 +117,7 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
       if (firstVideoPath) {
         const frameBuffer = await extractFrameThumbnail(firstVideoPath);
         if (frameBuffer) {
-          db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(frameBuffer, courseId);
+          db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ? AND thumbnail_data IS NULL').run(frameBuffer, courseId);
         }
       }
     }
@@ -128,7 +129,7 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
       const writeBackPath = path.join(courseRoot, 'thumbnail.png');
       try {
         // mkdirSync with recursive:true is idempotent — no exists-check needed.
-        fs.mkdirSync(courseRoot, { recursive: true });
+        // Never recreate a removed or disconnected course directory.
         // 'wx' flag: atomic create-only-if-not-exists. EEXIST means a
         // concurrent process created the file between our read attempt
         // above and this write — their file is already a thumbnail, so
@@ -159,7 +160,7 @@ async function synchronizeCourseThumbnail(courseId, courseFolderName, courseData
       if (isOperatorAuthored && differs) {
         const processedLocalBuffer = await readAndProcessThumbnail(localThumbnailPath, localFileBuffer);
         if (processedLocalBuffer) {
-          db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ?').run(processedLocalBuffer, courseId);
+          db.prepare('UPDATE courses SET thumbnail_data = ? WHERE id = ? AND thumbnail_data IS ?').run(processedLocalBuffer, courseId, dbThumbnailData);
         }
       }
       // Otherwise: round-tripped thumbnail.png whose contents diverged from
@@ -180,6 +181,7 @@ const processCourseDirectory = async (courseDirPath) => {
 
     // Only scan directory structure to get basic course info
     const courseData = await generateCourseJson(courseDir, courseDirPath);
+    if (!fs.statSync(courseDirPath).isDirectory()) throw new Error('Course path is not a directory');
     const existingByFolder = getDb()
       .prepare('SELECT id FROM courses WHERE folder_name = ?')
       .get(courseDir);
@@ -188,6 +190,7 @@ const processCourseDirectory = async (courseDirPath) => {
     if (courseData) {
       const result = saveCourseToDb(courseData, courseDir);
       if (result.error) {
+        recordScanError(courseDir, result.error);
         console.error(`Failed to save course ${courseDir} to database: ${result.error}`);
         return { success: false };
       }
@@ -199,20 +202,23 @@ const processCourseDirectory = async (courseDirPath) => {
       return { success: true, courseId: courseData.id };
     }
   } catch (error) {
+    if (error.code === 'ENOENT' && !fs.existsSync(courseDirPath)) removeCourseFromDb(path.basename(courseDirPath));
+    recordScanError(courseDirPath, error);
     console.error(`Error processing course directory ${courseDirPath}:`, error);
   }
   return { success: false };
 };
 
 // Custom processing for preserving metadata
-const processCourseDirWithMetadataPreservation = async (courseDirPath, existingCourses) => {
+const processCourseDirWithMetadataPreservation = async (courseDirPath) => {
   try {
     const courseDir = path.basename(courseDirPath);
     const courseId = generateCourseId(courseDir);
 
-    const existingCourseResult = existingCourses.find(c => c.folder_name === courseDir)
-      || existingCourses.find(c => c.id === courseId);
     const courseData = await generateCourseJson(courseDir, courseDirPath);
+    if (!fs.statSync(courseDirPath).isDirectory()) throw new Error('Course path is not a directory');
+    // Read after directory traversal: admin edits made during the await must survive.
+    const existingCourseResult = getDb().prepare('SELECT * FROM courses WHERE folder_name = ? OR id = ? ORDER BY CASE WHEN folder_name = ? THEN 0 ELSE 1 END LIMIT 1').get(courseDir, courseId, courseDir);
 
     if (existingCourseResult && courseData) {
       courseData.id = existingCourseResult.id;
@@ -246,6 +252,7 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
       // the actual data sync afterwards.
       const result = saveCourseToDb(updatedCourseData, courseDir);
       if (result.error) {
+        recordScanError(courseDir, result.error);
         console.error(`Failed to save course ${courseDir} to database: ${result.error}`);
         return;
       }
@@ -257,6 +264,7 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
       // saveCourseToDb's INSERT branch sets thumbnail_data to NULL initially.
       const result = saveCourseToDb(courseData, courseDir);
       if (result.error) {
+        recordScanError(courseDir, result.error);
         console.error(`Failed to save course ${courseDir} to database: ${result.error}`);
         return;
       }
@@ -266,6 +274,8 @@ const processCourseDirWithMetadataPreservation = async (courseDirPath, existingC
       console.warn(`Could not generate course data for ${courseDir} during metadata preservation.`);
     }
   } catch (error) {
+    if (error.code === 'ENOENT' && !fs.existsSync(courseDirPath)) removeCourseFromDb(path.basename(courseDirPath));
+    recordScanError(courseDirPath, error);
     console.error(`Error in processCourseDirWithMetadataPreservation for ${courseDirPath}:`, error);
   }
 };
@@ -287,14 +297,8 @@ const handleCourseDirectoryRemoval = (dirPath) => {
 };
 
 // Function to scan courses on startup
-export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata = true) => {
+const runFullScan = async (forceRescan = false, preserveMetadata = true) => {
   try {
-    // If a scan is already in progress and this is not a force rescan, don't start another one
-    if (initialScanStatus.inProgress && !forceRescan) {
-      console.log('Scan already in progress, skipping duplicate scan request');
-      return;
-    }
-
     // Set initial scan status for a full scan
     initialScanStatus.inProgress = true;
     initialScanStatus.complete = false;
@@ -312,27 +316,13 @@ export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata
 
     initialScanStatus.totalCourses = courseDirs.length;
 
-    // Fetch existing courses from DB if preserving metadata
-    let existingCourses = []; // Initialize as an empty array
-    if (preserveMetadata) {
-      try {
-        const db = getDb();
-        // This should fetch all relevant fields for comparison, as an array
-        existingCourses = db.prepare('SELECT id, title, description, category, release_date, folder_name, thumbnail_data FROM courses').all();
-      } catch (dbError) {
-        console.error('Error fetching existing courses from DB:', dbError);
-        // Continue with an empty existingCourses array if DB fetch fails, 
-        // effectively treating all courses as new for this scan pass.
-        existingCourses = []; 
-      }
-    }
-
     for (const courseDir of courseDirs) {
+      if (stopping) return false;
       const courseDirPath = path.join(contentDir, courseDir);
       try {
         if (preserveMetadata) {
           // Custom processing for preserving metadata, passing the array
-          await processCourseDirWithMetadataPreservation(courseDirPath, existingCourses);
+          await processCourseDirWithMetadataPreservation(courseDirPath);
         } else {
           // Standard processing that resets metadata
           await processCourseDirectory(courseDirPath);
@@ -344,6 +334,7 @@ export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata
       }
     }
     
+    if (stopping) return false;
     // Clean up courses that no longer exist in the filesystem
     await cleanupRemovedCourses(courseDirs);
     
@@ -357,6 +348,8 @@ export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata
     return true;
   } catch (error) {
     console.error('Error during course scan:', error);
+    recordScanError('(library)', error);
+    if (error.code === 'ENOENT') getDb().prepare('UPDATE courses SET available = 0').run();
     initialScanStatus.error = error.message || 'Unknown error during scan';
     initialScanStatus.inProgress = false;
     initialScanStatus.complete = false;
@@ -365,100 +358,75 @@ export const scanCoursesOnStartup = async (forceRescan = false, preserveMetadata
 };
 
 
-// Function to clean up courses that no longer exist in the filesystem
+// Missing folders are recoverable. Never delete their metadata or progress.
 const cleanupRemovedCourses = (existingCourseDirs) => {
-  try {
-    // Get all courses from the database with their directory names
-    const coursesWithDirs = getCoursesWithDirectories();
-    const onDiskIds = new Set(existingCourseDirs.map(generateCourseId));
-    
-    // Check each course in the database
-    for (const course of coursesWithDirs) {
-      if (!existingCourseDirs.includes(course.folder_name)) {
-        // A different folder generating the same ID was rejected earlier in
-        // this scan. Keep the existing row and its progress until the
-        // operator resolves the ambiguous folder names; cleanup must not turn
-        // a safely rejected collision into data loss.
-        if (onDiskIds.has(course.id)) {
-          console.warn(
-            `Keeping missing course folder "${course.folder_name}" because an on-disk folder collides with ID "${course.id}".`
-          );
-          continue;
-        }
-        console.log(`Removing deleted course from database: ${course.folder_name}`);
-        removeCourseFromDb(course.folder_name);
-      }
-    }
-  } catch (error) {
-    console.error('Error during course cleanup:', error);
+  const present = new Set(existingCourseDirs);
+  for (const course of getCoursesWithDirectories()) {
+    if (!present.has(course.folder_name)) removeCourseFromDb(course.folder_name);
   }
 };
 
-// Debounce before processing newly added course directories so half-copied
-// courses aren't indexed instantly.
-const ADD_DIR_DEBOUNCE_MS = 2000;
+let queue = Promise.resolve();
+let fullScan = null;
+let stopping = false;
 const pendingAddDirTimers = new Map();
-
-// Set up file watching. The polling interval is parsed once by the caller
-// (server/plugins/courseScanner.js) from CHOKIDAR_POLLING_INTERVAL.
-export const setupFileWatcher = (pollingInterval = 60000) => {
-  try {
-    const contentDir = getContentDir();
-    console.log(`Setting up course watcher on: ${contentDir}`);
-
-    // Watch nested course changes and debounce them by top-level course.
-    const watcher = chokidar.watch(contentDir, {
-      ignored: /(^|[\/\\])\../, // Ignore dotfiles
-      persistent: true,
-      ignoreInitial: true,
-      usePolling: true, // Enable polling for reliability in Docker
-      interval: pollingInterval // Use configured interval
-    });
-
-    const scheduleRescan = (changedPath) => {
-      const coursePath = topLevelCoursePath(contentDir, changedPath);
-      if (!coursePath) return;
-      clearTimeout(pendingAddDirTimers.get(coursePath));
-      pendingAddDirTimers.set(coursePath, setTimeout(() => {
-        pendingAddDirTimers.delete(coursePath);
-        fs.promises.access(coursePath)
-          .then(async () => {
-            const folderName = path.basename(coursePath);
-            const courseId = generateCourseId(folderName);
-            const existing = getDb().prepare(`
-              SELECT id, title, description, category, release_date, folder_name, thumbnail_data
-              FROM courses WHERE folder_name = ? OR id = ?
-              ORDER BY CASE WHEN folder_name = ? THEN 0 ELSE 1 END
-              LIMIT 1
-            `).all(folderName, courseId, folderName);
-            if (existing.length > 0) {
-              await processCourseDirWithMetadataPreservation(coursePath, existing);
-            } else {
-              await processCourseDirectory(coursePath);
-            }
-          })
-          .catch(error => {
-            if (error?.code === 'ENOENT') handleCourseDirectoryRemoval(coursePath);
-            else console.error(`Error processing course directory ${coursePath}:`, error);
-          });
-      }, ADD_DIR_DEBOUNCE_MS));
-    };
-
-    watcher.on('add', scheduleRescan);
-    watcher.on('change', scheduleRescan);
-    watcher.on('unlink', scheduleRescan);
-    watcher.on('addDir', scheduleRescan);
-    watcher.on('unlinkDir', scheduleRescan);
-
-    // Handle errors
-    watcher.on('error', error => {
-      console.error('Course watcher error:', error);
-    });
-
-    console.log('Course watcher set up successfully');
-    return watcher;
-  } catch (error) {
-    console.error('Error setting up course watcher:', error);
-    return null;
-  }
+const pendingCourses = new Set();
+const watchers = new Set();
+function enqueue(work) {
+  const result = queue.then(() => stopping ? undefined : work());
+  queue = result.catch(error => recordScanError('(queue)', error));
+  return result;
+}
+export const scanCoursesOnStartup = (forceRescan = false, preserveMetadata = true) => {
+  if (fullScan) return fullScan;
+  if (stopping) return Promise.resolve(false);
+  initialScanStatus.inProgress = true;
+  initialScanStatus.complete = false;
+  initialScanStatus.error = null;
+  fullScan = enqueue(() => runFullScan(forceRescan, preserveMetadata)).finally(() => { fullScan = null; initialScanStatus.inProgress = false; });
+  return fullScan;
 };
+
+export const setupFileWatcher = (pollingInterval = 60000) => {
+  stopping = false;
+  const contentDir = getContentDir();
+  const watcher = chokidar.watch(contentDir, {
+    ignored: /(^|[/\\])\../, persistent: true, ignoreInitial: true,
+    usePolling: true, interval: pollingInterval
+  });
+  watchers.add(watcher);
+  const scheduleRescan = changedPath => {
+    if (stopping) return;
+    const coursePath = topLevelCoursePath(contentDir, changedPath);
+    if (!coursePath) return;
+    clearTimeout(pendingAddDirTimers.get(coursePath));
+    pendingAddDirTimers.set(coursePath, setTimeout(() => {
+      pendingAddDirTimers.delete(coursePath);
+      if (pendingCourses.has(coursePath)) return;
+      pendingCourses.add(coursePath);
+      enqueue(async () => {
+        // Remove before processing so a change during the await queues another pass.
+        pendingCourses.delete(coursePath);
+        try {
+          const stat = await fs.promises.stat(coursePath);
+          if (stat.isDirectory()) await processCourseDirWithMetadataPreservation(coursePath);
+        } catch (error) {
+          if (error.code === 'ENOENT') handleCourseDirectoryRemoval(coursePath);
+          else recordScanError(coursePath, error);
+        }
+      });
+    }, 2000));
+  };
+  for (const event of ['add', 'change', 'unlink', 'addDir', 'unlinkDir']) watcher.on(event, scheduleRescan);
+  watcher.on('error', error => recordScanError('(watcher)', error));
+  return watcher;
+};
+export async function closeCourseWatchers() {
+  stopping = true;
+  for (const timer of pendingAddDirTimers.values()) clearTimeout(timer);
+  pendingAddDirTimers.clear();
+  pendingCourses.clear();
+  await Promise.all([...watchers].map(watcher => watcher.close()));
+  watchers.clear();
+  await queue;
+}

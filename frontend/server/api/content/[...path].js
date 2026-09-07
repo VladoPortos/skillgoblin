@@ -93,22 +93,6 @@ const getContentChunk = async (filePath, fileVersion, start, end) => {
   return buffer;
 };
 
-// Prefetch next chunk (called after serving a chunk)
-const prefetchNextChunk = (filePath, fileVersion, currentEnd, fileSize) => {
-  const prefetchStart = currentEnd + 1;
-  const prefetchSize = Math.min(MAX_CHUNK_SIZE, fileSize - prefetchStart);
-  
-  // Skip prefetch for very small remaining parts
-  if (prefetchSize < 64 * 1024) return;
-  
-  // Asynchronously prefetch without waiting
-  getContentChunk(filePath, fileVersion, prefetchStart, prefetchStart + prefetchSize - 1)
-    .catch(err => {
-      // Just log errors, don't disrupt the main flow
-      console.error(`Prefetch error for ${filePath}: ${err.message}`);
-    });
-};
-
 // Check if compression should be used
 const shouldCompress = (req, contentType) => {
   const acceptEncoding = req.headers['accept-encoding'] || '';
@@ -388,8 +372,6 @@ export default defineEventHandler(async (event) => {
           // Get content chunk from cache or file
           const buffer = await getContentChunk(filePath, fileVersion, start, end);
           
-          // Prefetch next chunk asynchronously (don't await)
-          prefetchNextChunk(filePath, fileVersion, end, stats.size);
           
           // Send the buffer directly
           return buffer;

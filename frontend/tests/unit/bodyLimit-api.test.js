@@ -51,3 +51,8 @@ describe('body limit middleware', () => {
     expect(res.status).toBe(200);
   });
 });
+
+it('does not exempt multipart authentication bodies', async () => {
+ const res = await fetch(`${baseUrl}/api/users/auth`, {method:'POST',headers:{'content-type':'multipart/form-data; boundary=x'},body:'x'.repeat(300*1024)});
+ expect(res.status).toBe(413);
+});

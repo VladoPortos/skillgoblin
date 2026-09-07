@@ -37,10 +37,8 @@ set -e
 # ---------------------------------------------------------------------------
 if [ "$(id -u)" = "0" ]; then
   # SKILLGOBLIN_SKIP_PERM_REPAIR=1 disables the chown pass below while
-  # still dropping to the node user. Used by docker-compose.test.yml,
-  # where /app/data/branding and /app/data/content are bind-mounted from
-  # tracked repo fixtures and a recursive chown would dirty the working
-  # tree on the host.
+  # still dropping to the node user. Useful when the operator manages
+  # ownership externally or mounts a read-only content library.
   if [ "${SKILLGOBLIN_SKIP_PERM_REPAIR:-}" != "1" ]; then
     # Best-effort recursive chown for paths that need full write access.
     # If the host has gone out of its way to make the volume non-chownable

@@ -6,6 +6,8 @@ export const saveCourseToDb = (courseData, folderName, dbInstance = null) => {
   try {
     const db = dbInstance || getDb();
 
+    const videoIds = (courseData.lessons || []).flatMap(l => (l.videos || []).map((v, i) => v.id || `${l.id}-${i}`));
+
     // Check if course already exists in database
     const existingCourse = db.prepare('SELECT id, folder_name FROM courses WHERE id = ?').get(courseData.id);
 
@@ -21,7 +23,7 @@ export const saveCourseToDb = (courseData, folderName, dbInstance = null) => {
       db.prepare(`
         UPDATE courses 
         SET title = ?, description = ?, folder_name = ?, thumbnail = ?, 
-            category = ?, release_date = ?, data = ?, updated_at = CURRENT_TIMESTAMP 
+            category = ?, release_date = ?, data = ?, available = 1, video_count = ?, video_ids = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(
         courseData.title, 
@@ -31,6 +33,7 @@ export const saveCourseToDb = (courseData, folderName, dbInstance = null) => {
         courseData.category,
         courseData.releaseDate,
         JSON.stringify(courseData),
+        videoIds.length, JSON.stringify(videoIds),
         courseData.id
       );
 
@@ -39,8 +42,8 @@ export const saveCourseToDb = (courseData, folderName, dbInstance = null) => {
       db.prepare(`
         INSERT INTO courses (id, title, description, folder_name, thumbnail, 
                             thumbnail_data, category, release_date, data, 
-                            created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            created_at, updated_at, video_count, video_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, ?, ?)
       `).run(
         courseData.id,
         courseData.title,
@@ -50,7 +53,7 @@ export const saveCourseToDb = (courseData, folderName, dbInstance = null) => {
         null, // Set thumbnail_data to NULL on initial insert
         courseData.category,
         courseData.releaseDate,
-        JSON.stringify(courseData)
+        JSON.stringify(courseData), videoIds.length, JSON.stringify(videoIds)
       );
     }
     
@@ -94,37 +97,8 @@ export const getCourseFromDb = (courseId) => {
 
 // Function to remove a course from the database by folder name
 export const removeCourseFromDb = (folderName) => {
-  try {
-    const db = getDb();
-    console.log(`Removing course from database: ${folderName}`);
-    
-    // First get the course ID to ensure we have the right record
-    const course = db.prepare('SELECT id FROM courses WHERE folder_name = ?').get(folderName);
-    
-    if (course) {
-      console.log(`Found course with ID ${course.id}, removing...`);
-      
-      // Remove the course
-      db.prepare('DELETE FROM courses WHERE id = ?').run(course.id);
-      
-      // Also clean up any user progress for this course
-      try {
-        db.prepare('UPDATE user_progress SET progress = json_remove(progress, ?) WHERE json_extract(progress, ?) IS NOT NULL')
-          .run(`$.${course.id}`, `$.${course.id}`);
-        console.log(`Removed course ${course.id} from user progress records`);
-      } catch (progressError) {
-        console.error(`Error removing course ${course.id} from user progress:`, progressError);
-      }
-      
-      return { success: true, message: `Course ${folderName} removed from database` };
-    } else {
-      console.log(`No course found with folder name ${folderName}`);
-      return { success: false, message: 'Course not found in database' };
-    }
-  } catch (error) {
-    console.error(`Error removing course ${folderName} from database:`, error);
-    return { error: 'Failed to remove course' };
-  }
+  getDb().prepare('UPDATE courses SET available = 0 WHERE folder_name = ?').run(folderName);
+  return { success: true };
 };
 
 // Function to get all courses with their directory information

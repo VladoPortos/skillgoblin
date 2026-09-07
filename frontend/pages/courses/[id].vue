@@ -86,6 +86,12 @@
         >Retry</button>
       </div>
 
+      <div v-if="progressHydrated" class="mb-3 flex flex-wrap items-center gap-3 text-sm text-gray-700 dark:text-gray-200" role="status" aria-live="polite" data-testid="progress-save-status">
+        <span>{{ saveState === 'error' ? 'Progress could not be saved. Retrying…' : saveState === 'saving' ? 'Saving progress…' : saveState === 'pending' ? 'Progress waiting to save' : 'Progress saved' }}</span>
+        <button v-if="saveState === 'error'" type="button" class="underline font-semibold rounded focus-visible:ring-2 focus-visible:ring-primary-500" @click="flushProgressSave">Retry now</button>
+        <span v-if="localSaveWarning" class="text-amber-800 dark:text-amber-200">Browser recovery storage is unavailable. Keep this tab open until progress is saved.</span>
+      </div>
+
       <!-- Video Player -->
       <VideoPlayer
         v-if="!courseLoadError"
@@ -180,14 +186,14 @@
                 @click="playVideo(lesson, video, index)"
               >
                 <div class="mr-3 shrink-0">
-                  <div v-if="completedVideos[`${lesson.id}-${index}`]" class="w-5 h-5 bg-green-500 dark:bg-green-400 rounded-full flex items-center justify-center">
+                  <div v-if="completedVideos[getVideoId(lesson,index)]" class="w-5 h-5 bg-green-500 dark:bg-green-400 rounded-full flex items-center justify-center">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7" />
                     </svg>
                   </div>
-                  <div v-else-if="videoProgress[`${lesson.id}-${index}`]" class="w-5 h-5 rounded-full border-2 border-blue-500 dark:border-blue-400 relative">
+                  <div v-else-if="videoProgress[getVideoId(lesson,index)]" class="w-5 h-5 rounded-full border-2 border-blue-500 dark:border-blue-400 relative">
                     <div class="absolute inset-0.5 bg-blue-500 dark:bg-blue-400 rounded-full" :style="{
-                      clipPath: `polygon(0 0, 100% 0, 100% ${videoProgress[`${lesson.id}-${index}`]}%, 0 ${videoProgress[`${lesson.id}-${index}`]}%)`
+                      clipPath: `polygon(0 0, 100% 0, 100% ${videoProgress[getVideoId(lesson,index)]}%, 0 ${videoProgress[getVideoId(lesson,index)]}%)`
                     }"></div>
                   </div>
                   <div v-else class="w-5 h-5 rounded-full border-2 border-gray-400 dark:border-gray-500"></div>
@@ -196,9 +202,9 @@
               </button>
               <div class="shrink-0 pr-2">
                 <VideoControlButtons
-                  :is-completed="completedVideos[`${lesson.id}-${index}`]"
-                  @toggle-completion="toggleVideoCompletionById(`${lesson.id}-${index}`)"
-                  @reset-progress="resetVideoProgressById(`${lesson.id}-${index}`)"
+                  :is-completed="completedVideos[getVideoId(lesson,index)]"
+                  @toggle-completion="toggleVideoCompletionById(getVideoId(lesson,index))"
+                  @reset-progress="resetVideoProgressById(getVideoId(lesson,index))"
                 />
               </div>
             </div>
@@ -270,6 +276,8 @@ import CourseFilesModal from '~/components/CourseFilesModal.vue';
 import CourseHeader from '../../components/course/CourseHeader.vue';
 import VideoPlayer from '../../components/video/VideoPlayer.vue';
 import VideoInfo from '../../components/video/VideoInfo.vue';
+import { getVideoId } from '~/utils/videoIdentity.js';
+import { createProgressSync } from '~/utils/progressSync.js';
 import { pickNextNotCompleted } from '~/utils/smartOpen.js';
 import VideoControlButtons from '../../components/video/VideoControlButtons.vue';
 import UserManagement from '../../components/UserManagement.vue';
@@ -296,7 +304,7 @@ async function handleLogout() {
   // Await the in-flight save — without this, the POST is still in flight
   // when useSession.logout() clears the auth cookie, and the server rejects
   // the late write under requireSelfOrAdmin.
-  await flushProgressSave();
+  if (await flushProgressSave() === false) return;
   await logout();
 }
 
@@ -341,6 +349,44 @@ const progressReady = ref(false);
 const progressHydrated = ref(false);
 const progressLoadError = ref('');
 const courseLoadError = ref('');
+const saveState = ref('saved');
+const localSaveWarning = ref(false);
+let progressSync = null;
+let pageDisposed = false;
+function applySavedData(stored) {
+  courseProgress.value = stored;
+  completedVideos.value = stored.completed || {};
+  videoProgress.value = stored.progress || {};
+  isFavorite.value = stored.favorite || false;
+}
+function setupProgressSync() {
+  const owner = userId.value;
+  const courseId = course.value.id;
+  let storage = null;
+  let tabId = 'default';
+  try {
+    storage = window.localStorage;
+    tabId = sessionStorage.getItem('sg-progress-tab') || crypto.randomUUID();
+    sessionStorage.setItem('sg-progress-tab',tabId);
+  } catch { localSaveWarning.value = true; }
+  progressSync?.dispose();
+  progressSync = createProgressSync({
+    key: 'sg-progress:' + owner + ':' + courseId + ':' + tabId,
+    recoveryPrefix: 'sg-progress:' + owner + ':' + courseId + ':',
+    storage,
+    read: async () => {
+      const state = await $fetch('/api/user-progress/' + owner, {timeout:30000});
+      return {data:state.progress?.[courseId] || {},revision:state.revisions?.[courseId] || 0};
+    },
+    write: (data,revision,options) => {
+      const body = {courseId,data,revision};
+      const keepalive = !!options.keepalive && new TextEncoder().encode(JSON.stringify(body)).length < 60000;
+      return $fetch('/api/user-progress/' + owner, {method:'POST',body,keepalive,timeout:30000});
+    },
+    onState: state => { if (state === 'storage-error') localSaveWarning.value = true; else saveState.value = state; },
+    onData: data => { if (!pageDisposed) applySavedData(data); }
+  });
+}
 // Scoped one-shot flag: when set to a videoId, the next handleVideoLoaded
 // for THAT video id forces seek to 0, bypassing any saved partial progress.
 // Holding the flag against a specific videoId (instead of a global boolean)
@@ -375,11 +421,11 @@ async function loadUserProgress() {
   try {
     const progressData = await $fetch(`/api/user-progress/${userId.value}`);
     const stored = progressData?.progress?.[course.value.id] || {};
-    courseProgress.value = stored;
-    completedVideos.value = stored.completed || {};
-    videoProgress.value = stored.progress || {};
-    isFavorite.value = stored.favorite || false;
+    if (pageDisposed) return;
+    setupProgressSync();
+    progressSync.hydrate(stored, progressData.revisions?.[course.value.id] || 0);
     progressHydrated.value = true;
+    if (progressSync.hasPending()) progressSync.flush();
   } catch (err) {
     progressHydrated.value = false;
     progressLoadError.value = 'Saved progress is temporarily unavailable.';
@@ -390,8 +436,13 @@ async function loadUserProgress() {
 }
 
 async function retryProgressLoad() {
+  videoPlayer.value?.pause();
   progressReady.value = false;
   await loadUserProgress();
+  if (progressHydrated.value && currentVideo.value) {
+    handleVideoLoaded();
+    videoPlayer.value?.setCurrentTime(currentTimeForPlayer.value);
+  }
 }
 
 async function loadCourse() {
@@ -430,6 +481,7 @@ onMounted(async () => {
 });
 
 onBeforeUnmount(() => {
+  pageDisposed = true;
   if (trailingSaveTimer) {
     clearTimeout(trailingSaveTimer);
     trailingSaveTimer = null;
@@ -445,6 +497,7 @@ onBeforeUnmount(() => {
   if (progressHydrated.value && userId.value && course.value?.id) {
     saveProgress();
   }
+  progressSync?.dispose();
 });
 
 // Watch for course data to load and select the first video. The watcher
@@ -477,7 +530,7 @@ watch([course, progressReady], () => {
   currentLesson.value = lesson;
   currentVideo.value = video;
   currentVideoIndex.value = pick.videoIndex;
-  currentVideoId.value = `${lesson.id}-${pick.videoIndex}`;
+  currentVideoId.value = getVideoId(lesson,pick.videoIndex);
   // Initial seek time is computed once duration is known, in handleVideoLoaded.
   currentTimeForPlayer.value = 0;
 }, { immediate: true });
@@ -523,7 +576,7 @@ const completedVideosCount = computed(() => {
   let count = 0;
   for (const lesson of course.value.lessons) {
     lesson.videos.forEach((video, index) => {
-      if (completedVideos.value[`${lesson.id}-${index}`]) count++;
+      if (completedVideos.value[getVideoId(lesson,index)]) count++;
     });
   }
   return count;
@@ -640,7 +693,7 @@ function playVideo(lesson, video, videoIndex, autoPlay = true) {
   currentLesson.value = lesson;
   currentVideo.value = video;
   currentVideoIndex.value = videoIndex;
-  currentVideoId.value = `${lesson.id}-${videoIndex}`;
+  currentVideoId.value = getVideoId(lesson,videoIndex);
 
   // Only reset and play if we're changing videos
   if (previousVideoId !== currentVideoId.value) {
@@ -791,7 +844,7 @@ function markCourseCompleted() {
   // Mark all videos as completed
   for (const lesson of course.value.lessons) {
     lesson.videos.forEach((video, index) => {
-      completedVideos.value[`${lesson.id}-${index}`] = true;
+      completedVideos.value[getVideoId(lesson,index)] = true;
     });
   }
 
@@ -843,6 +896,7 @@ function buildProgressBody() {
       progress: videoProgress.value,
       favorite: isFavorite.value,
       lastViewed: {
+        videoId: currentVideoId.value,
         lessonId: currentLesson.value?.id,
         videoIndex: currentLesson.value ? currentVideoIndex.value : undefined
       }
@@ -855,6 +909,7 @@ function buildProgressBody() {
 // trailing edge fires SAVE_INTERVAL_MS after the leading save.
 function scheduleProgressSave() {
   if (!progressHydrated.value || !userId.value || !course.value?.id) return;
+  progressSync?.stage(buildProgressBody().data);
   const now = Date.now();
   const elapsed = now - lastProgressSaveAt;
   if (elapsed >= SAVE_INTERVAL_MS) {
@@ -888,41 +943,18 @@ function flushProgressSave() {
 
 // Immediate write. Used directly by completion / favorite / reset handlers
 // where the user expects their action to land before a possible reload.
-async function saveProgress() {
-  if (!progressHydrated.value || !userId.value || !course.value?.id) return;
-  try {
-    await $fetch(`/api/user-progress/${userId.value}`, {
-      method: 'POST',
-      body: buildProgressBody()
-    });
-  } catch (error) {
-    console.error('Error saving progress:', error);
-  }
+async function saveProgress(options = {}) {
+  if (!progressHydrated.value || !userId.value || !course.value?.id) return true;
+  progressSync?.stage(buildProgressBody().data);
+  return progressSync?.flush(options);
 }
 
-// Page-hide path: regular fetch may be cancelled by the browser on unload.
-// sendBeacon is the documented mechanism for "fire-and-forget on the way
-// out" and queues the request even after the page is gone. Falls back to
-// a sync flush if the API isn't available.
 function saveProgressOnHide() {
-  if (!progressHydrated.value || !userId.value || !course.value?.id) return;
-  if (trailingSaveTimer) {
-    clearTimeout(trailingSaveTimer);
-    trailingSaveTimer = null;
-  }
-  if (typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
-    try {
-      const blob = new Blob([JSON.stringify(buildProgressBody())], { type: 'application/json' });
-      // sendBeacon returns false when the user agent declines to queue the
-      // request — typically because the body is over the keepalive budget or
-      // the queue is full. Fall back to the regular fetch path so we don't
-      // silently drop the unload save.
-      if (navigator.sendBeacon(`/api/user-progress/${userId.value}`, blob)) return;
-    } catch (err) {
-      // Fall through to fetch fallback below.
-    }
-  }
-  saveProgress();
+  if (trailingSaveTimer) { clearTimeout(trailingSaveTimer); trailingSaveTimer = null; }
+  // Stage synchronously to local recovery storage, then use the same serialized
+  // CAS writer with keepalive. Never send an unversioned competing beacon.
+  saveProgress({keepalive:true});
+  progressSync?.release();
 }
 
 function startFromBeginning() {

@@ -171,7 +171,7 @@ const probeVideoDuration = async (videoPath) => {
         '-of', 'default=noprint_wrappers=1:nokey=1',
         videoPath,
       ],
-      { timeout: 10_000 }
+      { timeout: 10_000, killSignal: 'SIGKILL', maxBuffer: 64 * 1024, windowsHide: true }
     );
     const seconds = parseFloat(String(stdout).trim());
     return Number.isFinite(seconds) && seconds > 0 ? seconds : null;
@@ -224,7 +224,7 @@ export const extractFrameThumbnail = async (videoPath) => {
           '-c:v', 'mjpeg',
           '-',                          // write to stdout
         ],
-        { stdio: ['ignore', 'pipe', 'pipe'] }
+        { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
       );
     } catch (err) {
       console.warn(`[thumb] ffmpeg spawn failed: ${err.message}`);
@@ -233,11 +233,17 @@ export const extractFrameThumbnail = async (videoPath) => {
 
     const chunks = [];
     let stderrBuf = '';
-    proc.stdout.on('data', (chunk) => chunks.push(chunk));
-    proc.stderr.on('data', (chunk) => { stderrBuf += chunk.toString(); });
+    let bytes = 0;
+    proc.stdout.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > 8 * 1024 * 1024) { proc.kill('SIGKILL'); finish(null); }
+      else chunks.push(chunk);
+    });
+    proc.stderr.on('data', (chunk) => { stderrBuf = (stderrBuf + chunk.toString()).slice(-8192); });
 
     let settled = false;
-    const finish = (val) => { if (!settled) { settled = true; resolve(val); } };
+    const finish = (val) => { if (!settled) { settled = true; clearTimeout(timer); resolve(val); } };
+    const timer = setTimeout(() => { proc.kill('SIGKILL'); finish(null); }, 15_000);
 
     proc.on('error', (err) => {
       console.warn(`[thumb] ffmpeg error for ${videoPath}: ${err.message}`);

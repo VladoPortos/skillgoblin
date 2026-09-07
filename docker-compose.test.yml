@@ -1,92 +1,59 @@
-# Test orchestration. Two services:
-#   - `web`: production build of SkillGoblin, fresh DB on every run.
-#   - `tests`: official Playwright image, runs the unit + e2e suites
-#             against the `web` service over the compose network.
-#
-# Run with:  docker compose -f docker-compose.test.yml run --rm tests
-#
-# Adds `--build` if you've changed the app image:
-#   docker compose -f docker-compose.test.yml up --build -d web
-#   docker compose -f docker-compose.test.yml run --rm tests
-#   docker compose -f docker-compose.test.yml down -v
-#
-# Service hostname history: this used to be named `app`. Chromium's
-# HSTS preload list hardcodes the `.app` gTLD as HTTPS-only — every
-# `*.app` host (including the bare label `app`) gets HTTP traffic
-# auto-upgraded to HTTPS. From Chrome 132+ this kicked in for
-# Playwright-driven navigations and broke `page.goto('http://app:3000')`
-# with `net::ERR_SSL_PROTOCOL_ERROR`. There is no Chromium flag that
-# disables hardcoded HSTS preloads (it's a security guarantee, not a
-# feature flag). Renaming to a label outside any preloaded TLD (`web`
-# is not preloaded) is the supported workaround.
-
+# Each run uses fresh named volumes. Always finish with `down -v`.
 services:
+  fixtures:
+    image: node:24-alpine
+    entrypoint: /bin/sh
+    command: ["-ec", "cp -R /fixtures/content/. /content/; cp -R /fixtures/branding/. /branding/; chown -R 1000:1000 /content /branding"]
+    volumes:
+      - ./frontend/tests/fixtures:/fixtures:ro
+      - test_content:/content
+      - test_branding:/branding
+
   web:
     build:
       context: .
       dockerfile: Dockerfile.prod
+      target: production
+    depends_on:
+      fixtures:
+        condition: service_completed_successfully
     environment:
-      - HOST=0.0.0.0
-      - PORT=3000
-      - NODE_ENV=production
-      - DATABASE_PATH=/app/data/database/database.sqlite
-      # The bootstrap server-plugin requires both vars on a fresh install.
-      # Tests use these credentials in tests/e2e/auth.spec.js — keep them
-      # in sync with PW_ADMIN_NAME / PW_ADMIN_PASSWORD on the tests service.
-      - ADMIN_NAME=root
-      - ADMIN_PASSWORD=TestAdminPass!
-      # Skip the entrypoint's volume-ownership repair pass — branding and
-      # content below are bind-mounted from tracked repo fixtures, and a
-      # recursive chown to uid 1000 would dirty the working tree on the
-      # host. Privilege drop to `node` still happens.
-      - SKILLGOBLIN_SKIP_PERM_REPAIR=1
+      HOST: 0.0.0.0
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_PATH: /app/data/database/database.sqlite
+      ADMIN_NAME: root
+      ADMIN_PASSWORD: TestAdminPass!
     volumes:
-      # /app/data is a fresh tmpfs on every run. Long-form is required so
-      # we can set mode=1777 — the prod image runs as the unprivileged
-      # `node` user (uid 1000), and short-form tmpfs mounts default to
-      # mode 0755 owned by root, masking the build-time chown.
-      - type: tmpfs
-        target: /app/data
-        tmpfs:
-          mode: 01777
-      - ./frontend/tests/fixtures/branding:/app/data/branding
-      - ./frontend/tests/fixtures/content:/app/data/content
+      - test_database:/app/data/database
+      - test_content:/app/data/content
+      - test_branding:/app/data/branding
     healthcheck:
-      # 127.0.0.1 (not localhost) because busybox wget on alpine resolves
-      # localhost to [::1] first and the server is bound to 0.0.0.0 only.
-      test:
-        - CMD-SHELL
-        - "wget -qO- http://127.0.0.1:3000/api/users >/dev/null 2>&1 || exit 1"
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/users >/dev/null 2>&1 || exit 1"]
       interval: 2s
       timeout: 3s
       retries: 30
       start_period: 5s
 
   tests:
-    image: mcr.microsoft.com/playwright:v1.62.0-jammy
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      target: test-runner
+    volumes:
+      # Mutation tests must edit the same isolated files served by web.
+      - test_content:/work/tests/fixtures/content
+      - test_branding:/work/tests/fixtures/branding
     depends_on:
       web:
         condition: service_healthy
-    working_dir: /work
-    volumes:
-      - ./frontend:/work
-      - tester_node_modules:/work/node_modules
     environment:
-      - PW_BASE_URL=http://web:3000
-      - PW_ADMIN_NAME=root
-      - PW_ADMIN_PASSWORD=TestAdminPass!
-      - CI=1
-    command:
-      - bash
-      - -lc
-      - |
-        set -e
-        echo "[tests] installing deps"
-        npm install --no-audit --no-fund
-        echo "[tests] running vitest unit suite"
-        npm run test:unit
-        echo "[tests] running playwright e2e suite"
-        npx playwright test
+      PW_BASE_URL: http://web:3000
+      PW_ADMIN_NAME: root
+      PW_ADMIN_PASSWORD: TestAdminPass!
+      CI: 1
 
 volumes:
-  tester_node_modules:
+  test_database:
+  test_content:
+  test_branding:

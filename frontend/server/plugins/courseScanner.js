@@ -1,9 +1,10 @@
-import { scanCoursesOnStartup, setupFileWatcher } from '../utils/courseWatcher';
+import { scanCoursesOnStartup, setupFileWatcher, closeCourseWatchers } from '../utils/courseWatcher';
 
 // Nitro server plugin — kicks off the startup course scan (fire-and-forget)
 // and starts the single chokidar watcher instance. This is the ONE place
 // CHOKIDAR_POLLING_INTERVAL is parsed; setting it to 0 disables the watcher.
-export default defineNitroPlugin(() => {
+export default defineNitroPlugin((nitroApp) => {
+  nitroApp.hooks.hook('close', closeCourseWatchers);
   scanCoursesOnStartup().catch((error) => {
     console.error('Startup course scan failed:', error);
   });

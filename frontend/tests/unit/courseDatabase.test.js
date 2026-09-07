@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { saveCourseToDb } from '../../server/utils/courseDatabase.js';
 
+import availability from '../../server/migrations/007_library_availability.js';
 let db;
 afterEach(() => db?.close());
 
@@ -16,6 +17,7 @@ function makeDb() {
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
   `);
+  availability.up(db);
   return db;
 }
 

@@ -442,9 +442,11 @@ const assignCategoryColors = (categoryList) => {
 // Monotonic token so a slow response from a superseded request can never
 // overwrite the state written by a newer one.
 let fetchCoursesToken = 0;
+let disposed = false;
 
 // Function to fetch courses with pagination
 const fetchCourses = async (forceFresh = false) => {
+  if (disposed) return;
   // First check if we need to wait for initial scan
   if (!initialScan.value.complete && !initialScan.value.error) {
     checkScanStatus();
@@ -506,9 +508,7 @@ const fetchCourses = async (forceFresh = false) => {
       }
 
       // After courses are loaded, fetch progress data if any exist
-      if (courses.value.length > 0) {
-        fetchUserProgress(forceFresh);
-      }
+      fetchUserProgress(forceFresh);
     } else {
       courses.value = [];
       totalPages.value = 0;
@@ -611,52 +611,59 @@ const getScanProgressPercent = computed(() => {
   return Math.round((initialScan.value.processedCourses / initialScan.value.totalCourses) * 100);
 });
 
-// Single polling chain: the pending timer handle is stored so each new
-// chain cancels the previous one, and unmount clears whatever is pending.
+// A single request and timer own polling for this mounted page.
 let scanPollTimer = null;
-
-// Function to check scan status
-const checkScanStatus = async () => {
-  if (scanPollTimer) {
-    clearTimeout(scanPollTimer);
-    scanPollTimer = null;
-  }
-  try {
-    const response = await $fetch('/api/status/scan', {
-      // Add a cache busting parameter to prevent browser caching
-      params: { _t: Date.now() }
-    });
-
-    // Update scan status
-    initialScan.value = response;
-
-    // No longer just loaded after first status check
-    if (pageJustLoaded.value) {
-      // Only show the loading indicator briefly if no scan is in progress
+let loadingIndicatorTimer = null;
+let scanStatusRequest = null;
+let scanStatusController = null;
+const checkScanStatus = () => {
+  if (disposed) return Promise.resolve();
+  if (scanStatusRequest) return scanStatusRequest;
+  clearTimeout(scanPollTimer);
+  scanPollTimer = null;
+  scanStatusController = new AbortController();
+  scanStatusRequest = (async () => {
+    try {
+      const response = await $fetch('/api/status/scan', {
+        params: { _t: Date.now() },
+        signal: scanStatusController.signal
+      });
+      if (disposed) return;
+      initialScan.value = response;
       if (!response.inProgress) {
+        clearTimeout(loadingIndicatorTimer);
+        loadingIndicatorTimer = null;
         pageJustLoaded.value = false;
-      } else {
-        // Keep the page in loading state for at least 500ms to avoid flashing
-        setTimeout(() => {
-          pageJustLoaded.value = false;
+      } else if (pageJustLoaded.value && !loadingIndicatorTimer) {
+        loadingIndicatorTimer = setTimeout(() => {
+          loadingIndicatorTimer = null;
+          if (!disposed) pageJustLoaded.value = false;
         }, 500);
       }
-    }
-
-    // If scan is still in progress, check again after a short delay
-    if (response.inProgress) {
-      // Check more frequently for smoother progress updates
-      scanPollTimer = setTimeout(checkScanStatus, 250);
-    } else if (response.complete) {
-      // Fetch courses with pagination
+      if (response.inProgress) {
+        scanPollTimer = setTimeout(() => {
+          scanPollTimer = null;
+          checkScanStatus();
+        }, 250);
+      } else if (response.complete || response.error) {
+        // Failed scans still leave a usable, retained catalog.
+        await fetchCourses(true);
+      }
+    } catch (error) {
+      if (disposed) return;
+      console.error('Error checking scan status:', error);
+      initialScan.value.error = error.message || 'Failed to check scan status';
+      initialScan.value.inProgress = false;
+      pageJustLoaded.value = false;
+      clearTimeout(loadingIndicatorTimer);
+      loadingIndicatorTimer = null;
       await fetchCourses(true);
     }
-  } catch (error) {
-    console.error('Error checking scan status:', error);
-    initialScan.value.error = error.message || 'Failed to check scan status';
-    initialScan.value.inProgress = false;
-    pageJustLoaded.value = false;
-  }
+  })().finally(() => {
+    scanStatusRequest = null;
+    scanStatusController = null;
+  });
+  return scanStatusRequest;
 };
 
 // Function to retry scan if there was an error
@@ -705,66 +712,27 @@ const confirmRescan = async () => {
 };
 
 // Add a function to fetch user progress data separately
+let progressRequestToken = 0;
 const fetchUserProgress = async (forceRefresh = false) => {
-  if (!user.value || !user.value.id) {
-    return;
-  }
-
-  if (courses.value.length === 0) {
-    return;
-  }
-
+  if (!user.value?.id) return;
+  const token = ++progressRequestToken;
+  if (activeTab.value === 'favorites') return fetchFavoriteCourses(forceRefresh);
+  if (activeTab.value === 'inProgress') return fetchInProgressCourses(forceRefresh);
+  const visible = courses.value;
+  if (!visible.length) return;
   try {
-    // Add cache-busting parameter and force refresh option
-    const cacheBuster = forceRefresh ? Date.now() : null;
-    const progressData = await $fetch(`/api/user-progress/${user.value.id}${cacheBuster ? `?_t=${cacheBuster}` : ''}`);
-
-    if (progressData && progressData.progress) {
-      // Process progress data
-      const userProgress = progressData.progress;
-
-      // Extract course progress percentages for the main courses list view
-      for (const courseId in userProgress) {
-        if (userProgress[courseId]) {
-          // Calculate overall progress percentage
-          let totalVideos = 0;
-          let completedVideos = 0;
-
-          // First, find the matching course to get actual video count
-          const course = courses.value.find(c => c.id === courseId);
-          if (course) {
-            // Count all videos in the course for accurate denominator
-            course.lessons?.forEach(lesson => {
-              if (lesson.videos) {
-                totalVideos += lesson.videos.length;
-              }
-            });
-
-            // Now count completed videos
-            if (userProgress[courseId].completed) {
-              const completedMap = userProgress[courseId].completed;
-              for (const videoId in completedMap) {
-                if (completedMap[videoId]) {
-                  completedVideos++;
-                }
-              }
-            }
-
-            if (totalVideos > 0) {
-              const progressPercent = Math.min((completedVideos / totalVideos) * 100, 100);
-              courseProgress.value[courseId] = Math.round(progressPercent);
-            }
-          }
-        }
-      }
+    const state = await $fetch('/api/user-progress/' + user.value.id, {
+      query: {courseIds:JSON.stringify(visible.map(course => course.id))}
+    });
+    if (token !== progressRequestToken) return;
+    const values = {};
+    for (const course of visible) {
+      const ids = course.videoIds || course.lessons?.flatMap(lesson => lesson.videos.map((video,index) => video.id || lesson.id + '-' + index)) || [];
+      const saved = state.progress?.[course.id] || {};
+      values[course.id] = ids.length ? Math.round(ids.reduce((sum,id) => sum + (saved.completed?.[id] === true ? 100 : Math.min(100,Math.max(0,Number(saved.progress?.[id]) || 0))),0) / ids.length) : 0;
     }
-  } catch (error) {
-    console.error('Error fetching user progress:', error);
-  }
-
-  // Now fetch specific course lists via dedicated endpoints
-  await fetchFavoriteCourses(forceRefresh);
-  await fetchInProgressCourses(forceRefresh);
+    courseProgress.value = {...courseProgress.value,...values};
+  } catch (error) { console.error('Error fetching user progress:',error); }
 };
 
 // New function to fetch ALL favorite courses for a user
@@ -849,7 +817,7 @@ const searchDebounceTimeout = ref(null);
 
 // Watch for tab changes to refresh tab-specific data
 watch(() => activeTab.value, (newTab) => {
-  if (newTab === 'favorites' || newTab === 'inProgress') {
+  if (user.value?.id) {
     // Force a progress refresh when switching to a progress-backed tab
     fetchUserProgress(true);
   }
@@ -882,6 +850,12 @@ onBeforeMount(async () => {
 });
 
 onUnmounted(() => {
+  disposed = true;
+  fetchCoursesToken += 1;
+  progressRequestToken += 1;
+  scanStatusController?.abort();
+  clearTimeout(loadingIndicatorTimer);
+  loadingIndicatorTimer = null;
   if (scanPollTimer) {
     clearTimeout(scanPollTimer);
     scanPollTimer = null;

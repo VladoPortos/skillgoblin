@@ -183,3 +183,10 @@ describe('pruneExpiredSessions', () => {
     expect(db.prepare('SELECT COUNT(*) AS c FROM user_sessions').get().c).toBe(1);
   });
 });
+
+it('kicking sessions also revokes credential upgrade tokens', async () => {
+ const { createCredentialUpgrade, consumeCredentialUpgrade } = await import('../../server/utils/sessions.js');
+ const { token } = createCredentialUpgrade(db, 'u1');
+ deleteUserSessions(db, 'u1');
+ expect(consumeCredentialUpgrade(db, token)).toBeNull();
+});

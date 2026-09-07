@@ -1,3 +1,4 @@
+import { postProgress } from './progress-helpers.js';
 import { test, expect } from '@playwright/test';
 
 const ADMIN_NAME = process.env.PW_ADMIN_NAME || 'root';
@@ -25,17 +26,41 @@ async function firstCourse(request) {
 
 function videoIds(course) {
   return course.lessons.flatMap(lesson =>
-    lesson.videos.map((video, index) => `${lesson.id}-${index}`)
+    lesson.videos.map(video => video.id)
   );
 }
 
 test.describe('progress integrity', () => {
+  test('failed saves show retry and preserve remote completion when rebasing', async ({ page, request }) => {
+    const admin = await loginAdmin(request);
+    const course = await firstCourse(request);
+    const id = videoIds(course)[0];
+    await postProgress(request, `/api/user-progress/${admin.id}`, {data:{courseId:course.id,data:{completed:{},progress:{},favorite:false}}});
+    await page.context().addCookies((await request.storageState()).cookies);
+    let unavailable = true;
+    await page.route(`**/api/user-progress/${admin.id}`, async route => {
+      if (route.request().method() === 'POST' && unavailable) return route.fulfill({status:503,contentType:'application/json',body:'{"statusMessage":"offline"}'});
+      await route.continue();
+    });
+    await page.goto(`/courses/${course.id}`);
+    await page.getByRole('button',{name:'Add to favorites',exact:true}).click();
+    await expect(page.getByTestId('progress-save-status')).toContainText('could not be saved');
+    // Another device completes a video while this browser has an unsaved favorite.
+    await postProgress(request, `/api/user-progress/${admin.id}`, {data:{courseId:course.id,data:{completed:{[id]:true},progress:{},favorite:false}}});
+    unavailable = false;
+    await page.getByRole('button',{name:'Retry now',exact:true}).click();
+    await expect(page.getByTestId('progress-save-status')).toContainText('Progress saved');
+    const state = await (await request.get(`/api/user-progress/${admin.id}`)).json();
+    expect(state.progress[course.id].favorite).toBe(true);
+    expect(state.progress[course.id].completed[id]).toBe(true);
+  });
+
   test('In Progress includes partial playback and excludes fully completed courses', async ({ request }) => {
     const admin = await loginAdmin(request);
     const course = await firstCourse(request);
     const ids = videoIds(course);
 
-    await request.post(`/api/user-progress/${admin.id}`, {
+    await postProgress(request, `/api/user-progress/${admin.id}`, {
       data: {
         courseId: course.id,
         data: { completed: {}, progress: { [ids[0]]: 50 }, favorite: false }
@@ -45,7 +70,7 @@ test.describe('progress integrity', () => {
     expect(partial.inProgress.map(item => item.id)).toContain(course.id);
     expect(partial.inProgress.find(item => item.id === course.id).progressPercentage).toBeGreaterThan(0);
 
-    await request.post(`/api/user-progress/${admin.id}`, {
+    await postProgress(request, `/api/user-progress/${admin.id}`, {
       data: {
         courseId: course.id,
         data: {
@@ -69,7 +94,7 @@ test.describe('progress integrity', () => {
       favorite: true,
       lastViewed: { lessonId: course.lessons[0].id, videoIndex: 0 }
     };
-    await request.post(`/api/user-progress/${admin.id}`, {
+    await postProgress(request, `/api/user-progress/${admin.id}`, {
       data: { courseId: course.id, data: seeded }
     });
 

@@ -1,59 +1,91 @@
-# Builds the production Docker image on every push to main (which is what
-# happens when a PR is merged) and pushes it to Docker Hub as
-# vladoportos/skillgoblin:beta. Always overwrites :beta — no SHA tags, no
-# other tags, and :latest is intentionally NOT touched. The companion
-# workflow (docker-promote.yml) is the only path that moves :latest, and
-# it re-tags this exact :beta manifest rather than rebuilding.
-#
-# Trigger workflow_dispatch lets the maintainer manually re-publish the
-# current main without an empty commit (e.g. if a transient registry
-# outage failed an earlier run).
-
-name: Publish beta to Docker Hub
+name: Test and publish images
 
 on:
+  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
 
-# A second push to main cancels an in-flight build so the registry never
-# settles on an older commit's image.
-concurrency:
-  group: docker-publish-beta
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
-    # Third-party + first-party Actions are pinned by full commit SHA
-    # to defeat tag-hijack supply-chain attacks (a force-push of v3/v4/v6
-    # would otherwise swap in malicious code on next run). Trailing
-    # comment carries the human-readable version so dependabot's
-    # github-actions ecosystem keeps bumping the SHA on new releases.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     steps:
-      - name: Check out repository
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Build production and run locked unit and browser suites
+        run: docker compose -f docker-compose.test.yml run --build --rm tests
+      - name: Service logs
+        if: always()
+        run: docker compose -f docker-compose.test.yml logs web
+      - name: Remove isolated test data
+        if: always()
+        run: docker compose -f docker-compose.test.yml down -v
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+  publish:
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push :beta
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      - name: Refuse to overwrite a commit architecture tag
+        env:
+          COMMIT: ${{ github.sha }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --output /tmp/tag.json --write-out "%{http_code}" "https://hub.docker.com/v2/repositories/vladoportos/skillgoblin/tags/sha-$COMMIT-$ARCH/")
+          [[ "$status" == 404 ]] || { echo "Commit tag already exists or registry lookup failed (HTTP $status)"; exit 1; }
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: Dockerfile.prod
-          platforms: linux/amd64
+          target: production
+          platforms: linux/${{ matrix.arch }}
           push: true
-          tags: vladoportos/skillgoblin:beta
-          # Reuse layers across runs to keep build time low.
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: vladoportos/skillgoblin:sha-${{ github.sha }}-${{ matrix.arch }}
+          cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
+
+  manifest:
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish commit manifest and beta alias
+        env:
+          COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          image=vladoportos/skillgoblin
+          status=$(curl --silent --show-error --output /tmp/tag.json --write-out "%{http_code}" "https://hub.docker.com/v2/repositories/$image/tags/sha-$COMMIT/")
+          [[ "$status" == 404 ]] || { echo "Commit tag already exists or registry lookup failed (HTTP $status)"; exit 1; }
+          docker buildx imagetools create --tag "$image:sha-$COMMIT" "$image:sha-$COMMIT-amd64" "$image:sha-$COMMIT-arm64"
+          digest=$(docker buildx imagetools inspect "$image:sha-$COMMIT" --format '{{json .Manifest}}' | jq -r .digest)
+          docker buildx imagetools create --tag "$image:beta" "$image@$digest"
+          echo "Test this exact image before promotion: \`$image@$digest\`" >> "$GITHUB_STEP_SUMMARY"

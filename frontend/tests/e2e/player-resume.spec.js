@@ -1,3 +1,4 @@
+import { postProgress } from './progress-helpers.js';
 import { test, expect } from '@playwright/test';
 
 // PR-C e2e: validates smart course-open and the "Start from beginning"
@@ -114,10 +115,10 @@ test.describe('player resume + smart open', () => {
     }
     expect(sample, 'fixture course with 2+ videos in first lesson should exist').toBeTruthy();
 
-    const v0Id = `${lesson.id}-0`;
+    const v0Id = lesson.videos[0].id;
 
     // Seed v0 = 50% so smart-open will pick v0 and seek to (50/100)*200 = 100.
-    await request.post(`/api/user-progress/${userId}`, {
+    await postProgress(request, `/api/user-progress/${userId}`, {
       data: {
         courseId: sample.id,
         data: {
@@ -233,9 +234,9 @@ test.describe('player resume + smart open', () => {
     const course = await courseRes.json();
     const lesson = course.lessons[0];
     expect(lesson?.videos?.length).toBeGreaterThan(0);
-    const targetId = `${lesson.id}-0`;
+    const targetId = lesson.videos[0].id;
 
-    await request.post(`/api/user-progress/${userId}`, {
+    await postProgress(request, `/api/user-progress/${userId}`, {
       data: {
         courseId: course.id,
         data: {

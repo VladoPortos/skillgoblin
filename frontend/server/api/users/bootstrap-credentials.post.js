@@ -83,13 +83,13 @@ export default defineEventHandler(async (event) => {
   // password and no PIN (is_active defaults to 1); without this guard an
   // anonymous caller who reads the admin's id from the public user list could
   // set a password and seize administrator access. Admin credentials must be
-  // (re)set by another admin via the user-management panel. (Reached only for
+  // (re)set by another admin or the local operator CLI (docs/operations.md). (Reached only for
   // a credential-less admin — the has-credentials case returned 409 above.)
   if (user.isAdmin) {
     recordClaimFailure();
     return createError({
       statusCode: 403,
-      statusMessage: 'This account cannot set credentials here; ask an administrator to reset it.'
+      statusMessage: 'This account cannot set credentials here; ask an administrator or use the local operator password-reset command.'
     });
   }
   if (!user.is_active) {

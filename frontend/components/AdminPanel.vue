@@ -30,6 +30,7 @@
         >{{ tab.label }}</button>
       </div>
 
+      <LibraryDiagnostics v-if="activeTab === 'diagnostics'" />
       <!-- Users tab -->
       <div v-if="activeTab === 'users'" class="space-y-3">
         <div class="flex items-center gap-2">
@@ -487,7 +488,8 @@ const emit = defineEmits(['close']);
 const tabs = [
   { id: 'users', label: 'Users' },
   { id: 'settings', label: 'Settings' },
-  { id: 'content', label: 'Content' }
+  { id: 'content', label: 'Content' },
+  { id: 'diagnostics', label: 'Diagnostics' }
 ];
 const activeTab = ref('users');
 

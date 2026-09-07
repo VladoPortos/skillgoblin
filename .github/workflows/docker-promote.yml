@@ -1,40 +1,59 @@
-# Manual promotion of the current vladoportos/skillgoblin:beta image to
-# :latest. Run from GitHub: Actions tab → "Promote :beta to :latest" →
-# Run workflow.
-#
-# This does NOT rebuild the image. `docker buildx imagetools create`
-# copies the manifest under a new tag, so :latest after promotion is
-# byte-identical to the :beta you tested. Operation is a registry-side
-# metadata write — completes in seconds.
-#
-# Intentionally workflow_dispatch only — no automatic trigger ever
-# touches :latest.
-
-name: Promote :beta to :latest
+name: Promote verified digest to latest
 
 on:
   workflow_dispatch:
+    inputs:
+      digest:
+        description: 'Exact tested manifest digest (sha256:...) from the publish summary'
+        required: true
+        type: string
+      commit:
+        description: 'Full 40-character commit SHA from the successful publish run'
+        required: true
+        type: string
+      verified:
+        description: 'I tested this exact digest and approve promoting it to latest'
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
+  actions: read
+
+concurrency:
+  group: promote-latest
+  cancel-in-progress: false
 
 jobs:
   promote:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    # Pinned by SHA — see docker-publish.yml for rationale. Dependabot
-    # tracks these via the trailing version comment.
     steps:
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Re-tag :beta as :latest (no rebuild)
+      - name: Verify source and successful CI, then promote exact digest
+        env:
+          DIGEST: ${{ inputs.digest }}
+          COMMIT: ${{ inputs.commit }}
+          VERIFIED: ${{ inputs.verified }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          docker buildx imagetools create \
-            --tag vladoportos/skillgoblin:latest \
-            vladoportos/skillgoblin:beta
+          set -euo pipefail
+          [[ "$VERIFIED" == true ]]
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$COMMIT" =~ ^[a-f0-9]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/workflows/docker-publish.yml/runs?head_sha=$COMMIT&status=success" \
+            --jq '.workflow_runs | any(.head_branch == "main" and (.event == "push" or .event == "workflow_dispatch"))' | grep -qx true
+          image=vladoportos/skillgoblin
+          registered=$(docker buildx imagetools inspect "$image:sha-$COMMIT" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$registered" == "$DIGEST" ]]
+          # Registry lookup by digest must succeed independently of the tag.
+          docker buildx imagetools inspect "$image@$DIGEST"
+          docker buildx imagetools create --tag "$image:latest" "$image@$DIGEST"
+          promoted=$(docker buildx imagetools inspect "$image:latest" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$promoted" == "$DIGEST" ]]
+          echo "Promoted \`$image@$DIGEST\` from commit \`$COMMIT\`" >> "$GITHUB_STEP_SUMMARY"

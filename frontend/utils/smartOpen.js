@@ -1,3 +1,4 @@
+import { getVideoId } from './videoIdentity.js';
 // Given a course's lessons array and a per-user progress shape
 //   { completed: { [`${lessonId}-${index}`]: true }, progress: { [`${lessonId}-${index}`]: 0..100 } }
 // return the first not-completed video and its seek ratio (0..<1).
@@ -16,7 +17,7 @@ export function pickNextNotCompleted(lessons, progress) {
     const lesson = lessons[li];
     if (!lesson || !Array.isArray(lesson.videos)) continue;
     for (let vi = 0; vi < lesson.videos.length; vi += 1) {
-      const id = `${lesson.id}-${vi}`;
+      const id = getVideoId(lesson, vi);
       lastVideo = { lessonId: lesson.id, videoIndex: vi };
       if (completed[id]) continue;
       const raw = Number(partials[id]) || 0;
