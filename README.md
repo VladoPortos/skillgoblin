@@ -90,14 +90,16 @@ Available to admins from the avatar dropdown in the top-right. Provides:
 
 ### Rate limiting
 
-`/api/users/auth` tracks failures per `(user_id, ip)` in process memory. After five wrong attempts, requests are 429-locked for 30 seconds, doubling on each subsequent block (60s, 120s, 240s, capped). Cooldown clears on a successful login. The bucket is per-process, so cluster-mode deployments would have separate buckets.
+`/api/users/auth` allows 20 total authentication requests per client IP per minute, then tracks failures per `(user_id, ip)`. After five wrong attempts for the same user from the same client, requests are 429-locked for 30 seconds, doubling on each subsequent block (60s, 120s, 240s, capped). There is deliberately no account-wide lockout that another client could use to deny a victim access. Anonymous registration is limited to 5 attempts per client IP per hour, and legacy credential claims to 10 per minute. These in-memory buckets reset on process restart; the limits can be raised with the configuration variables below for trusted bulk/test environments.
 
 ## Security model
 
 SkillGoblin is **homelab-grade**. Concretely:
 
 - **Not internet-facing.** Run it on a LAN, on a tailnet, or behind a VPN. Don't expose it directly.
-- **Proxy configuration.** Rate limiting uses the transport peer by default. Set `TRUST_PROXY_HOPS` only for a known number of trusted proxies that sanitize forwarded headers. HTTPS cookie detection uses `X-Forwarded-Proto`; set `COOKIE_SECURE=true` behind an HTTPS proxy to force secure cookies.
+- **Plain HTTP works by default.** Direct LAN HTTP uses normal `SameSite=Lax`, `HttpOnly` session cookies and does not emit HSTS. Security headers and same-origin checks still apply.
+- **Proxy configuration.** Rate limiting uses the transport peer by default. For an HTTPS reverse proxy, set `TRUST_PROXY_HOPS` to the exact number of trusted proxies that sanitize forwarded headers. This enables trusted `X-Forwarded-Proto=https`, Secure cookies, and HSTS. `COOKIE_SECURE=true` can force HTTPS cookie/header behavior when the proxy does not provide that header.
+- **Credential changes require re-authentication.** A signed-in user must enter their current password or PIN before adding or changing either credential. An administrator can still reset another user's credential.
 - **PIN brute-force surface.** A 4-digit PIN is 10,000 possibilities. Rate limiting helps but doesn't make PINs internet-grade. An admin who needs to expose a wider attack surface can disable PINs globally from the admin panel; existing PIN-only users are then prompted to set a password on next login.
 - **Credentials at rest.** Passwords and PINs are argon2id-hashed. Plaintext rows from older versions are detected on first login and rehashed inline.
 - **Sessions revoke server-side.** The cookie is opaque; revocation is a `DELETE` on the `user_sessions` row. "Log out all devices" and admin "kick sessions" both work this way.
@@ -121,6 +123,11 @@ The application reads the following environment variables:
 | `CONTENT_DIR` / `CONTENT_PATH` | No | `/app/data/content` | Directory inside the container where course folders live. `CONTENT_PATH` is retained as a compatibility alias. |
 | `NUXT_DATABASE_PATH` / `DATABASE_PATH` / `DB_PATH` | No | `/app/data/database/database.sqlite` | Runtime SQLite path, in the listed precedence order. The server and operator CLI share this resolution. |
 | `CHOKIDAR_POLLING_INTERVAL` | No | `60000` | File watcher polling interval in milliseconds. Set to `0` to disable the watcher entirely (e.g. on Unraid, to stop drives spinning up). |
+| `TRUST_PROXY_HOPS` | No | `0` | Exact number of trusted reverse proxies. Leave at `0` for direct LAN HTTP. Set for a trusted HTTPS proxy so client-IP and forwarded-protocol headers are accepted. |
+| `COOKIE_SECURE` | No | auto | `true` forces Secure cookies/HSTS for HTTPS proxy setups; `false` forces them off for intentional plain LAN HTTP. Normally `TRUST_PROXY_HOPS` plus `X-Forwarded-Proto=https` is sufficient. |
+| `AUTH_REQUEST_LIMIT` | No | `20` | Authentication requests allowed per client IP per minute. Positive integer. |
+| `REGISTRATION_REQUEST_LIMIT` | No | `5` | Anonymous registration attempts allowed per client IP per hour. Positive integer. |
+| `CREDENTIAL_BOOTSTRAP_REQUEST_LIMIT` | No | `10` | Legacy credential-claim attempts allowed per client IP per minute. Positive integer. |
 | `HOST` | No | `0.0.0.0` | Bind address. |
 | `NEW_BADGE_DAYS` | No | `7` | How recent (in days) a course must be to render the `NEW` badge on its card. Set to `0` to disable the badge entirely. |
 | `PORT` | No | `3000` | Listen port. |

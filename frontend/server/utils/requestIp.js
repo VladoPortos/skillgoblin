@@ -15,11 +15,17 @@
 //     take the address the outermost trusted proxy observed, i.e. the N-th
 //     entry counting from the RIGHT of the XFF chain. Everything further left
 //     is client-supplied and untrusted.
-export function getClientIp(event) {
-  const raw = process.env.TRUST_PROXY_HOPS;
-  const hops = raw ? parseInt(raw, 10) : 0;
+export function getTrustedProxyHops() {
+  const raw = (process.env.TRUST_PROXY_HOPS || '').trim();
+  if (!/^[1-9]\d*$/.test(raw)) return 0;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) ? parsed : 0;
+}
 
-  if (Number.isFinite(hops) && hops > 0) {
+export function getClientIp(event) {
+  const hops = getTrustedProxyHops();
+
+  if (hops > 0) {
     const xff = event.node.req.headers['x-forwarded-for'];
     const chain = (Array.isArray(xff) ? xff.join(',') : xff || '')
       .split(',')

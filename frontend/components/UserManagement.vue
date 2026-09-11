@@ -82,6 +82,22 @@
            neither password nor PIN). PIN panel hides when the admin
            disabled PINs (existing PIN holders can re-enable later). -->
       <div class="space-y-4">
+        <div class="border-t border-gray-700 pt-4">
+          <label for="profile-current-credential" class="block text-sm font-medium text-gray-300 mb-1">
+            Current password or PIN
+          </label>
+          <input
+            id="profile-current-credential"
+            v-model="currentCredential"
+            type="password"
+            autocomplete="current-password"
+            data-testid="profile-current-credential"
+            class="w-full px-3 py-2 border border-gray-600 rounded-md shadow-xs focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-700 text-white"
+            placeholder="Required to change credentials"
+          />
+          <p class="text-xs text-gray-400 mt-1">Profile and avatar changes do not require this.</p>
+        </div>
+
         <!-- Password panel -->
         <div class="border-t border-gray-700 pt-4">
           <h3 class="text-sm font-medium text-gray-300 mb-2 flex items-center gap-2">
@@ -102,7 +118,7 @@
               type="button"
               data-testid="profile-password-action"
               @click="savePassword"
-              :disabled="!newPasswordValue || savingPassword"
+              :disabled="!newPasswordValue || !currentCredential || savingPassword"
               class="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
             >
               {{ hasPassword ? 'Change password' : 'Add password' }}
@@ -139,7 +155,7 @@
               type="button"
               data-testid="profile-pin-action"
               @click="savePin"
-              :disabled="savingPin"
+              :disabled="!currentCredential || savingPin"
               class="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
             >
               {{ hasPin ? 'Change PIN' : 'Add PIN' }}
@@ -197,6 +213,7 @@ const userData = ref({
 // submit handler below.
 const newPasswordValue = ref('');
 const newPinDigits = ref('');
+const currentCredential = ref('');
 const savingPassword = ref(false);
 const savingPin = ref(false);
 const passwordFeedback = ref('');
@@ -263,6 +280,7 @@ watch([() => props.show, () => props.user], ([isVisible, newUser]) => {
 function resetCredPanels() {
   newPasswordValue.value = '';
   newPinDigits.value = '';
+  currentCredential.value = '';
   passwordFeedback.value = '';
   passwordFeedbackError.value = false;
   pinFeedback.value = '';
@@ -307,6 +325,11 @@ async function saveCredential(kind) {
     feedbackError.value = true;
     return;
   }
+  if (!currentCredential.value) {
+    feedback.value = 'Enter your current password or PIN.';
+    feedbackError.value = true;
+    return;
+  }
 
   saving.value = true;
   try {
@@ -314,7 +337,8 @@ async function saveCredential(kind) {
     const result = await updateUserSettings({
       id: userId,
       name: userData.value.name,
-      [kind]: value
+      [kind]: value,
+      currentCredential: currentCredential.value
     });
     if (result.success) {
       if (isPin) {
@@ -326,6 +350,7 @@ async function saveCredential(kind) {
         newPasswordValue.value = '';
         authState.value.hasPassword = true;
       }
+      currentCredential.value = '';
     } else {
       feedback.value = result.message || `Could not save ${isPin ? 'PIN' : 'password'}.`;
       feedbackError.value = true;

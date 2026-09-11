@@ -63,7 +63,9 @@ defenses line up with your topology:
 | Env var | Default | When to set |
 |---------|---------|-------------|
 | `TRUST_PROXY_HOPS` | `0` (ignore `X-Forwarded-For`) | Set to the number of **trusted** reverse proxies in front of the app so login rate-limiting keys on the real client IP instead of a spoofable header. With `0`, a client-supplied `X-Forwarded-For` is ignored and the transport peer is used — safe, but every request behind a proxy shares one IP bucket. |
-| `COOKIE_SECURE` | auto-detect | Set to `true` when TLS is terminated by a proxy that does **not** forward `X-Forwarded-Proto=https` (otherwise the session cookie may be issued without the `Secure` flag). `false` forces it off for an intentional plain-HTTP LAN. |
+| `COOKIE_SECURE` | auto-detect | Set to `true` when TLS is terminated by a proxy that does **not** forward trusted `X-Forwarded-Proto=https`. This also enables HSTS. `false` forces both off for intentional plain-HTTP LAN use. |
+
+Unsafe browser requests with an `Origin` header must be same-origin. CLI and other non-browser clients that omit browser origin metadata remain supported. Responses include baseline CSP, clickjacking, MIME-sniffing, referrer, permissions, and cross-origin resource headers on both HTTP and HTTPS; HSTS is emitted only when HTTPS is explicitly detected or configured.
 
 The app also caps request bodies (256 KiB for JSON APIs) to blunt memory-
 exhaustion attempts. As defense in depth, configure a body-size limit at your

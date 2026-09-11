@@ -47,4 +47,10 @@ describe('getClientIp', () => {
     const ip = getClientIp(fakeEvent({ remote: '10.0.0.9' }));
     expect(ip).toBe('10.0.0.9');
   });
+
+  it('fails closed when TRUST_PROXY_HOPS is not a strict positive integer', () => {
+    process.env.TRUST_PROXY_HOPS = '1garbage';
+    const ip = getClientIp(fakeEvent({ xff: '203.0.113.5', remote: '10.0.0.9' }));
+    expect(ip).toBe('10.0.0.9');
+  });
 });

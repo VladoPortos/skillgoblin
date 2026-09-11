@@ -3,7 +3,15 @@ import { getDb } from '../../utils/db';
 import { hashCredential } from '../../utils/credentials';
 import { createSession } from '../../utils/sessions';
 import { sessionCookieOpts, SESSION_COOKIE } from '../../middleware/session';
-import { checkRateLimit, recordFailure, recordSuccess, ACCOUNT_FAIL_THRESHOLD } from '../../utils/rate-limit';
+import {
+  checkRateLimit,
+  recordFailure,
+  recordSuccess,
+  consumeRequestLimit,
+  configuredRequestLimit,
+  CREDENTIAL_BOOTSTRAP_REQUEST_LIMIT,
+  CREDENTIAL_BOOTSTRAP_REQUEST_WINDOW_MS
+} from '../../utils/rate-limit';
 import { getClientIp } from '../../utils/requestIp';
 import { getBoolSetting } from '../../utils/systemSettings';
 
@@ -39,26 +47,34 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  // Rate limit like /api/users/auth — this endpoint is unauthenticated and
-  // lets a caller claim a credential-less account. Two buckets (per-ip and
-  // account-wide) so header-spoofed source addresses can't reset the counter;
-  // getClientIp() does not trust X-Forwarded-For unless TRUST_PROXY_HOPS is set.
+  // This endpoint is unauthenticated and can perform Argon2 hashing, so bound
+  // every attempt per client before reading the database. Keep the failure
+  // lockout scoped to (user, client) so attackers cannot lock a victim account
+  // merely by distributing requests across source addresses.
   const ip = getClientIp(event);
-  const ipKey = `bootstrap:${userId}:${ip}`;
-  const acctKey = `bootstrap-acct:${userId}`;
-  const rlIp = checkRateLimit(ipKey);
-  const rlAcct = checkRateLimit(acctKey);
-  if (!rlIp.allowed || !rlAcct.allowed) {
-    const retryAfterSeconds = Math.max(rlIp.retryAfterSeconds || 0, rlAcct.retryAfterSeconds || 0);
+  const requestBudget = consumeRequestLimit(`bootstrap-ip:${ip}`, {
+    limit: configuredRequestLimit(
+      'CREDENTIAL_BOOTSTRAP_REQUEST_LIMIT',
+      CREDENTIAL_BOOTSTRAP_REQUEST_LIMIT
+    ),
+    windowMs: CREDENTIAL_BOOTSTRAP_REQUEST_WINDOW_MS
+  });
+  if (!requestBudget.allowed) {
     return createError({
       statusCode: 429,
-      statusMessage: `Too many attempts. Try again in ${retryAfterSeconds}s.`
+      statusMessage: `Too many attempts. Try again in ${requestBudget.retryAfterSeconds}s.`
     });
   }
-  const recordClaimFailure = () => {
-    recordFailure(ipKey);
-    recordFailure(acctKey, { threshold: ACCOUNT_FAIL_THRESHOLD });
-  };
+
+  const ipKey = `bootstrap:${userId}:${ip}`;
+  const rlIp = checkRateLimit(ipKey);
+  if (!rlIp.allowed) {
+    return createError({
+      statusCode: 429,
+      statusMessage: `Too many attempts. Try again in ${rlIp.retryAfterSeconds}s.`
+    });
+  }
+  const recordClaimFailure = () => recordFailure(ipKey);
 
   const db = getDb();
   const user = db
@@ -136,7 +152,6 @@ export default defineEventHandler(async (event) => {
   const { token, expiresAt } = createSession(db, userId, { userAgent });
   setCookie(event, SESSION_COOKIE, token, sessionCookieOpts(event, expiresAt));
   recordSuccess(ipKey);
-  recordSuccess(acctKey);
 
   const refreshed = db
     .prepare('SELECT id, name, avatar, isAdmin, is_active FROM users WHERE id = ?')

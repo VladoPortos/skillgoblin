@@ -224,6 +224,7 @@ test.describe('Profile editor — credential panels', () => {
 
     // Add a PIN.
     const newPin = '2468';
+    await page.getByTestId('profile-current-credential').fill(password);
     for (let i = 0; i < 4; i++) {
       await page.locator(`[data-testid="profile-pin-digit-${i}"]`).fill(newPin[i]);
     }
@@ -257,6 +258,7 @@ test.describe('Profile editor — credential panels', () => {
     await expect(page.getByTestId('profile-pin-action')).toHaveText(/change pin/i);
 
     const newPw = 'JustAdded1234';
+    await page.getByTestId('profile-current-credential').fill(pin);
     await page.getByTestId('profile-password-input').fill(newPw);
     await page.getByTestId('profile-password-action').click();
     await expect(page.getByTestId('profile-password-feedback')).toHaveText(/saved|updated/i);
@@ -265,6 +267,30 @@ test.describe('Profile editor — credential panels', () => {
     const pwLogin = await pwCtx.post('/api/users/auth', { data: { userId: created.id, password: newPw } });
     expect((await pwLogin.json()).success).toBe(true);
     await pwCtx.dispose();
+  });
+
+  test('a wrong current credential cannot rotate the password', async ({ page }) => {
+    const name = `wrong-current-${Date.now()}`;
+    const oldPw = 'CorrectOld123';
+    const newPw = 'MustNotSave456';
+
+    const ctx = await freshContext();
+    const created = await (await ctx.post('/api/users', { data: { name, password: oldPw } })).json();
+    await activate(created.id, name);
+    await ctx.dispose();
+
+    await loginAndOpenProfileEditor(page, created.id, oldPw);
+    await page.getByTestId('profile-current-credential').fill('DefinitelyWrong');
+    await page.getByTestId('profile-password-input').fill(newPw);
+    await page.getByTestId('profile-password-action').click();
+    await expect(page.getByTestId('profile-password-feedback')).toContainText(/current password or pin is incorrect/i);
+
+    const verifyCtx = await freshContext();
+    const oldLogin = await verifyCtx.post('/api/users/auth', { data: { userId: created.id, password: oldPw } });
+    expect((await oldLogin.json()).success).toBe(true);
+    const newLogin = await verifyCtx.post('/api/users/auth', { data: { userId: created.id, password: newPw } });
+    expect((await newLogin.json()).success).toBe(false);
+    await verifyCtx.dispose();
   });
 
   test('changing a password rotates it; the old password no longer works', async ({ page }) => {
@@ -278,6 +304,7 @@ test.describe('Profile editor — credential panels', () => {
     await ctx.dispose();
 
     await loginAndOpenProfileEditor(page, created.id, oldPw);
+    await page.getByTestId('profile-current-credential').fill(oldPw);
     await page.getByTestId('profile-password-input').fill(newPw);
     await page.getByTestId('profile-password-action').click();
     await expect(page.getByTestId('profile-password-feedback')).toHaveText(/saved|updated/i);
@@ -313,6 +340,7 @@ test.describe('Profile editor — credential panels', () => {
     await page.locator('.user-profile').click();
     await page.getByRole('button', { name: /my profile/i }).click();
 
+    await page.getByTestId('profile-current-credential').fill(oldPin);
     for (let i = 0; i < 4; i++) {
       await page.locator(`[data-testid="profile-pin-digit-${i}"]`).fill(newPin[i]);
     }
@@ -351,7 +379,7 @@ test.describe('Profile editor — credential panels', () => {
     const userCtx = await freshContext();
     await userCtx.post('/api/users/auth', { data: { userId: created.id, password } });
     const update = await userCtx.put('/api/users', {
-      data: { id: created.id, name, password: 'NewPw5555' }
+      data: { id: created.id, name, password: 'NewPw5555', currentCredential: password }
     });
     expect(update.ok()).toBeTruthy();
     await userCtx.dispose();
@@ -411,6 +439,7 @@ test.describe('Profile editor — credential panels', () => {
     await ctx.dispose();
 
     await loginAndOpenProfileEditor(page, created.id, oldPw);
+    await page.getByTestId('profile-current-credential').fill(oldPw);
     const input = page.getByTestId('profile-password-input');
     await input.fill(newPw);
     await input.press('Enter');
@@ -434,6 +463,7 @@ test.describe('Profile editor — credential panels', () => {
     await loginAndOpenProfileEditor(page, created.id, password);
 
     // Type three digits then submit — should be rejected client-side.
+    await page.getByTestId('profile-current-credential').fill(password);
     await page.locator('[data-testid="profile-pin-digit-0"]').fill('1');
     await page.locator('[data-testid="profile-pin-digit-1"]').fill('2');
     await page.locator('[data-testid="profile-pin-digit-2"]').fill('3');

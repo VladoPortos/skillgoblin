@@ -8,6 +8,7 @@ import {
   findSessionUser,
   touchSession
 } from '../utils/sessions';
+import { isSecureRequest } from '../utils/requestSecurity.js';
 
 // Session middleware. Runs on every request. If the session cookie is
 // present and valid, populates `event.context.user` with the user row.
@@ -93,25 +94,6 @@ export function upgradeCookieOpts(event, expiresAtMs) {
     ...sessionCookieOpts(event, expiresAtMs),
     path: '/api/users/complete-pin-upgrade'
   };
-}
-
-function isSecureRequest(event) {
-  // Explicit operator override. A reverse proxy that terminates TLS but does
-  // NOT forward X-Forwarded-Proto would otherwise leave the 30-day session
-  // cookie without the Secure attribute (eligible to leak over plaintext).
-  // COOKIE_SECURE=true forces Secure on; COOKIE_SECURE=false is the escape
-  // hatch for an intentional plain-HTTP LAN deployment. Unset/auto keeps the
-  // request-scheme detection below so HTTP-LAN logins are not broken by default.
-  const override = (process.env.COOKIE_SECURE || '').trim().toLowerCase();
-  if (override === 'true') return true;
-  if (override === 'false') return false;
-
-  // Direct TLS termination → req.encrypted is true on the underlying socket.
-  if (event.node.req.socket?.encrypted) return true;
-  // Behind a reverse proxy: trust the standard forwarded header.
-  const xfproto = event.node.req.headers['x-forwarded-proto'];
-  if (typeof xfproto === 'string' && xfproto.split(',')[0].trim() === 'https') return true;
-  return false;
 }
 
 // Re-export the defaults that issuing endpoints will need.

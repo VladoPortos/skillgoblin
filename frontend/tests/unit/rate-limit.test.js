@@ -58,3 +58,48 @@ describe('rate limiter', () => {
     expect(checkRateLimit('k2').allowed).toBe(true);
   });
 });
+
+describe('fixed-window request limiter', () => {
+  it('uses positive integer environment overrides and rejects unsafe values', async () => {
+    const { configuredRequestLimit } = await import('../../server/utils/rate-limit.js');
+    const previous = process.env.TEST_REQUEST_LIMIT;
+    try {
+      process.env.TEST_REQUEST_LIMIT = '250';
+      expect(configuredRequestLimit('TEST_REQUEST_LIMIT', 20)).toBe(250);
+      process.env.TEST_REQUEST_LIMIT = '0';
+      expect(configuredRequestLimit('TEST_REQUEST_LIMIT', 20)).toBe(20);
+      process.env.TEST_REQUEST_LIMIT = '1.5';
+      expect(configuredRequestLimit('TEST_REQUEST_LIMIT', 20)).toBe(20);
+    } finally {
+      if (previous === undefined) delete process.env.TEST_REQUEST_LIMIT;
+      else process.env.TEST_REQUEST_LIMIT = previous;
+    }
+  });
+
+  it('blocks requests after the configured budget is consumed', async () => {
+    const { consumeRequestLimit } = await import('../../server/utils/rate-limit.js');
+    expect(consumeRequestLimit).toBeTypeOf('function');
+
+    expect(consumeRequestLimit('ip:one', { limit: 2, windowMs: 60_000, now: 1_000 }))
+      .toEqual({ allowed: true, remaining: 1 });
+    expect(consumeRequestLimit('ip:one', { limit: 2, windowMs: 60_000, now: 2_000 }))
+      .toEqual({ allowed: true, remaining: 0 });
+    const blocked = consumeRequestLimit('ip:one', { limit: 2, windowMs: 60_000, now: 3_000 });
+    expect(blocked.allowed).toBe(false);
+    expect(blocked.retryAfterSeconds).toBe(58);
+  });
+
+  it('starts a fresh budget after the window expires', async () => {
+    const { consumeRequestLimit } = await import('../../server/utils/rate-limit.js');
+    consumeRequestLimit('ip:one', { limit: 1, windowMs: 10_000, now: 1_000 });
+    expect(consumeRequestLimit('ip:one', { limit: 1, windowMs: 10_000, now: 11_000 }))
+      .toEqual({ allowed: true, remaining: 0 });
+  });
+
+  it('does not share budgets between client addresses', async () => {
+    const { consumeRequestLimit } = await import('../../server/utils/rate-limit.js');
+    consumeRequestLimit('ip:one', { limit: 1, windowMs: 60_000, now: 1_000 });
+    expect(consumeRequestLimit('ip:two', { limit: 1, windowMs: 60_000, now: 2_000 }).allowed)
+      .toBe(true);
+  });
+});

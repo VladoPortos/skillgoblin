@@ -24,6 +24,11 @@ services:
       DATABASE_PATH: /app/data/database/database.sqlite
       ADMIN_NAME: root
       ADMIN_PASSWORD: TestAdminPass!
+      # The browser suite deliberately creates many users and sessions from
+      # one container address. Production defaults remain intentionally low.
+      AUTH_REQUEST_LIMIT: 10000
+      REGISTRATION_REQUEST_LIMIT: 10000
+      CREDENTIAL_BOOTSTRAP_REQUEST_LIMIT: 10000
     volumes:
       - test_database:/app/data/database
       - test_content:/app/data/content

@@ -63,4 +63,36 @@ describe('auth rate limiting is not bypassable via X-Forwarded-For', () => {
     const sixth = await wrongPin(userId, '203.0.113.99');
     expect(sixth.status).toBe(429);
   });
+
+  it('bounds expensive unknown-user checks across rotating user IDs', async () => {
+    _resetForTests();
+
+    for (let i = 0; i < 20; i++) {
+      const res = await wrongPin(`missing-${i}`, '198.51.100.10');
+      expect(res.status).toBe(200);
+    }
+
+    const blocked = await wrongPin('missing-21', '198.51.100.10');
+    expect(blocked.status).toBe(429);
+  });
+
+  it('does not let failures from many client IPs lock the victim account', async () => {
+    _resetForTests();
+    const previous = process.env.TRUST_PROXY_HOPS;
+    process.env.TRUST_PROXY_HOPS = '1';
+    const userId = await insertPinUser();
+    try {
+      for (let i = 0; i < 20; i++) {
+        const res = await wrongPin(userId, `203.0.113.${i + 1}`);
+        expect(res.status).toBe(200);
+      }
+
+      const freshClient = await wrongPin(userId, '203.0.113.250');
+      expect(freshClient.status).toBe(200);
+      expect((await freshClient.json()).success).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.TRUST_PROXY_HOPS;
+      else process.env.TRUST_PROXY_HOPS = previous;
+    }
+  });
 });

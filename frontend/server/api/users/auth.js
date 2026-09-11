@@ -8,7 +8,15 @@ import {
   SESSION_COOKIE,
   UPGRADE_COOKIE
 } from '../../middleware/session';
-import { checkRateLimit, recordFailure, recordSuccess, ACCOUNT_FAIL_THRESHOLD } from '../../utils/rate-limit';
+import {
+  AUTH_REQUEST_LIMIT,
+  AUTH_REQUEST_WINDOW_MS,
+  checkRateLimit,
+  configuredRequestLimit,
+  consumeRequestLimit,
+  recordFailure,
+  recordSuccess
+} from '../../utils/rate-limit';
 import { getClientIp } from '../../utils/requestIp';
 import { getBoolSetting } from '../../utils/systemSettings';
 
@@ -44,34 +52,38 @@ export default defineEventHandler(async (event) => {
       return createError({ statusCode: 400, statusMessage: 'User ID is required' });
     }
 
-    // Rate limit on two buckets:
-    //   - per (userId, ip): five wrong attempts (password/PIN combined) lock
-    //     the pair out, exponential backoff.
-    //   - per userId (account-wide): survives IP rotation, so an attacker who
-    //     spoofs a fresh X-Forwarded-For each request (or comes from a botnet)
-    //     still trips a lockout after ACCOUNT_FAIL_THRESHOLD total failures.
+    // Two complementary IP-scoped limits:
+    //   - a fixed request budget bounds Argon2 work even when the caller rotates
+    //     random user IDs;
+    //   - per (userId, ip) failures add exponential backoff for credential
+    //     guessing without allowing other IPs to lock the victim account.
     // The IP itself comes from getClientIp(), which does NOT trust
     // client-supplied X-Forwarded-For unless the operator opts in via
     // TRUST_PROXY_HOPS — closing the header-spoof bypass.
     const ip = getClientIp(event);
-    const ipKey = `auth:${userId}:${ip}`;
-    const acctKey = `auth-acct:${userId}`;
-    const rlIp = checkRateLimit(ipKey);
-    const rlAcct = checkRateLimit(acctKey);
-    if (!rlIp.allowed || !rlAcct.allowed) {
-      const retryAfterSeconds = Math.max(rlIp.retryAfterSeconds || 0, rlAcct.retryAfterSeconds || 0);
+    const requestBudget = consumeRequestLimit(`auth-ip:${ip}`, {
+      limit: configuredRequestLimit('AUTH_REQUEST_LIMIT', AUTH_REQUEST_LIMIT),
+      windowMs: AUTH_REQUEST_WINDOW_MS
+    });
+    if (!requestBudget.allowed) {
       return createError({
         statusCode: 429,
-        statusMessage: `Too many failed attempts. Try again in ${retryAfterSeconds}s.`
+        statusMessage: `Too many authentication requests. Try again in ${requestBudget.retryAfterSeconds}s.`
+      });
+    }
+    const ipKey = `auth:${userId}:${ip}`;
+    const rlIp = checkRateLimit(ipKey);
+    if (!rlIp.allowed) {
+      return createError({
+        statusCode: 429,
+        statusMessage: `Too many failed attempts. Try again in ${rlIp.retryAfterSeconds}s.`
       });
     }
     const recordAuthFailure = () => {
       recordFailure(ipKey);
-      recordFailure(acctKey, { threshold: ACCOUNT_FAIL_THRESHOLD });
     };
     const recordAuthSuccess = () => {
       recordSuccess(ipKey);
-      recordSuccess(acctKey);
     };
 
     const db = getDb();
