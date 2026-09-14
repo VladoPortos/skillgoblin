@@ -30,7 +30,7 @@
   },
   "devDependencies": {
     "@nuxt/devtools": "^3.4.2",
-    "@playwright/test": "1.62.1",
+    "@playwright/test": "1.63.0",
     "jsdom": "^30.0.1",
     "vitest": "^5.0.0"
   },
