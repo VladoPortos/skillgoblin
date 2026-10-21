@@ -4,6 +4,7 @@ import * as thumbnails from '../../server/utils/thumbnailUtils.js';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import { once } from 'node:events';
 import { topLevelCoursePath, scanCoursesOnStartup, initialScanStatus, closeCourseWatchers, setupFileWatcher, synchronizeCourseThumbnail } from '../../server/utils/courseWatcher.js';
 import { getDb } from '../../server/utils/db.js';
 
@@ -17,6 +18,27 @@ afterEach(() => {
 });
 
 describe('course watcher routing', () => {
+  it.each([
+    [undefined, 60000],
+    [120000, 120000],
+  ])('applies polling interval %s to binary files as well as metadata', async (interval, expected) => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-watcher-polling-'));
+    process.env.CONTENT_DIR = tempDir;
+    fs.writeFileSync(path.join(tempDir, 'lesson.mp4'), 'video');
+    fs.writeFileSync(path.join(tempDir, 'course.json'), '{}');
+    const watcher = setupFileWatcher(interval);
+    try {
+      await once(watcher, 'ready');
+      expect(watcher.getWatched()[tempDir]).toEqual(expect.arrayContaining(['lesson.mp4', 'course.json']));
+      // Chokidar has a separate 300 ms default for binary files. Setting only
+      // interval leaves videos polling far faster than the operator requested.
+      expect(watcher.options.interval).toBe(expected);
+      expect(watcher.options.binaryInterval).toBe(expected);
+    } finally {
+      await watcher.close();
+    }
+  });
+
   it('does not overwrite a UI thumbnail uploaded while a cover image is processing', async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sg-thumb-cas-'));
     process.env.CONTENT_DIR = tempDir;

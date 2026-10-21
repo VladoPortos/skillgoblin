@@ -392,7 +392,9 @@ export const setupFileWatcher = (pollingInterval = 60000) => {
   const contentDir = getContentDir();
   const watcher = chokidar.watch(contentDir, {
     ignored: /(^|[/\\])\../, persistent: true, ignoreInitial: true,
-    usePolling: true, interval: pollingInterval
+    // Chokidar otherwise polls videos/images every 300 ms, independently of
+    // interval, which overwhelms large libraries on Unraid user shares.
+    usePolling: true, interval: pollingInterval, binaryInterval: pollingInterval
   });
   watchers.add(watcher);
   const scheduleRescan = changedPath => {
