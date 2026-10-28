@@ -23,7 +23,7 @@
     "busboy": "^1.6.0",
     "chokidar": "^5.0.0",
     "lru-cache": "^11.5.2",
-    "nuxt": "^4.5.2",
+    "nuxt": "^4.6.2",
     "sharp": "^0.35.4",
     "tailwindcss": "^4.3.3",
     "uuid": "^14.0.1"
